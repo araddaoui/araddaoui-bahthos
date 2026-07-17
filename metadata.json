@@ -1,0 +1,6 @@
+{
+  "name": "بحث OS | bahthOS",
+  "description": "مساعد بحث ذكي لمقارنة وتوليف المصادر والوثائق البحثية والكشف عن التناقضات بينها.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
