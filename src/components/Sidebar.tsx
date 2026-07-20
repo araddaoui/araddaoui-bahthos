@@ -226,23 +226,25 @@ export default function Sidebar({
                             <span className="truncate">{proj.name}</span>
                           </button>
 
-                          {projects.length > 1 && (
-                            <button
-                              onClick={() => {
-                                if (confirm(`هل أنت متأكد من رغبتك في حذف مشروع "${proj.name}"؟ سيتم حذف جميع المصادر والدردشات الخاصة به.`)) {
-                                  onDeleteProject(proj.id);
-                                }
-                              }}
-                              className={`p-1 rounded-md transition-colors ${
-                                isSelected
-                                  ? "text-teal-300 hover:bg-[#073c3d]"
-                                  : "text-gray-400 hover:text-red-500 hover:bg-red-50"
-                              }`}
-                              title="حذف المشروع"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => {
+                              const isLast = projects.length <= 1;
+                              const msg = isLast 
+                                ? `هل أنت متأكد من رغبتك في تصفير مشروع "${proj.name}"؟ سيؤدي ذلك إلى حذف جميع المصادر والدردشات والمصطلحات والبدء من جديد بصفحة فارغة تماماً.`
+                                : `هل أنت متأكد من رغبتك في حذف مشروع "${proj.name}"؟ سيتم حذف جميع المصادر والدردشات الخاصة به.`;
+                              if (confirm(msg)) {
+                                onDeleteProject(proj.id);
+                              }
+                            }}
+                            className={`p-1 rounded-md transition-colors ${
+                              isSelected
+                                ? "text-teal-300 hover:bg-[#073c3d]"
+                                : "text-gray-400 hover:text-red-500 hover:bg-red-50"
+                            }`}
+                            title={projects.length <= 1 ? "تصفير المشروع والبدء من جديد" : "حذف المشروع"}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       );
                     })}

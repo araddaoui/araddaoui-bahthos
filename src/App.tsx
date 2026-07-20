@@ -219,46 +219,70 @@ export default function App() {
         let cloudProjects = await loadUserProjects(currentUser.uid);
         
         if (cloudProjects.length === 0) {
-          // Sync existing localStorage data on initial login
-          const localProjectsStr = localStorage.getItem("bahthos_projects") || localStorage.getItem("tawlif_projects");
-          let projectsToMigrate: Project[] = [];
-          if (localProjectsStr) {
-            try {
-              projectsToMigrate = JSON.parse(localProjectsStr);
-            } catch (e) {}
-          }
+          // Check if this user has already completed initial migration or intentionally cleared all projects
+          const hasMigrated = localStorage.getItem(`bahthos_migrated_${currentUser.uid}`);
           
-          if (projectsToMigrate.length === 0) {
-            projectsToMigrate = [
-              {
-                id: "default",
-                name: "المشروع التجريبي الأول",
-                dateCreated: new Date().toISOString().split("T")[0],
-                temperature: 0.2
-              }
-            ];
-          }
-
-          for (const proj of projectsToMigrate) {
-            await saveUserProject(currentUser.uid, proj);
-            const savedSources = localStorage.getItem(`bahthos_sources_${proj.id}`) || localStorage.getItem(`tawlif_sources_${proj.id}`);
-            const savedMessages = localStorage.getItem(`bahthos_messages_${proj.id}`) || localStorage.getItem(`tawlif_messages_${proj.id}`);
-            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`) || localStorage.getItem(`tawlif_syntheses_${proj.id}`);
-            const savedGlossary = localStorage.getItem(`bahthos_glossary_${proj.id}`) || localStorage.getItem(`tawlif_glossary_${proj.id}`);
-            
-            const localSources = savedSources ? JSON.parse(savedSources) : (proj.id === "default" ? defaultSources : []);
-            const localMessages = savedMessages ? JSON.parse(savedMessages) : [];
-            const localSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : (proj.id === "default" ? initialSyntheses : []);
-            const localGlossary = savedGlossary ? JSON.parse(savedGlossary) : (proj.id === "default" ? initialGlossary : []);
-            
-            await saveProjectData(currentUser.uid, proj.id, {
-              sources: localSources,
-              messages: localMessages,
-              syntheses: localSyntheses,
-              glossaryTerms: localGlossary
+          if (hasMigrated === "true") {
+            // The user intentionally deleted their projects or starts clean. Avoid resurrections!
+            const freshProj: Project = {
+              id: "default",
+              name: "المشروع التجريبي الأول",
+              dateCreated: new Date().toISOString().split("T")[0],
+              temperature: 0.2
+            };
+            await saveUserProject(currentUser.uid, freshProj);
+            await saveProjectData(currentUser.uid, "default", {
+              sources: [],
+              messages: [],
+              syntheses: [],
+              glossaryTerms: []
             });
+            cloudProjects = [freshProj];
+          } else {
+            // Sync existing localStorage data on initial login
+            const localProjectsStr = localStorage.getItem("bahthos_projects") || localStorage.getItem("tawlif_projects");
+            let projectsToMigrate: Project[] = [];
+            if (localProjectsStr) {
+              try {
+                projectsToMigrate = JSON.parse(localProjectsStr);
+              } catch (e) {}
+            }
+            
+            if (projectsToMigrate.length === 0) {
+              projectsToMigrate = [
+                {
+                  id: "default",
+                  name: "المشروع التجريبي الأول",
+                  dateCreated: new Date().toISOString().split("T")[0],
+                  temperature: 0.2
+                }
+              ];
+            }
+
+            for (const proj of projectsToMigrate) {
+              await saveUserProject(currentUser.uid, proj);
+              const savedSources = localStorage.getItem(`bahthos_sources_${proj.id}`) || localStorage.getItem(`tawlif_sources_${proj.id}`);
+              const savedMessages = localStorage.getItem(`bahthos_messages_${proj.id}`) || localStorage.getItem(`tawlif_messages_${proj.id}`);
+              const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`) || localStorage.getItem(`tawlif_syntheses_${proj.id}`);
+              const savedGlossary = localStorage.getItem(`bahthos_glossary_${proj.id}`) || localStorage.getItem(`tawlif_glossary_${proj.id}`);
+              
+              const localSources = savedSources ? JSON.parse(savedSources) : (proj.id === "default" ? defaultSources : []);
+              const localMessages = savedMessages ? JSON.parse(savedMessages) : [];
+              const localSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : (proj.id === "default" ? initialSyntheses : []);
+              const localGlossary = savedGlossary ? JSON.parse(savedGlossary) : (proj.id === "default" ? initialGlossary : []);
+              
+              await saveProjectData(currentUser.uid, proj.id, {
+                sources: localSources,
+                messages: localMessages,
+                syntheses: localSyntheses,
+                glossaryTerms: localGlossary
+              });
+            }
+            localStorage.setItem(`bahthos_migrated_${currentUser.uid}`, "true");
+            cloudProjects = await loadUserProjects(currentUser.uid);
           }
-          cloudProjects = await loadUserProjects(currentUser.uid);
+        } else {
+          localStorage.setItem(`bahthos_migrated_${currentUser.uid}`, "true");
         }
 
         setProjects(cloudProjects);
@@ -678,13 +702,7 @@ export default function App() {
   };
 
   const handleDeleteProject = async (projectId: string) => {
-    if (projects.length <= 1) return;
-
-    const index = projects.findIndex((p) => p.id === projectId);
-    if (index === -1) return;
-
-    const updatedProjects = projects.filter((p) => p.id !== projectId);
-    setProjects(updatedProjects);
+    const isDeletingActive = currentProjectId === projectId;
 
     if (currentUser) {
       try {
@@ -710,9 +728,47 @@ export default function App() {
       console.error(e);
     }
 
-    if (currentProjectId === projectId) {
-      const nextActiveProject = updatedProjects[0] || { id: "default" };
-      handleSwitchProject(nextActiveProject.id);
+    const updatedProjects = projects.filter((p) => p.id !== projectId);
+
+    if (updatedProjects.length === 0) {
+      // If there are no projects left, create a fresh "default" project
+      const freshProj: Project = {
+        id: "default",
+        name: "المشروع التجريبي الأول",
+        dateCreated: new Date().toISOString().split("T")[0],
+        temperature: 0.2
+      };
+      
+      setProjects([freshProj]);
+      
+      if (currentUser) {
+        try {
+          await saveUserProject(currentUser.uid, freshProj);
+          await saveProjectData(currentUser.uid, "default", {
+            sources: [],
+            messages: [],
+            syntheses: [],
+            glossaryTerms: []
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      
+      setCurrentProjectId("default");
+      setSources([]);
+      setMessages([]);
+      setSyntheses([]);
+      setGlossaryTerms([]);
+      setTemperature(0.2);
+      setSelectedSourceId(null);
+      setActiveMainView("chat");
+    } else {
+      setProjects(updatedProjects);
+      if (isDeletingActive) {
+        const nextActiveProject = updatedProjects[0];
+        handleSwitchProject(nextActiveProject.id);
+      }
     }
   };
 
