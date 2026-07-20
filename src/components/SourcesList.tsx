@@ -99,36 +99,136 @@ export default function SourcesList({
     }
   };
 
-  const readAndAnalyzeFile = (file: File) => {
+  const readAndAnalyzeFile = async (file: File) => {
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     const isDoc = file.name.toLowerCase().endsWith(".docx") || file.name.toLowerCase().endsWith(".doc") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.type === "application/msword";
-    const reader = new FileReader();
 
-    reader.onload = async (event) => {
-      const result = event.target?.result;
-      if (typeof result === "string" && result.trim()) {
-        if (isPdf) {
-          const base64 = result.split(",")[1];
-          await runAutomaticAnalysis("", base64, "application/pdf", file.name);
-        } else if (isDoc) {
-          const base64 = result.split(",")[1];
-          const mimeType = file.type || (file.name.toLowerCase().endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/msword");
-          await runAutomaticAnalysis("", base64, mimeType, file.name);
-        } else {
-          await runAutomaticAnalysis(result, undefined, undefined, file.name);
+    setIsAnalyzing(true);
+    setErrorMsg("");
+    setAnalysisStep("جاري تحضير واستخراج محتوى الملف محلياً في المتصفح...");
+
+    if (isPdf) {
+      try {
+        setAnalysisStep("جاري تحميل قارئ PDF في المتصفح لاستخراج النص...");
+        if (!(window as any).pdfjsLib) {
+          await new Promise<void>((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error("Failed to load PDF library."));
+            document.head.appendChild(script);
+          });
         }
-      } else {
-        setErrorMsg("عذراً، لا يمكن قراءة محتوى هذا الملف أو أنه فارغ.");
+        
+        const pdfjsLib = (window as any).pdfjsLib;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+        setAnalysisStep("جاري قراءة صفحات ملف PDF واستخراج النصوص...");
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let text = "";
+        
+        const maxPages = Math.min(pdf.numPages, 35);
+        for (let i = 1; i <= maxPages; i++) {
+          try {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            const pageText = content.items.map((item: any) => item.str).join(" ");
+            text += pageText + "\n\n";
+          } catch (pageErr) {
+            console.warn(`Failed to parse page ${i}:`, pageErr);
+          }
+        }
+
+        if (!text.trim()) {
+          throw new Error("لم يتم العثور على أي نصوص قابلة للاستخراج في ملف PDF. قد يكون ملفاً ممسوحاً ضوئياً (صورة).");
+        }
+
+        setAnalysisStep("تم استخراج النص بنجاح! جاري إرساله للتحليل والتلخيص...");
+        await runAutomaticAnalysis(text, undefined, undefined, file.name);
+      } catch (err: any) {
+        console.warn("Client-side PDF extraction failed, falling back to server-side...", err);
+        setAnalysisStep("فشل الاستخراج المحلي. جاري المحاولة عبر خادم التحليل كخيار بديل...");
+        
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const result = event.target?.result;
+          if (typeof result === "string" && result.trim()) {
+            const base64 = result.split(",")[1];
+            await runAutomaticAnalysis("", base64, "application/pdf", file.name);
+          } else {
+            setErrorMsg("عذراً، تعذر قراءة محتوى الملف.");
+            setIsAnalyzing(false);
+          }
+        };
+        reader.onerror = () => {
+          setErrorMsg("حدث خطأ أثناء قراءة الملف.");
+          setIsAnalyzing(false);
+        };
+        reader.readAsDataURL(file);
       }
-    };
+    } else if (isDoc) {
+      try {
+        setAnalysisStep("جاري تحميل مكتبة قراءة مستندات Word في المتصفح...");
+        if (!(window as any).mammoth) {
+          await new Promise<void>((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js";
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error("Failed to load Mammoth Word library."));
+            document.head.appendChild(script);
+          });
+        }
 
-    reader.onerror = () => {
-      setErrorMsg("حدث خطأ أثناء قراءة الملف.");
-    };
+        const mammothLib = (window as any).mammoth;
+        setAnalysisStep("جاري استخراج النصوص من مستند Word محلياً...");
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammothLib.extractRawText({ arrayBuffer });
+        const text = result.value || "";
 
-    if (isPdf || isDoc) {
-      reader.readAsDataURL(file);
+        if (!text.trim()) {
+          throw new Error("مستند Word فارغ أو لا يحتوي على نصوص قابلة للاستخراج.");
+        }
+
+        setAnalysisStep("تم استخراج النص بنجاح! جاري إرساله للتحليل والتلخيص...");
+        await runAutomaticAnalysis(text, undefined, undefined, file.name);
+      } catch (err: any) {
+        console.warn("Client-side DOCX extraction failed, falling back to server-side...", err);
+        setAnalysisStep("فشل الاستخراج المحلي. جاري المحاولة عبر خادم التحليل كخيار بديل...");
+        
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const result = event.target?.result;
+          if (typeof result === "string" && result.trim()) {
+            const base64 = result.split(",")[1];
+            const mimeType = file.type || (file.name.toLowerCase().endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/msword");
+            await runAutomaticAnalysis("", base64, mimeType, file.name);
+          } else {
+            setErrorMsg("عذراً، تعذر قراءة محتوى الملف.");
+            setIsAnalyzing(false);
+          }
+        };
+        reader.onerror = () => {
+          setErrorMsg("حدث خطأ أثناء قراءة الملف.");
+          setIsAnalyzing(false);
+        };
+        reader.readAsDataURL(file);
+      }
     } else {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const result = event.target?.result;
+        if (typeof result === "string" && result.trim()) {
+          await runAutomaticAnalysis(result, undefined, undefined, file.name);
+        } else {
+          setErrorMsg("عذراً، لا يمكن قراءة محتوى هذا الملف أو أنه فارغ.");
+          setIsAnalyzing(false);
+        }
+      };
+      reader.onerror = () => {
+        setErrorMsg("حدث خطأ أثناء قراءة الملف.");
+        setIsAnalyzing(false);
+      };
       reader.readAsText(file);
     }
   };
