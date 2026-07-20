@@ -11,19 +11,20 @@ import { BookOpen, AlertCircle, Loader2, ArrowRight } from "lucide-react";
 interface AuthViewProps {
   onSuccess: () => void;
   onSkip?: () => void;
+  initialIsSignUp?: boolean;
 }
 
-export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
-  const [isSignUp, setIsSignUp] = useState(false);
+export default function AuthView({ onSuccess, onSkip, initialIsSignUp = false }: AuthViewProps) {
+  const [isSignUp, setIsSignUp] = useState(initialIsSignUp);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const translateError = (errCode: string): string => {
+  const translateError = (errCode: string, errMessage?: string): string => {
     switch (errCode) {
       case "auth/invalid-credential":
-        return "بريد إلكتروني أو كلمة مرور غير صحيحة.";
+        return "البريد الإلكتروني أو كلمة مرور غير صحيحة.";
       case "auth/email-already-in-use":
         return "البريد الإلكتروني مستخدم بالفعل من قبل حساب آخر.";
       case "auth/weak-password":
@@ -34,8 +35,12 @@ export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
         return "يرجى إدخال كلمة المرور.";
       case "auth/user-not-found":
         return "لم يتم العثور على حساب بهذا البريد الإلكتروني.";
+      case "auth/operation-not-allowed":
+        return "تسجيل الدخول بالبريد الإلكتروني غير مفعل في إعدادات Firebase Console الخاصة بمشروعك.";
+      case "auth/unauthorized-domain":
+        return "هذا النطاق غير معتمد لإجراء المصادقة. يرجى إضافة نطاق موقعك الحالي (مثال: Vercel) إلى قائمة Authorized Domains في إعدادات Firebase Authentication.";
       default:
-        return "حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.";
+        return `حدث خطأ غير متوقع: (${errCode || "خطأ غير معروف"}). يرجى التأكد من تفعيل خيار البريد الإلكتروني وكلمة المرور في لوحة Firebase وإضافة نطاق موقعك الحالي (Vercel) للنطاقات المعتمدة (Authorized Domains). التفاصيل: ${errMessage || ""}`;
     }
   };
 
@@ -53,7 +58,7 @@ export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
       onSuccess();
     } catch (err: any) {
       console.error("Auth error:", err);
-      setError(translateError(err.code || ""));
+      setError(translateError(err.code || "", err.message || ""));
     } finally {
       setLoading(false);
     }
@@ -69,7 +74,7 @@ export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
     } catch (err: any) {
       console.error("Google Auth error:", err);
       if (err.code !== "auth/popup-closed-by-user") {
-        setError(translateError(err.code || ""));
+        setError(translateError(err.code || "", err.message || ""));
       }
     } finally {
       setLoading(false);
@@ -77,12 +82,11 @@ export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
   };
 
   return (
-    <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-[#fafaf8] text-[#1f1f1f] p-4 font-sans antialiased" dir="rtl" id="auth-page-container">
-      <div className="w-full max-w-md bg-white border border-[#e2e2dd] rounded-3xl shadow-xl p-8 md:p-10 space-y-8 relative overflow-hidden">
-        {/* Aesthetic background design accent */}
-        <div className="absolute top-0 right-0 left-0 h-1.5 bg-[#094d4e]" />
+    <div className="w-full bg-white text-[#1f1f1f] p-6 md:p-8 space-y-6 relative overflow-hidden font-sans antialiased" dir="rtl" id="auth-card-container">
+      {/* Aesthetic background design accent */}
+      <div className="absolute top-0 right-0 left-0 h-1.5 bg-[#094d4e]" />
 
-        {/* Header and Branding */}
+      {/* Header and Branding */}
         <div className="flex flex-col items-center text-center space-y-4">
           <div className="bg-[#094d4e] text-white p-3.5 rounded-2xl flex items-center justify-center shadow-md">
             <BookOpen className="w-8 h-8" />
@@ -93,7 +97,7 @@ export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
           </div>
           <p className="text-sm text-gray-600 max-w-xs leading-relaxed">
             {isSignUp 
-              ? "أنشئ حسابك الأكاديمي المشفر والخاص لحفظ وثائقك ومشروعاتك البحثية بأمان تام." 
+              ? "أنشئ حسابك المشفر والخاص لحفظ وثائقك ومشروعاتك البحثية بأمان تام." 
               : "سجل دخولك للوصول إلى مساحتك البحثية الآمنة، حيث تُحفظ وثائقك وتوليفاتك بخصوصية كاملة."
             }
           </p>
@@ -110,11 +114,11 @@ export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
         {/* Main Auth Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 block">البريد الإلكتروني الأكاديمي</label>
+            <label className="text-xs font-bold text-gray-500 block">البريد الإلكتروني للباحث</label>
             <input
               type="email"
               required
-              placeholder="name@university.edu"
+              placeholder="name@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 bg-[#fbfbfa] border border-[#e2e2dd] rounded-xl text-sm focus:outline-hidden focus:border-[#094d4e] focus:bg-white transition-all text-right"
@@ -214,7 +218,6 @@ export default function AuthView({ onSuccess, onSkip }: AuthViewProps) {
             </button>
           </div>
         )}
-      </div>
     </div>
   );
 }

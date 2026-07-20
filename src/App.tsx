@@ -1252,34 +1252,41 @@ export default function App() {
     );
   }
 
-  if (showLandingPage) {
+  if (authChecking) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#fafaf8] space-y-4" dir="rtl" id="auth-checking-loader">
+        <Loader2 className="w-10 h-10 text-[#0d6264] animate-spin" />
+        <span className="text-xs text-gray-500 font-bold">جاري التحقق من حساب الباحث...</span>
+      </div>
+    );
+  }
+
+  if (showLandingPage || (!currentUser && !useAsGuest)) {
     return (
       <LandingPage
         onEnterApp={() => {
+          setShowLandingPage(false);
+          setUseAsGuest(true);
+          try {
+            localStorage.setItem("bahthos_entered_app", "true");
+          } catch (e) {}
+        }}
+        onEnterAsUser={() => {
+          setShowLandingPage(false);
+          try {
+            localStorage.setItem("bahthos_entered_app", "true");
+          } catch (e) {}
+        }}
+        onContinueAsGuest={() => {
+          setUseAsGuest(true);
           setShowLandingPage(false);
           try {
             localStorage.setItem("bahthos_entered_app", "true");
           } catch (e) {}
         }}
         navigateTo={navigateTo}
-      />
-    );
-  }
-
-  if (authChecking) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#fafaf8] space-y-4" dir="rtl" id="auth-checking-loader">
-        <Loader2 className="w-10 h-10 text-[#0d6264] animate-spin" />
-        <span className="text-xs text-gray-500 font-bold">جاري التحقق من الحساب الأكاديمي...</span>
-      </div>
-    );
-  }
-
-  if (!currentUser && !useAsGuest) {
-    return (
-      <AuthView 
-        onSuccess={() => {}}
-        onSkip={() => setUseAsGuest(true)} 
+        currentUser={currentUser}
+        onSignOut={handleSignOut}
       />
     );
   }

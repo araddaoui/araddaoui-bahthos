@@ -58,7 +58,7 @@ export default function SettingsView({
           <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4" id="settings-account-card">
             <h2 className="text-xs font-bold text-gray-800 flex items-center gap-2 border-b border-gray-100 pb-2">
               <User className="w-4 h-4 text-[#0d6264]" />
-              <span>بيانات الحساب الأكاديمي والمزامنة السحابية</span>
+              <span>بيانات حساب الباحث والمزامنة السحابية</span>
             </h2>
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-teal-50/20 p-4 rounded-xl border border-teal-100/50">
               <div className="space-y-1">

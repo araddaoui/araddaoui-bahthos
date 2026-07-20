@@ -1,12 +1,27 @@
 import React, { useState } from "react";
+import AuthView from "./AuthView";
+import { X, LogOut, LayoutGrid, Key, UserPlus } from "lucide-react";
 
 interface LandingPageProps {
   onEnterApp: () => void;
+  onEnterAsUser?: () => void;
+  onContinueAsGuest?: () => void;
   navigateTo: (path: string) => void;
+  currentUser?: any;
+  onSignOut?: () => void;
 }
 
-export default function LandingPage({ onEnterApp, navigateTo }: LandingPageProps) {
+export default function LandingPage({ 
+  onEnterApp, 
+  onEnterAsUser,
+  onContinueAsGuest,
+  navigateTo,
+  currentUser,
+  onSignOut 
+}: LandingPageProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authInitialIsSignUp, setAuthInitialIsSignUp] = useState(false);
 
   return (
     <div className="bg-slate-50 text-slate-800 font-sans min-h-screen selection:bg-teal-500 selection:text-white" style={{ fontFamily: "'Noto Sans Arabic', 'Inter', system-ui, sans-serif" }}>
@@ -35,29 +50,57 @@ export default function LandingPage({ onEnterApp, navigateTo }: LandingPageProps
             
             {/* Auth Buttons */}
             <div className="flex items-center gap-x-3">
-              {/* Sign In Button */}
-              <button 
-                onClick={onEnterApp}
-                id="landing-signin-btn"
-                className="px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 transition-all rounded-3xl border border-teal-200 flex items-center gap-x-2">
-                <i className="fas fa-sign-in-alt"></i>
-                <span>تسجيل الدخول</span>
-              </button>
-              
-              {/* Sign Up Button */}
-              <button 
-                onClick={onEnterApp}
-                id="landing-signup-btn"
-                className="px-5 py-2 text-sm font-semibold bg-teal-800 hover:bg-teal-900 transition-all text-white rounded-3xl flex items-center gap-x-2 shadow-sm">
-                <span>ابدأ الآن مجاناً</span>
-                <i className="fas fa-arrow-left text-xs"></i>
-              </button>
+              {currentUser ? (
+                <>
+                  <div className="hidden lg:flex flex-col text-right px-2">
+                    <span className="text-[10px] text-slate-400 font-bold">الحساب النشط</span>
+                    <span className="text-xs font-mono font-bold text-teal-800 max-w-[150px] truncate">{currentUser.email}</span>
+                  </div>
+                  <button 
+                    onClick={onEnterAsUser || onEnterApp}
+                    id="landing-workspace-btn"
+                    className="px-4 py-2 text-xs font-bold text-teal-800 hover:bg-teal-50 transition-all rounded-3xl border border-teal-200 flex items-center gap-x-2 cursor-pointer">
+                    <LayoutGrid className="w-4 h-4" />
+                    <span>دخول مساحة العمل</span>
+                  </button>
+                  <button 
+                    onClick={onSignOut}
+                    id="landing-signout-btn"
+                    className="px-4 py-2 text-xs font-bold bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 rounded-3xl flex items-center gap-x-1.5 transition-all cursor-pointer">
+                    <LogOut className="w-4 h-4" />
+                    <span>خروج</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => {
+                      setAuthInitialIsSignUp(false);
+                      setAuthModalOpen(true);
+                    }}
+                    id="landing-signin-btn"
+                    className="px-4 py-2 text-xs font-bold text-teal-800 hover:bg-teal-50 transition-all rounded-3xl border border-teal-200 flex items-center gap-x-2 cursor-pointer">
+                    <Key className="w-4 h-4" />
+                    <span>تسجيل الدخول</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setAuthInitialIsSignUp(true);
+                      setAuthModalOpen(true);
+                    }}
+                    id="landing-signup-btn"
+                    className="px-5 py-2 text-xs font-bold bg-teal-800 hover:bg-teal-900 transition-all text-white rounded-3xl flex items-center gap-x-2 shadow-xs cursor-pointer">
+                    <UserPlus className="w-4 h-4" />
+                    <span>ابدأ الآن مجاناً</span>
+                  </button>
+                </>
+              )}
               
               {/* Mobile Menu Btn */}
               <button 
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 id="landing-mobile-menu-btn"
-                className="md:hidden w-10 h-10 flex items-center justify-center text-teal-800">
+                className="md:hidden w-10 h-10 flex items-center justify-center text-teal-800 cursor-pointer">
                 <i className="fas fa-bars text-xl"></i>
               </button>
             </div>
@@ -96,10 +139,18 @@ export default function LandingPage({ onEnterApp, navigateTo }: LandingPageProps
               
               <div className="flex flex-col sm:flex-row items-center gap-4">
                 <button 
-                  onClick={onEnterApp}
+                  onClick={() => {
+                    if (currentUser) {
+                      if (onEnterAsUser) onEnterAsUser();
+                      else onEnterApp();
+                    } else {
+                      setAuthInitialIsSignUp(true);
+                      setAuthModalOpen(true);
+                    }
+                  }}
                   id="landing-hero-cta"
-                  className="w-full sm:w-auto px-8 py-3.5 bg-white text-teal-900 hover:bg-teal-50 transition-all font-bold text-lg rounded-3xl flex items-center justify-center gap-x-3 shadow-xl">
-                  <span>ابدأ رحلتك مجاناً</span>
+                  className="w-full sm:w-auto px-8 py-3.5 bg-white text-teal-900 hover:bg-teal-50 transition-all font-bold text-lg rounded-3xl flex items-center justify-center gap-x-3 shadow-xl cursor-pointer">
+                  <span>{currentUser ? "دخول مساحة العمل" : "ابدأ رحلتك مجاناً"}</span>
                   <i className="fas fa-arrow-left"></i>
                 </button>
                 
@@ -499,12 +550,20 @@ export default function LandingPage({ onEnterApp, navigateTo }: LandingPageProps
           <h3 className="font-bold text-xl text-slate-900 mb-2">ابدأ دراستك التوليفية التالية اليوم</h3>
           <p className="text-sm text-slate-500">انضم إلى آلاف الباحثين وصناع القرار والمحللين الذين يرتقون بجودة أعمالهم وأبحاثهم باستخدام نظام بحث OS.</p>
         </div>
-        <div className="mb-8">
+         <div className="mb-8">
           <button 
-            onClick={onEnterApp}
+            onClick={() => {
+              if (currentUser) {
+                if (onEnterAsUser) onEnterAsUser();
+                else onEnterApp();
+              } else {
+                setAuthInitialIsSignUp(true);
+                setAuthModalOpen(true);
+              }
+            }}
             id="landing-footer-cta"
-            className="px-8 py-3.5 bg-teal-800 hover:bg-teal-900 transition-all text-white font-bold text-base rounded-3xl inline-flex items-center gap-x-3 shadow-md">
-            <span>ادخل إلى منصة الباحث مجاناً</span>
+            className="px-8 py-3.5 bg-teal-800 hover:bg-teal-900 transition-all text-white font-bold text-base rounded-3xl inline-flex items-center gap-x-3 shadow-md cursor-pointer">
+            <span>{currentUser ? "ادخل إلى مساحة العمل" : "ادخل إلى منصة الباحث مجاناً"}</span>
             <i className="fas fa-arrow-left"></i>
           </button>
         </div>
@@ -516,6 +575,41 @@ export default function LandingPage({ onEnterApp, navigateTo }: LandingPageProps
           </div>
         </div>
       </div>
+
+      {/* Auth Modal Overlay */}
+      {authModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4" id="auth-modal-backdrop">
+          {/* Backdrop click closer */}
+          <div className="absolute inset-0 bg-transparent" onClick={() => setAuthModalOpen(false)}></div>
+          
+          <div className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden transform scale-100 transition-all z-10 max-h-[90vh] overflow-y-auto">
+            {/* Close button */}
+            <button 
+              onClick={() => setAuthModalOpen(false)}
+              className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-all z-20 cursor-pointer"
+              id="close-auth-modal-btn"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="pt-2">
+              <AuthView 
+                onSuccess={() => {
+                  setAuthModalOpen(false);
+                  if (onEnterAsUser) onEnterAsUser();
+                  else onEnterApp();
+                }}
+                onSkip={() => {
+                  setAuthModalOpen(false);
+                  if (onContinueAsGuest) onContinueAsGuest();
+                  else onEnterApp();
+                }}
+                initialIsSignUp={authInitialIsSignUp}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
