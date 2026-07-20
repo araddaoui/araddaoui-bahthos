@@ -423,7 +423,11 @@ app.post("/api/analyze-document", async (req, res) => {
   if (isPdf && base64) {
     try {
       console.log(`Parsing PDF document: ${fileName || "document.pdf"} using modern pdf-parse class...`);
-      const buffer = Buffer.from(base64, "base64");
+      let cleanBase64 = base64.trim();
+      if (cleanBase64.includes("base64,")) {
+        cleanBase64 = cleanBase64.split("base64,")[1];
+      }
+      const buffer = Buffer.from(cleanBase64, "base64");
       
       // Use disableWorker to run parsing entirely on the main thread, avoiding web worker thread-spawning hangs
       // in restricted Serverless (Vercel) and sandboxed Cloud environments.
@@ -446,6 +450,8 @@ app.post("/api/analyze-document", async (req, res) => {
     }
   }
 
+  const useMultimodalPdf = isPdf && base64 && (!parsedContent || parsedContent.trim().length < 50);
+
   let result: any = {
     title: "",
     language: "ar",
@@ -463,13 +469,33 @@ app.post("/api/analyze-document", async (req, res) => {
 2. لغة المستند (language): حدد لغة المستند كـ "ar" للعربية، أو "en" للإنجليزية، أو "fr" للفرنسية.
 3. ملخص أكاديمي بليغ (summary): صغ ملخصاً أكاديمياً بليغاً ومكثفاً يلخص الأهداف والنتائج والمنهجية في فقرة واحدة أو فقرتين.
 4. مصطلحات أكاديمية أو تقنية (terms): استخرج حتى 5 من أبرز المصطلحات التقنية أو الأكاديمية أو العلمية الهامة الواردة في النص وطبق عليها عملية التحقق ثنائية الحقول (Two-Field Verification Process) والاختبار المستقل عن التخصص لضمان دقة التعريب وتصحيح أي تعريب صوتي.
+${useMultimodalPdf ? "5. نص المستند المستخرج (extractedText): نظراً لقراءة الملف مباشرة كـ PDF، يرجى استخراج ونقل أول 1000 إلى 2000 كلمة من النص الأصلي للمستند بدقة بالغة في حقل extractedText." : ""}`;
 
-نص المستند:
-${parsedContent.substring(0, 10000)}`;
+    let contents: any;
+    if (useMultimodalPdf) {
+      console.log("Using Gemini multimodal fallback for PDF analysis...");
+      let cleanBase64 = base64.trim();
+      if (cleanBase64.includes("base64,")) {
+        cleanBase64 = cleanBase64.split("base64,")[1];
+      }
+      contents = [
+        {
+          inlineData: {
+            data: cleanBase64,
+            mimeType: "application/pdf"
+          }
+        },
+        {
+          text: `${promptText}\n\nالرجاء قراءة وتحليل ملف PDF المرفق أعلاه بالكامل وإنتاج النتيجة المطلوبة بصيغة JSON.`
+        }
+      ];
+    } else {
+      contents = `${promptText}\n\nنص المستند:\n${parsedContent.substring(0, 10000)}`;
+    }
 
     const response = await generateContentWithRetry(ai, {
       model: "gemini-3.5-flash",
-      contents: promptText,
+      contents: contents,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -486,6 +512,10 @@ ${parsedContent.substring(0, 10000)}`;
             summary: {
               type: Type.STRING,
               description: "ملخص أكاديمي بليغ ومكثف لمحتوى المستند."
+            },
+            extractedText: {
+              type: Type.STRING,
+              description: "النص الأصلي المستخرج من المستند (يملأ فقط في حالة التحليل المباشر لملفات PDF)."
             },
             terms: {
               type: Type.ARRAY,
@@ -524,6 +554,7 @@ ${parsedContent.substring(0, 10000)}`;
     result.title = data.title || fileName || "مستند بدون عنوان";
     result.language = data.language || "ar";
     result.summary = data.summary || "تعذر توليد ملخص أكاديمي تلقائي.";
+    result.extractedText = data.extractedText || "";
     result.terms = data.terms || [];
   } catch (error) {
     console.warn("AI analysis failed, falling back to simple extraction:", error);
@@ -535,7 +566,7 @@ ${parsedContent.substring(0, 10000)}`;
     title: result.title,
     language: result.language,
     summary: result.summary,
-    originalText: parsedContent,
+    originalText: parsedContent || result.extractedText || "",
     terms: result.terms
   });
 });
