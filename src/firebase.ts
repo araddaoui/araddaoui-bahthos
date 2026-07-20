@@ -93,7 +93,7 @@ export async function deleteUserProject(userId: string, projectId: string): Prom
   await deleteDoc(projectDocRef);
 }
 
-// Helper to save all documents of a project to Firestore
+// Helper to save all documents of a project to Firestore with reconciliation (deleting removed items)
 export async function saveProjectData(
   userId: string,
   projectId: string,
@@ -106,25 +106,93 @@ export async function saveProjectData(
 ): Promise<void> {
   const { sources, messages, syntheses, glossaryTerms } = data;
 
-  if (sources) {
+  if (sources !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "sources");
+    const snapshot = await getDocs(colRef);
+    const existingIds = snapshot.docs.map(doc => doc.id);
+    const currentIds = new Set(sources.map(s => s.id));
+
+    const batch = writeBatch(db);
+    let hasDeletes = false;
+    for (const id of existingIds) {
+      if (!currentIds.has(id)) {
+        batch.delete(doc(db, "users", userId, "projects", projectId, "sources", id));
+        hasDeletes = true;
+      }
+    }
+    if (hasDeletes) {
+      await batch.commit();
+    }
+
     for (const source of sources) {
       await setDoc(doc(db, "users", userId, "projects", projectId, "sources", source.id), source);
     }
   }
 
-  if (messages) {
+  if (messages !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "messages");
+    const snapshot = await getDocs(colRef);
+    const existingIds = snapshot.docs.map(doc => doc.id);
+    const currentIds = new Set(messages.map(m => m.id));
+
+    const batch = writeBatch(db);
+    let hasDeletes = false;
+    for (const id of existingIds) {
+      if (!currentIds.has(id)) {
+        batch.delete(doc(db, "users", userId, "projects", projectId, "messages", id));
+        hasDeletes = true;
+      }
+    }
+    if (hasDeletes) {
+      await batch.commit();
+    }
+
     for (const msg of messages) {
       await setDoc(doc(db, "users", userId, "projects", projectId, "messages", msg.id), msg);
     }
   }
 
-  if (syntheses) {
+  if (syntheses !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "syntheses");
+    const snapshot = await getDocs(colRef);
+    const existingIds = snapshot.docs.map(doc => doc.id);
+    const currentIds = new Set(syntheses.map(s => s.id));
+
+    const batch = writeBatch(db);
+    let hasDeletes = false;
+    for (const id of existingIds) {
+      if (!currentIds.has(id)) {
+        batch.delete(doc(db, "users", userId, "projects", projectId, "syntheses", id));
+        hasDeletes = true;
+      }
+    }
+    if (hasDeletes) {
+      await batch.commit();
+    }
+
     for (const syn of syntheses) {
       await setDoc(doc(db, "users", userId, "projects", projectId, "syntheses", syn.id), syn);
     }
   }
 
-  if (glossaryTerms) {
+  if (glossaryTerms !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
+    const snapshot = await getDocs(colRef);
+    const existingIds = snapshot.docs.map(doc => doc.id);
+    const currentIds = new Set(glossaryTerms.map(t => t.term));
+
+    const batch = writeBatch(db);
+    let hasDeletes = false;
+    for (const id of existingIds) {
+      if (!currentIds.has(id)) {
+        batch.delete(doc(db, "users", userId, "projects", projectId, "glossaryTerms", id));
+        hasDeletes = true;
+      }
+    }
+    if (hasDeletes) {
+      await batch.commit();
+    }
+
     for (const term of glossaryTerms) {
       await setDoc(doc(db, "users", userId, "projects", projectId, "glossaryTerms", term.term), term);
     }

@@ -424,8 +424,21 @@ app.post("/api/analyze-document", async (req, res) => {
     try {
       console.log(`Parsing PDF document: ${fileName || "document.pdf"} using modern pdf-parse class...`);
       const buffer = Buffer.from(base64, "base64");
-      const parser = new PDFParse({ data: buffer });
-      const textResult = await parser.getText();
+      
+      // Use disableWorker to run parsing entirely on the main thread, avoiding web worker thread-spawning hangs
+      // in restricted Serverless (Vercel) and sandboxed Cloud environments.
+      const parser = new PDFParse({ 
+        data: buffer,
+        disableWorker: true,
+        verbosity: 0
+      } as any);
+      
+      // Limit parsing to the first 35 pages to prevent server execution timeouts on massive files,
+      // while providing more than enough research text (approx. 15,000+ words) for thorough analysis.
+      const textResult = await parser.getText({
+        first: 35
+      });
+      
       parsedContent = textResult.text || "";
       console.log(`Successfully parsed PDF. Extracted ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words.`);
     } catch (err: any) {

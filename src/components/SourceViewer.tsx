@@ -135,7 +135,7 @@ export default function SourceViewer({
             <div className="mb-6 p-5 bg-[#fcfbfa] border-r-4 border-[#094d4e] rounded-l-xl border-y border-l border-[#e2e2dd] space-y-2" id="source-auto-summary">
               <div className="flex items-center gap-1.5 text-xs font-bold text-[#094d4e]">
                 <Sparkles className="w-4 h-4" />
-                <span>ملخص أكاديمي ذكي (توليد تلقائي)</span>
+                <span>ملخص بحثي ذكي (توليد تلقائي)</span>
               </div>
               <p className="text-xs text-gray-700 leading-relaxed font-medium whitespace-pre-wrap">
                 {source.summary}
@@ -164,7 +164,7 @@ export default function SourceViewer({
         
         {/* Helper footer */}
         <div className="max-w-2xl mx-auto mt-6 text-center text-xs text-gray-400 leading-relaxed font-medium">
-          تم تحميل هذا المستند كجزء من البيئة المرجعية للتحليل والمقارنة الأكاديمية للدليل.
+          تم تحميل هذا المستند كجزء من البيئة المرجعية للتحليل والمقارنة المنهجية للباحث.
         </div>
       </div>
     </div>

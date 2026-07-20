@@ -143,8 +143,8 @@ export default function SourcesList({
     setAnalysisStep("جاري قراءة محتوى الملف والمستند...");
     
     try {
-      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 600);
-      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص أكاديمي بليغ..."), 1300);
+      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند والترميز البحثي..."), 600);
+      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بحثي بليغ..."), 1300);
 
       const response = await fetch("/api/analyze-document", {
         method: "POST",
@@ -605,7 +605,7 @@ export default function SourcesList({
           {isSweeping && (
             <div className="bg-[#fcfbf7] border border-[#eae9e2] rounded-xl p-3 flex items-center gap-2.5 text-gray-700 text-[11px] font-medium animate-pulse" id="glossary-sweeping-banner" dir="rtl">
               <Loader2 className="w-4 h-4 animate-spin text-gray-500 flex-shrink-0" />
-              <span>جاري مراجعة وتدقيق المصطلحات عبر مصفوفة التحقق ثنائية الحقول للعمق الأكاديمي...</span>
+              <span>جاري مراجعة وتدقيق المصطلحات عبر مصفوفة التحقق ثنائية الحقول للعمق المعرفي والبحثي...</span>
             </div>
           )}
           {sweepCorrectionCount !== null && sweepCorrectionCount > 0 && (

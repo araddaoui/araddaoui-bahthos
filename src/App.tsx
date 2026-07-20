@@ -23,39 +23,17 @@ import {
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView";
 
-// Default glossary terms to populate on first load
-const initialGlossary: GlossaryTerm[] = [
-  {
-    term: "Blended Learning",
-    transliteration: "التعليم المدمج",
-    definition: "نموذج تعليمي يدمج بين التعليم التقليدي في الفصول الدراسية وأنشطة التعلم الإلكتروني عبر الإنترنت.",
-    draft_term: "التعليم المدمج",
-    verified_term: "التعليم المدمج"
-  },
-  {
-    term: "Academic Self-Regulation",
-    transliteration: "التنظيم الذاتي الأكاديمي",
-    definition: "قدرة الطالب على توجيه ومراقبة سلوكياته ومساعيه التعليمية ومثابرته بشكل نشط لتحقيق النجاح الأكاديمي.",
-    draft_term: "التنظيم الذاتي الأكاديمي",
-    verified_term: "التنظيم الذاتي الأكاديمي"
-  },
-  {
-    term: "Quality Assurance",
-    transliteration: "ضمان الجودة",
-    definition: "العمليات والسياسات المنهجية المتبعة للتأكد من تلبية البرامج والمؤسسات التعليمية للمعايير الرصينة المحددة.",
-    draft_term: "ضمان الجودة",
-    verified_term: "ضمان الجودة"
-  }
-];
+// Default glossary terms to populate on first load (starts empty to ensure a clean slate)
+const initialGlossary: GlossaryTerm[] = [];
 
-// Pre-baked high-quality academic synthesis report
+// Pre-baked high-quality research synthesis report
 const initialSyntheses: Synthesis[] = [];
 
 // Helper to clean phonetic transliterations of academic/technical terms to real Arabic equivalents
 export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
   const dictionary: Record<string, string> = {
     "blended learning": "التعلم المدمج",
-    "academic self-regulation": "التنظيم الذاتي الأكاديمي",
+    "academic self-regulation": "التنظيم الذاتي للتعلم",
     "quality assurance": "ضمان الجودة",
     "e-learning": "التعلم الإلكتروني",
     "elearning": "التعلم الإلكتروني",
@@ -1108,7 +1086,17 @@ export default function App() {
 
   // Delete research source
   const handleDeleteSource = (id: string) => {
-    setSources((prev) => prev.filter((src) => src.id !== id));
+    const updated = sources.filter((src) => src.id !== id);
+    setSources(updated);
+    
+    if (updated.length === 0) {
+      setGlossaryTerms([]);
+      setMessages([]);
+      setSyntheses([]);
+    } else {
+      setGlossaryTerms((prevGlossary) => prevGlossary.filter((term) => term.sourceId !== id));
+    }
+
     if (selectedSourceId === id) {
       setSelectedSourceId(null);
       setActiveMainView("chat");

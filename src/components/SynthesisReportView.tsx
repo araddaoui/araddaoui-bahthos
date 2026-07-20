@@ -113,7 +113,7 @@ export function parseReportText(text: string): ContentItem[] {
         supporting,
         supportingSources,
         opposingSources: opposingSources.length > 0 ? opposingSources : undefined,
-        explanation: explanation || "تم التوصل إلى الاستنتاج بناءً على توافق الأدلة في وثائق المجموعة الأكاديمية.",
+        explanation: explanation || "تم التوصل إلى الاستنتاج بناءً على توافق الأدلة في وثائق المجموعة البحثية.",
       }
     });
 

@@ -76,7 +76,7 @@ export default function LandingPage({
                   <button 
                     onClick={() => {
                       setAuthInitialIsSignUp(false);
-                      setAuthModalOpen(true);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                     id="landing-signin-btn"
                     className="px-4 py-2 text-xs font-bold text-teal-800 hover:bg-teal-50 transition-all rounded-3xl border border-teal-200 flex items-center gap-x-2 cursor-pointer">
@@ -86,7 +86,7 @@ export default function LandingPage({
                   <button 
                     onClick={() => {
                       setAuthInitialIsSignUp(true);
-                      setAuthModalOpen(true);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                     id="landing-signup-btn"
                     className="px-5 py-2 text-xs font-bold bg-teal-800 hover:bg-teal-900 transition-all text-white rounded-3xl flex items-center gap-x-2 shadow-xs cursor-pointer">
@@ -145,7 +145,7 @@ export default function LandingPage({
                       else onEnterApp();
                     } else {
                       setAuthInitialIsSignUp(true);
-                      setAuthModalOpen(true);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }
                   }}
                   id="landing-hero-cta"
@@ -175,51 +175,66 @@ export default function LandingPage({
               </div>
             </div>
             
-            {/* Hero Visual */}
-            <div className="md:col-span-5 relative">
-              <div className="glass p-2 rounded-3xl shadow-2xl border border-white/20 max-w-[380px] mx-auto md:mx-0">
-                <div className="bg-white rounded-2xl overflow-hidden shadow-inner text-slate-800 text-right">
-                  <div className="px-4 py-3 bg-teal-800 text-white flex items-center justify-between">
-                    <div className="flex items-center gap-x-2">
-                      <i className="fas fa-book text-lg"></i>
-                      <span className="font-semibold text-sm">مساعد بحث OS والتحليل المتكامل</span>
-                    </div>
-                    <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></div>
-                  </div>
-                  
-                  <div className="p-5 bg-white">
-                    <div className="text-[11px] font-medium text-teal-600 mb-1">السؤال البحثي الجاري</div>
-                    <div className="text-xs font-semibold text-slate-800 mb-4 leading-relaxed">
-                      ما هي أبرز الاختلافات المنهجية ونقاط التعارض في قياس مستوى رضا الطلاب عن التعليم المدمج؟
+            {/* Hero Visual or Embedded Auth Card in the Upper Left Corner on Desktop */}
+            <div className="md:col-span-5 relative" id="landing-hero-left-column">
+              {currentUser ? (
+                /* Beautiful interactive mockup when user is logged in */
+                <div className="glass p-2 rounded-3xl shadow-2xl border border-white/20 max-w-[380px] mx-auto md:mx-0 animate-fadeIn">
+                  <div className="bg-white rounded-2xl overflow-hidden shadow-inner text-slate-800 text-right">
+                    <div className="px-4 py-3 bg-teal-800 text-white flex items-center justify-between">
+                      <div className="flex items-center gap-x-2">
+                        <i className="fas fa-book text-lg"></i>
+                        <span className="font-semibold text-sm">مساعد بحث OS والتحليل المتكامل</span>
+                      </div>
+                      <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></div>
                     </div>
                     
-                    <div className="space-y-3 mb-4">
-                      <div className="p-2.5 bg-slate-50 border-r-2 border-teal-600 rounded text-[11px] leading-relaxed text-slate-700">
-                        "تشير <strong>الوثيقة الأولى</strong> إلى ارتفاع التحصيل بنسبة 8% بينما يوضح <strong>التقرير الثاني</strong> انخفاض التحصيل بنسبة 6% بسبب عوائق البنية التحتية..."
+                    <div className="p-5 bg-white">
+                      <div className="text-[11px] font-medium text-teal-600 mb-1">السؤال البحثي الجاري</div>
+                      <div className="text-xs font-semibold text-slate-800 mb-4 leading-relaxed">
+                        ما هي أبرز الاختلافات المنهجية ونقاط التعارض في قياس مستوى رضا الطلاب عن التعليم المدمج?
+                      </div>
+                      
+                      <div className="space-y-3 mb-4">
+                        <div className="p-2.5 bg-slate-50 border-r-2 border-teal-600 rounded text-[11px] leading-relaxed text-slate-700">
+                          "تشير <strong>الوثيقة الأولى</strong> إلى ارتفاع التحصيل بنسبة 8% بينما يوضح <strong>التقرير الثاني</strong> انخفاض التحصيل بنسبة 6% بسبب عوائق البنية التحتية..."
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-2xl font-semibold flex items-center gap-x-1">
+                          <i className="fas fa-check-circle text-xs"></i> 
+                          <span className="font-bold text-[10px]">10 مصادر مدمجة</span>
+                        </div>
+                        <div className="text-teal-700 text-xs flex items-center gap-x-1">
+                          <i className="fas fa-link"></i> 
+                          <span className="text-[11px]">توثيق دقيق</span>
+                        </div>
                       </div>
                     </div>
                     
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-2xl font-semibold flex items-center gap-x-1">
-                        <i className="fas fa-check-circle text-xs"></i> 
-                        <span className="font-bold text-[10px]">10 مصادر مدمجة</span>
+                    <div className="px-5 py-3 bg-slate-50 border-t flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-x-2">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                        <span className="font-medium text-emerald-700 text-[11px]">حالة النظام: نشط ومستعد</span>
                       </div>
-                      <div className="text-teal-700 text-xs flex items-center gap-x-1">
-                        <i className="fas fa-link"></i> 
-                        <span className="text-[11px]">توثيق دقيق</span>
-                      </div>
+                      <span className="font-mono text-[10px] text-slate-400">الوثائق: 10</span>
                     </div>
-                  </div>
-                  
-                  <div className="px-5 py-3 bg-slate-50 border-t flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-x-2">
-                      <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                      <span className="font-medium text-emerald-700 text-[11px]">حالة النظام: نشط ومستعد</span>
-                    </div>
-                    <span className="font-mono text-[10px] text-slate-400">الوثائق: 10</span>
                   </div>
                 </div>
-              </div>
+              ) : (
+                /* Elegant, embedded auth card directly on the landing page (upper left corner of desktop layout) */
+                <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-slate-800 max-w-[400px] mx-auto md:mx-0 relative z-10 animate-fadeIn" id="landing-hero-auth-card">
+                  <AuthView 
+                    onSuccess={() => {
+                      if (onEnterAsUser) onEnterAsUser();
+                      else onEnterApp();
+                    }}
+                    onSkip={onContinueAsGuest || onEnterApp}
+                    initialIsSignUp={authInitialIsSignUp}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -558,7 +573,7 @@ export default function LandingPage({
                 else onEnterApp();
               } else {
                 setAuthInitialIsSignUp(true);
-                setAuthModalOpen(true);
+                window.scrollTo({ top: 0, behavior: "smooth" });
               }
             }}
             id="landing-footer-cta"
@@ -576,40 +591,7 @@ export default function LandingPage({
         </div>
       </div>
 
-      {/* Auth Modal Overlay */}
-      {authModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4" id="auth-modal-backdrop">
-          {/* Backdrop click closer */}
-          <div className="absolute inset-0 bg-transparent" onClick={() => setAuthModalOpen(false)}></div>
-          
-          <div className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden transform scale-100 transition-all z-10 max-h-[90vh] overflow-y-auto">
-            {/* Close button */}
-            <button 
-              onClick={() => setAuthModalOpen(false)}
-              className="absolute top-4 left-4 text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-all z-20 cursor-pointer"
-              id="close-auth-modal-btn"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="pt-2">
-              <AuthView 
-                onSuccess={() => {
-                  setAuthModalOpen(false);
-                  if (onEnterAsUser) onEnterAsUser();
-                  else onEnterApp();
-                }}
-                onSkip={() => {
-                  setAuthModalOpen(false);
-                  if (onContinueAsGuest) onContinueAsGuest();
-                  else onEnterApp();
-                }}
-                initialIsSignUp={authInitialIsSignUp}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Auth Modal Overlay Removed as Auth is embedded in top-left Hero Section */}
     </div>
   );
 }

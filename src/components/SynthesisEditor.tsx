@@ -147,7 +147,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         {/* Configuration Panel */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">
           <h2 className="text-xs font-black text-black border-b border-gray-100 pb-2">
-            1. إعداد التقرير الأكاديمي
+            1. إعداد التقرير البحثي
           </h2>
 
           {errorMsg && (
@@ -175,7 +175,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
           {/* Tool Selector Grid */}
           <div className="space-y-2">
             <label className="block text-xs text-[#094d4e] font-extrabold">
-              اختر أداة التحليل الأكاديمي المطلوبة:
+              اختر أداة التحليل المنهجية المطلوبة:
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
               <button
@@ -299,7 +299,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
               id="start-synthesis-btn"
             >
               <Sparkles className="w-4 h-4" />
-              <span>{isGenerating ? "يجري تحليل وتوليف الدراسات الآن..." : "توليد التقرير الأكاديمي"}</span>
+              <span>{isGenerating ? "يجري تحليل وتوليف الدراسات الآن..." : "توليد التقرير البحثي"}</span>
             </button>
           </div>
         </div>
@@ -426,7 +426,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
 
             {/* Editor Textarea vs SynthesisReportView */}
             <div className="space-y-1">
-              <label className="text-[10px] text-gray-400 font-bold">محتوى التقرير الأكاديمي:</label>
+              <label className="text-[10px] text-gray-400 font-bold">محتوى التقرير البحثي:</label>
               {viewMode === "preview" ? (
                 <div className="w-full text-sm p-5 border border-[#e2e2dd] rounded-xl bg-white leading-relaxed min-h-[400px]">
                   <SynthesisReportView text={generatedText} />
