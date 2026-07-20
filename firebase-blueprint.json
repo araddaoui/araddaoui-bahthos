@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account metadata",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Project": {
+      "title": "Research Project",
+      "description": "An academic research project containing sources, analyses, and glossary terms",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "dateCreated": { "type": "string" },
+        "temperature": { "type": "number" }
+      },
+      "required": ["id", "name", "dateCreated"]
+    },
+    "Source": {
+      "title": "Document Source",
+      "description": "A research source document uploaded by the user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "content": { "type": "string" },
+        "summary": { "type": "string" },
+        "wordCount": { "type": "number" },
+        "dateAdded": { "type": "string" }
+      },
+      "required": ["id", "name", "type", "content"]
+    },
+    "Message": {
+      "title": "Chat Message",
+      "description": "A chat interaction message with the academic assistant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "role", "content"]
+    },
+    "Synthesis": {
+      "title": "Synthesis Report",
+      "description": "A generated synthesis report of academic sources",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "dateCreated": { "type": "string" },
+        "sourceIds": { "type": "array" }
+      },
+      "required": ["id", "title", "text", "dateCreated", "sourceIds"]
+    },
+    "GlossaryTerm": {
+      "title": "Glossary Term",
+      "description": "A transliterated or translated academic/technical glossary term with definition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "term": { "type": "string" },
+        "transliteration": { "type": "string" },
+        "definition": { "type": "string" },
+        "draft_term": { "type": "string" },
+        "verified_term": { "type": "string" }
+      },
+      "required": ["id", "term", "transliteration", "definition"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile metadata"
+    },
+    "/users/{userId}/projects/{projectId}": {
+      "schema": "Project",
+      "description": "User academic research projects"
+    },
+    "/users/{userId}/projects/{projectId}/sources/{sourceId}": {
+      "schema": "Source",
+      "description": "Academic documents uploaded within a project"
+    },
+    "/users/{userId}/projects/{projectId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Chat log history inside a project"
+    },
+    "/users/{userId}/projects/{projectId}/syntheses/{synthesisId}": {
+      "schema": "Synthesis",
+      "description": "Generated academic syntheses inside a project"
+    },
+    "/users/{userId}/projects/{projectId}/glossaryTerms/{termId}": {
+      "schema": "GlossaryTerm",
+      "description": "Project-specific glossary definitions and corrections"
+    }
+  }
+}

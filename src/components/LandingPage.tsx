@@ -2,9 +2,10 @@ import React, { useState } from "react";
 
 interface LandingPageProps {
   onEnterApp: () => void;
+  navigateTo: (path: string) => void;
 }
 
-export default function LandingPage({ onEnterApp }: LandingPageProps) {
+export default function LandingPage({ onEnterApp, navigateTo }: LandingPageProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -510,8 +511,8 @@ export default function LandingPage({ onEnterApp }: LandingPageProps) {
         <div className="flex justify-between items-center text-[11px]">
           <span>© 2026 بحث OS - مساعد الباحث والمحلل المتكامل. جميع الحقوق محفوظة.</span>
           <div className="flex gap-x-4">
-            <a href="#" className="hover:underline">شروط الخدمة</a>
-            <a href="#" className="hover:underline">سياسة الخصوصية</a>
+            <button onClick={() => navigateTo("/terms")} className="hover:underline cursor-pointer">شروط الخدمة</button>
+            <button onClick={() => navigateTo("/privacy")} className="hover:underline cursor-pointer">سياسة الخصوصية</button>
           </div>
         </div>
       </div>

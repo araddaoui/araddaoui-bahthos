@@ -9,7 +9,9 @@ import {
   ShieldCheck,
   AlertTriangle,
   Info,
-  Trash2
+  Trash2,
+  LogOut,
+  User
 } from "lucide-react";
 
 interface SettingsViewProps {
@@ -17,9 +19,18 @@ interface SettingsViewProps {
   setTemperature: (temp: number) => void;
   onResetWorkspace?: () => void;
   onShowLandingPage?: () => void;
+  currentUser?: any;
+  onSignOut?: () => void;
 }
 
-export default function SettingsView({ temperature, setTemperature, onResetWorkspace, onShowLandingPage }: SettingsViewProps) {
+export default function SettingsView({ 
+  temperature, 
+  setTemperature, 
+  onResetWorkspace, 
+  onShowLandingPage,
+  currentUser,
+  onSignOut
+}: SettingsViewProps) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const handleReset = () => {
@@ -41,6 +52,33 @@ export default function SettingsView({ temperature, setTemperature, onResetWorks
             </p>
           </div>
         </div>
+
+        {/* Account and Cloud Sync Info */}
+        {currentUser && (
+          <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4" id="settings-account-card">
+            <h2 className="text-xs font-bold text-gray-800 flex items-center gap-2 border-b border-gray-100 pb-2">
+              <User className="w-4 h-4 text-[#0d6264]" />
+              <span>بيانات الحساب الأكاديمي والمزامنة السحابية</span>
+            </h2>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-teal-50/20 p-4 rounded-xl border border-teal-100/50">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-700">البريد الإلكتروني الحالي:</span>
+                  <span className="text-xs font-mono font-bold text-[#0d6264]">{currentUser.email}</span>
+                </div>
+                <p className="text-[10px] text-gray-400 font-medium">تم تفعيل التخزين والمزامنة السحابية المشفرة بنجاح.</p>
+              </div>
+              <button
+                onClick={onSignOut}
+                className="px-4 py-2 bg-white hover:bg-gray-50 text-red-600 border border-red-100 hover:border-red-200 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 self-start md:self-auto cursor-pointer"
+                id="settings-signout-btn"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>تسجيل الخروج الآمن</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* AI Parameters */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">

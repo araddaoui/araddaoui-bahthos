@@ -9,7 +9,19 @@ import SynthesisEditor from "./components/SynthesisEditor";
 import SynthesisHistory from "./components/SynthesisHistory";
 import SettingsView from "./components/SettingsView";
 import LandingPage from "./components/LandingPage";
-import { BookOpen, Sparkles, MessageSquare, AlertCircle } from "lucide-react";
+import TermsOfService from "./components/TermsOfService";
+import PrivacyPolicy from "./components/PrivacyPolicy";
+import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
+import { 
+  auth, 
+  loadUserProjects, 
+  saveUserProject, 
+  deleteUserProject, 
+  saveProjectData, 
+  loadProjectData 
+} from "./firebase";
+import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
+import AuthView from "./components/AuthView";
 
 // Default glossary terms to populate on first load
 const initialGlossary: GlossaryTerm[] = [
@@ -37,39 +49,7 @@ const initialGlossary: GlossaryTerm[] = [
 ];
 
 // Pre-baked high-quality academic synthesis report
-const initialSyntheses: Synthesis[] = [
-  {
-    id: "pre-baked-1",
-    title: "تقرير توليفي تمهيدي: تقييم تجربة التعليم الرقمي وأثرها على الأداء الدراسي والصحة النفسية للطلبة",
-    dateCreated: "2026-07-09",
-    sourceIds: ["source-1", "source-2", "source-3"],
-    text: `مقدمة التقرير:
-يقدم هذا التقرير تحليلاً وتوليفاً أكاديمياً رصيناً لثلاث وثائق بحثية وميدانية تقيّم تجربة التحول نحو التعليم الرقمي عن بعد في الأوساط الأكاديمية والجامعية. تشتمل مجموعة الدراسات على تقريرين باللغة العربية ودراسة استقصائية باللغة الإنجليزية، ويهدف هذا التوليف إلى الكشف عن نقاط التوافق والتعارض الإحصائي والمنهجي بين هذه المصادر المتاحة.
-
-أولاً: نقاط التوافق والاتفاق بين المصادر:
-1. مرونة نمط التعلم الرقمي:
-تتفق المصادر بشكل مبدئي على أن ميزة المرونة هي أحد الأركان الإيجابية الأبرز في التعليم عن بعد. تشير "الوثيقة الأولى" بوضوح إلى أن هذه المرونة سمحت للطلاب الذين يعملون بدوام جزئي بتنظيم أوقاتهم والتوفيق بين التزاماتهم الأكاديمية والمهنية. ويتلاقى هذا بشكل تام مع ما كشفت عنه "الوثيقة الثالثة" (المسح الخاص بصحة الطلبة) حيث عبّر 78% من الطلاب عن تفضيلهم الشديد للمرونة وقدرتهم على الدراسة وفقاً لسرعتهم الخاصة دون الاضطرار للتنقل اليومي المجهد.
-
-ثانياً: نقاط التعارض والاخلتاف الجوهري (التناقض الإحصائي):
-تظهر المصادر تبايناً حاداً وتناقضاً صريحاً في مسألة التحصيل والدرجات الأكاديمية ومستويات الانسحاب والالتزام:
-1. معدلات التحصيل الدراسي والدرجات:
-- تشير "الوثيقة الأولى" (دراسة أثر التعليم عن بعد على الأداء الأكاديمي) إلى نجاح باهر تمثل في زيادة متوسط درجات الطلاب ومعدلاتهم الأكاديمية بنسبة 8% مقارنة بنظام الحضور الفعلي.
-- في المقابل، يطرح "التقرير الثاني" (تقرير ضمان الجودة والاعتماد الأكاديمي) رؤية معاكسة تماماً، حيث كشف التحليل الإحصائي عن تراجع عام في التحصيل والدرجات النهائية للطلاب بنسبة 6%.
-
-2. معدلات الغياب والانسحاب:
-- تؤكد "الوثيقة الأولى" انخفاض معدلات الغياب والمنقطع عن المحاضرات بفضل المرونة والتمكين الرقمي.
-- غير أن "التقرير الثاني" يشير إلى قفزة مقلقة في نسبة الانسحاب الفعلي من المقررات الدراسية (Course Withdrawal) بلغت 11% مقارنة بنظام التعليم التقليدي.
-
-ثالثاً: التفسيرات المنهجية والسياقية للاختلافات:
-يقدم هذا التوليف تفسيراً منهجياً مقترحاً لتفسير هذا التناقض الظاهري بين الدراستين:
-توضح قراءة فاحصة لـ"التقرير الثاني" (قسم الجودة) أن تراجع الأداء الأكاديمي وزيادة الانسحاب بنسبة 11% لا يعود إلى قصور في جوهر التعليم الرقمي نفسه، بل يرتبط بشكل حاسم بعوامل تشغيلية خارجية؛ لا سيما ضعف الإنترنت وانقطاع الخدمات التقنية في المناطق الريفية. في حين يبدو أن عينة "الوثيقة الأولى" ربما كانت تركز على فئة الطلبة العاملين في حواضر حضرية حظيت بظروف تقنية مستقرة ودعم مستمر.
-
-أما "الوثيقة الثالثة" (Student Wellbeing and Flexibility Survey) فتقدم بعداً نفسياً وعاطفياً يفسر تباين النتائج؛ إذ توضح وجود زيادة ملحوظة في مستويات القلق والتوتر والشعور بالعزلة الأكاديمية تحت النظام الرقمي الكامل، كما تؤكد انقسام آراء الطلاب وغياب الإجماع حول ما إذا كان هذا التعليم يسهم فعلياً في الفهم العميق للمادة الأكاديمية المعقدة، على الرغم من عشقهم لمرونته الزمنية.
-
-خلاصة وتوصية بحثية:
-يوضح التحليل المقارن أن التعليم عن بعد نمط ذو فاعلية متباينة للغاية: فهو يحسن التحصيل والالتزام للفئات التي تتطلب مرونة خاصة وتمتلك بنية تحتية مستقرة (مثل الطلاب الموظفين)، بينما يتحول إلى عائق أكاديمي ونفسي يؤدي للانسحاب بنسبة 11% في المناطق التي تفتقر للبنية التحتية التقنية الملائمة. يوصي الباحثون بالانتقال نحو نماذج هجينة مرنة تدعم الاستقرار النفسي والتقني للطلاب بشكل متوازن.`
-  }
-];
+const initialSyntheses: Synthesis[] = [];
 
 // Helper to clean phonetic transliterations of academic/technical terms to real Arabic equivalents
 export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
@@ -238,6 +218,129 @@ export default function App() {
       return true;
     }
   });
+
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [useAsGuest, setUseAsGuest] = useState<boolean>(false);
+  const [isFirebaseLoading, setIsFirebaseLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthChecking(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const syncAndLoadFirebaseData = async () => {
+      setIsFirebaseLoading(true);
+      try {
+        let cloudProjects = await loadUserProjects(currentUser.uid);
+        
+        if (cloudProjects.length === 0) {
+          // Sync existing localStorage data on initial login
+          const localProjectsStr = localStorage.getItem("bahthos_projects") || localStorage.getItem("tawlif_projects");
+          let projectsToMigrate: Project[] = [];
+          if (localProjectsStr) {
+            try {
+              projectsToMigrate = JSON.parse(localProjectsStr);
+            } catch (e) {}
+          }
+          
+          if (projectsToMigrate.length === 0) {
+            projectsToMigrate = [
+              {
+                id: "default",
+                name: "المشروع التجريبي الأول",
+                dateCreated: new Date().toISOString().split("T")[0],
+                temperature: 0.2
+              }
+            ];
+          }
+
+          for (const proj of projectsToMigrate) {
+            await saveUserProject(currentUser.uid, proj);
+            const savedSources = localStorage.getItem(`bahthos_sources_${proj.id}`) || localStorage.getItem(`tawlif_sources_${proj.id}`);
+            const savedMessages = localStorage.getItem(`bahthos_messages_${proj.id}`) || localStorage.getItem(`tawlif_messages_${proj.id}`);
+            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`) || localStorage.getItem(`tawlif_syntheses_${proj.id}`);
+            const savedGlossary = localStorage.getItem(`bahthos_glossary_${proj.id}`) || localStorage.getItem(`tawlif_glossary_${proj.id}`);
+            
+            const localSources = savedSources ? JSON.parse(savedSources) : (proj.id === "default" ? defaultSources : []);
+            const localMessages = savedMessages ? JSON.parse(savedMessages) : [];
+            const localSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : (proj.id === "default" ? initialSyntheses : []);
+            const localGlossary = savedGlossary ? JSON.parse(savedGlossary) : (proj.id === "default" ? initialGlossary : []);
+            
+            await saveProjectData(currentUser.uid, proj.id, {
+              sources: localSources,
+              messages: localMessages,
+              syntheses: localSyntheses,
+              glossaryTerms: localGlossary
+            });
+          }
+          cloudProjects = await loadUserProjects(currentUser.uid);
+        }
+
+        setProjects(cloudProjects);
+
+        let activeId = currentProjectId;
+        if (!cloudProjects.some(p => p.id === activeId)) {
+          activeId = cloudProjects[0]?.id || "default";
+        }
+
+        const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
+          await loadProjectData(currentUser.uid, activeId);
+
+        const activeProjObj = cloudProjects.find(p => p.id === activeId);
+        const cloudTemp = activeProjObj?.temperature ?? 0.2;
+
+        loadedProjectIdRef.current = activeId;
+        setSources(cloudSources);
+        setMessages(cloudMessages);
+        setSyntheses(cloudSyntheses);
+        setGlossaryTerms(cloudGlossary);
+        setTemperature(cloudTemp);
+        setCurrentProjectId(activeId);
+
+      } catch (err) {
+        console.error("Failed to load Firebase data:", err);
+      } finally {
+        setIsFirebaseLoading(false);
+      }
+    };
+
+    syncAndLoadFirebaseData();
+  }, [currentUser]);
+
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    try {
+      return window.location.pathname;
+    } catch (e) {
+      return "/";
+    }
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
+  const navigateTo = (path: string) => {
+    try {
+      window.history.pushState({}, "", path);
+      setCurrentPath(path);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      setCurrentPath(path);
+    }
+  };
 
   // Projects list
   const [projects, setProjects] = useState<Project[]>(() => {
@@ -486,8 +589,44 @@ export default function App() {
   }, [glossaryTerms, isSweeping]);
 
   // Project Switch, Create, and Delete handlers
-  const handleSwitchProject = (newProjectId: string) => {
+  const handleSwitchProject = async (newProjectId: string) => {
     if (newProjectId === currentProjectId) return;
+
+    if (currentUser) {
+      setIsFirebaseLoading(true);
+      try {
+        // 1. Save current state of the old project to Firestore first (to ensure no state loss)
+        await saveProjectData(currentUser.uid, currentProjectId, {
+          sources,
+          messages,
+          syntheses,
+          glossaryTerms
+        });
+
+        // 2. Load the new project's state from Firestore
+        const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
+          await loadProjectData(currentUser.uid, newProjectId);
+
+        const newProjObj = projects.find((p) => p.id === newProjectId);
+        const cloudTemp = newProjObj?.temperature ?? 0.2;
+
+        loadedProjectIdRef.current = newProjectId;
+        setSources(cloudSources);
+        setMessages(cloudMessages);
+        setSyntheses(cloudSyntheses);
+        setGlossaryTerms(cloudGlossary);
+        setTemperature(cloudTemp);
+        setCurrentProjectId(newProjectId);
+
+        setSelectedSourceId(null);
+        setActiveMainView("chat");
+      } catch (e) {
+        console.error("Failed to switch project on Firestore:", e);
+      } finally {
+        setIsFirebaseLoading(false);
+      }
+      return;
+    }
 
     // 1. Save current state of the old project to its specific keys
     if (currentProjectId) {
@@ -537,7 +676,7 @@ export default function App() {
     }
   };
 
-  const handleCreateProject = (name: string) => {
+  const handleCreateProject = async (name: string) => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
@@ -545,13 +684,22 @@ export default function App() {
       id: "proj-" + Date.now(),
       name: trimmedName,
       dateCreated: new Date().toISOString().split("T")[0],
+      temperature: 0.2
     };
+
+    if (currentUser) {
+      try {
+        await saveUserProject(currentUser.uid, newProj);
+      } catch (err) {
+        console.error("Failed to save new project to Firestore:", err);
+      }
+    }
 
     setProjects((prev) => [...prev, newProj]);
     handleSwitchProject(newProj.id);
   };
 
-  const handleDeleteProject = (projectId: string) => {
+  const handleDeleteProject = async (projectId: string) => {
     if (projects.length <= 1) return;
 
     const index = projects.findIndex((p) => p.id === projectId);
@@ -559,6 +707,14 @@ export default function App() {
 
     const updatedProjects = projects.filter((p) => p.id !== projectId);
     setProjects(updatedProjects);
+
+    if (currentUser) {
+      try {
+        await deleteUserProject(currentUser.uid, projectId);
+      } catch (err) {
+        console.error("Failed to delete project from Firestore:", err);
+      }
+    }
 
     // Clean up localstorage
     try {
@@ -632,17 +788,65 @@ export default function App() {
     }
   }, [glossaryTerms, currentProjectId]);
 
-  // Save sources and glossary terms to the server when they change
+  // Save sources, messages, syntheses, and glossary terms to Firebase Firestore when they change
   useEffect(() => {
-    if (stateLoadedFromServer) {
+    if (!currentUser || isFirebaseLoading) return;
+    if (currentProjectId !== loadedProjectIdRef.current) return;
+
+    saveProjectData(currentUser.uid, currentProjectId, {
+      sources,
+      messages,
+      syntheses,
+      glossaryTerms
+    }).catch((err) => console.error("Failed to sync project data to Firestore:", err));
+
+    const currentProjectObj = projects.find((p) => p.id === currentProjectId);
+    if (currentProjectObj) {
+      saveUserProject(currentUser.uid, {
+        ...currentProjectObj,
+        temperature
+      }).catch((err) => console.error("Failed to sync project config to Firestore:", err));
+    }
+  }, [sources, messages, syntheses, glossaryTerms, temperature, currentUser, currentProjectId, isFirebaseLoading]);
+
+  // Save sources and glossary terms to the server when they change (only if NOT logged in)
+  useEffect(() => {
+    if (stateLoadedFromServer && !currentUser) {
       fetch("/api/save-state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sources, glossaryTerms }),
       }).catch((err) => console.error("Failed to save state to server:", err));
     }
-  }, [sources, glossaryTerms, stateLoadedFromServer]);
+  }, [sources, glossaryTerms, stateLoadedFromServer, currentUser]);
   const handleResetWorkspace = async () => {
+    if (currentUser) {
+      setIsFirebaseLoading(true);
+      try {
+        for (const proj of projects) {
+          await deleteUserProject(currentUser.uid, proj.id);
+        }
+        
+        const defaultProj: Project = {
+          id: "default",
+          name: "المشروع التجريبي الأول",
+          dateCreated: new Date().toISOString().split("T")[0],
+          temperature: 0.2
+        };
+        await saveUserProject(currentUser.uid, defaultProj);
+        await saveProjectData(currentUser.uid, "default", {
+          sources: [],
+          messages: [],
+          syntheses: [],
+          glossaryTerms: initialGlossary
+        });
+      } catch (err) {
+        console.error("Failed to reset Firestore workspace:", err);
+      } finally {
+        setIsFirebaseLoading(false);
+      }
+    }
+
     try {
       // Clear all project localStorage keys
       projects.forEach((p) => {
@@ -661,6 +865,20 @@ export default function App() {
       localStorage.removeItem("bahthos_current_project_id");
       localStorage.removeItem("tawlif_projects");
       localStorage.removeItem("tawlif_current_project_id");
+
+      // Robust prefix-based clearing to eliminate any lingering/legacy key leaking
+      const prefixes = ["bahthos_", "tawlif_", "al_dalil_"];
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && prefixes.some((prefix) => key.startsWith(prefix))) {
+          if (key.endsWith("_entered_app")) {
+            continue; // Keep the user's landing page entry state
+          }
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((key) => localStorage.removeItem(key));
     } catch (e) {
       console.error(e);
     }
@@ -671,15 +889,18 @@ export default function App() {
       console.error("Failed to reset state on server:", err);
     }
 
+    // Set ref immediately to allow state saving for "default"
+    loadedProjectIdRef.current = "default";
+
     setProjects([
       {
         id: "default",
         name: "المشروع التجريبي الأول",
-        dateCreated: "2026-07-09",
+        dateCreated: new Date().toISOString().split("T")[0],
       }
     ]);
     setCurrentProjectId("default");
-    setSources(defaultSources);
+    setSources([]);
     setMessages([]);
     setSyntheses(initialSyntheses);
     setTemperature(0.2);
@@ -687,6 +908,32 @@ export default function App() {
     setSelectedSourceId(null);
     setActiveMainView("chat");
     setActiveTab("home");
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setUseAsGuest(false);
+      // Clear state and revert to defaults
+      setProjects([
+        {
+          id: "default",
+          name: "المشروع التجريبي الأول",
+          dateCreated: new Date().toISOString().split("T")[0],
+        }
+      ]);
+      setCurrentProjectId("default");
+      setSources([]);
+      setMessages([]);
+      setSyntheses(initialSyntheses);
+      setTemperature(0.2);
+      setGlossaryTerms(initialGlossary);
+      setSelectedSourceId(null);
+      setActiveMainView("chat");
+      setActiveTab("home");
+    } catch (err) {
+      console.error("Failed to sign out:", err);
+    }
   };
 
   // Passive background extraction of technical/academic terms
@@ -975,6 +1222,36 @@ export default function App() {
   // Find currently active source
   const activeSelectedSource = sources.find((s) => s.id === selectedSourceId);
 
+  if (currentPath === "/terms") {
+    return (
+      <TermsOfService
+        navigateTo={navigateTo}
+        onEnterApp={() => {
+          setShowLandingPage(false);
+          navigateTo("/");
+          try {
+            localStorage.setItem("bahthos_entered_app", "true");
+          } catch (e) {}
+        }}
+      />
+    );
+  }
+
+  if (currentPath === "/privacy") {
+    return (
+      <PrivacyPolicy
+        navigateTo={navigateTo}
+        onEnterApp={() => {
+          setShowLandingPage(false);
+          navigateTo("/");
+          try {
+            localStorage.setItem("bahthos_entered_app", "true");
+          } catch (e) {}
+        }}
+      />
+    );
+  }
+
   if (showLandingPage) {
     return (
       <LandingPage
@@ -984,7 +1261,35 @@ export default function App() {
             localStorage.setItem("bahthos_entered_app", "true");
           } catch (e) {}
         }}
+        navigateTo={navigateTo}
       />
+    );
+  }
+
+  if (authChecking) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#fafaf8] space-y-4" dir="rtl" id="auth-checking-loader">
+        <Loader2 className="w-10 h-10 text-[#0d6264] animate-spin" />
+        <span className="text-xs text-gray-500 font-bold">جاري التحقق من الحساب الأكاديمي...</span>
+      </div>
+    );
+  }
+
+  if (!currentUser && !useAsGuest) {
+    return (
+      <AuthView 
+        onSuccess={() => {}}
+        onSkip={() => setUseAsGuest(true)} 
+      />
+    );
+  }
+
+  if (isFirebaseLoading) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#fafaf8] space-y-4" dir="rtl" id="firebase-loading-loader">
+        <Loader2 className="w-10 h-10 text-[#0d6264] animate-spin" />
+        <span className="text-xs text-gray-500 font-bold">جاري جلب ومزامنة مساحة العمل السحابية الآمنة...</span>
+      </div>
     );
   }
 
@@ -1115,6 +1420,8 @@ export default function App() {
               temperature={temperature}
               setTemperature={setTemperature}
               onResetWorkspace={handleResetWorkspace}
+              currentUser={currentUser}
+              onSignOut={handleSignOut}
               onShowLandingPage={() => {
                 setShowLandingPage(true);
                 try {

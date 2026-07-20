@@ -107,11 +107,15 @@ export default function ChatWindow({
       <div className="whitespace-pre-line leading-relaxed text-[13.5px] text-[#1f1f1f]">
         {parts.map((part, index) => {
           if (regex.test(part)) {
-            // Figure out source ID based on keyword
+            // Figure out source ID based on keyword dynamically from current sources
             let matchedSourceId: string | null = null;
-            if (part.includes("1") || part.includes("الأولى")) matchedSourceId = "source-1";
-            if (part.includes("2") || part.includes("الثانية")) matchedSourceId = "source-2";
-            if (part.includes("3") || part.includes("الثالثة")) matchedSourceId = "source-3";
+            if (part.includes("1") || part.includes("الأولى")) {
+              matchedSourceId = sources[0]?.id || null;
+            } else if (part.includes("2") || part.includes("الثانية")) {
+              matchedSourceId = sources[1]?.id || null;
+            } else if (part.includes("3") || part.includes("الثالثة")) {
+              matchedSourceId = sources[2]?.id || null;
+            }
 
             return (
               <span
