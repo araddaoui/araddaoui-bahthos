@@ -319,13 +319,30 @@ export default function SourcesList({
       setShowAddForm(false);
     } catch (err: any) {
       console.error("Error analyzing document:", err);
-      const errMsg = err.message || "تعذر استخراج النص — يرجى إعادة المحاولة";
-      setErrorMsg(errMsg);
       
-      // Add the failed document as a card with an error state
-      const fallbackTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
-      onAddSource(fallbackTitle, "", "ar", "", errMsg);
-      setShowAddForm(false);
+      // CRITICAL GRACEFUL FALLBACK:
+      // If we already have the extracted text locally, we should add the document successfully
+      // instead of showing a permanently failed/empty card! This ensures the app is extremely
+      // resilient even if the AI backend or serverless function times out or fails.
+      if (content && content.trim()) {
+        console.log("Gracefully falling back to client-side document creation using extracted text.");
+        const detectedLanguage = /[\u0600-\u06FF]/.test(content) ? "ar" : "en";
+        const cleanTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
+        const autoSummary = content.substring(0, 300) + "... (تم استخلاص النص محلياً بنجاح)";
+        
+        onAddSource(cleanTitle, content, detectedLanguage, autoSummary, undefined, []);
+        setNewContent("");
+        setErrorMsg("");
+        setShowAddForm(false);
+      } else {
+        const errMsg = err.message || "تعذر استخراج النص — يرجى إعادة المحاولة";
+        setErrorMsg(errMsg);
+        
+        // Add the failed document as a card with an error state
+        const fallbackTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
+        onAddSource(fallbackTitle, "", "ar", "", errMsg);
+        setShowAddForm(false);
+      }
     } finally {
       setIsAnalyzing(false);
       setAnalysisStep("");
