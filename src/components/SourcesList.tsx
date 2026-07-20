@@ -111,17 +111,48 @@ export default function SourcesList({
       try {
         setAnalysisStep("جاري تحميل قارئ PDF في المتصفح لاستخراج النص...");
         if (!(window as any).pdfjsLib) {
-          await new Promise<void>((resolve, reject) => {
-            const script = document.createElement("script");
-            script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error("Failed to load PDF library."));
-            document.head.appendChild(script);
-          });
+          const cdns = [
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+            "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js",
+            "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"
+          ];
+          let loaded = false;
+          for (const url of cdns) {
+            try {
+              console.log(`Trying to load PDF.js from: ${url}`);
+              await new Promise<void>((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = url;
+                script.onload = () => {
+                  loaded = true;
+                  resolve();
+                };
+                script.onerror = () => {
+                  script.remove();
+                  reject(new Error("Failed to load"));
+                };
+                document.head.appendChild(script);
+              });
+              if (loaded) break;
+            } catch (cdnErr) {
+              console.warn(`Failed to load PDF.js from ${url}, trying next CDN...`);
+            }
+          }
+          if (!(window as any).pdfjsLib) {
+            throw new Error("فشل تحميل مكتبة قارئ PDF من جميع شبكات التوزيع العالمية (CDNs). يرجى التحقق من اتصال الإنترنت.");
+          }
         }
         
         const pdfjsLib = (window as any).pdfjsLib;
-        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        // Determine worker source matching the script that loaded, or use cdnjs as default
+        const scriptUsed = document.querySelector('script[src*="pdf.min.js"]')?.getAttribute("src") || "";
+        if (scriptUsed.includes("jsdelivr")) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+        } else if (scriptUsed.includes("unpkg")) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+        } else {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        }
 
         setAnalysisStep("جاري قراءة صفحات ملف PDF واستخراج النصوص...");
         const arrayBuffer = await file.arrayBuffer();

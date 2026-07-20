@@ -7,6 +7,11 @@ import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 
+// Polyfill DOMMatrix for PDF parsing in Node.js environments (Vercel, Cloud Run, etc.)
+if (typeof globalThis !== "undefined" && !(globalThis as any).DOMMatrix) {
+  (globalThis as any).DOMMatrix = class DOMMatrix {};
+}
+
 // Load environment variables
 dotenv.config();
 
@@ -427,6 +432,9 @@ app.post("/api/analyze-document", async (req, res) => {
       if (cleanBase64.includes("base64,")) {
         cleanBase64 = cleanBase64.split("base64,")[1];
       }
+      // Remove all whitespaces, newlines, and carriage returns that can corrupt Base64 decoding
+      cleanBase64 = cleanBase64.replace(/\s+/g, "");
+      
       const buffer = Buffer.from(cleanBase64, "base64");
       
       // Use disableWorker to run parsing entirely on the main thread, avoiding web worker thread-spawning hangs
