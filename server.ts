@@ -1214,6 +1214,10 @@ async function setupViteOrStatic() {
   });
 }
 
-setupViteOrStatic().catch((err) => {
-  console.error("Failed to start server:", err);
-});
+if (!process.env.VERCEL) {
+  setupViteOrStatic().catch((err) => {
+    console.error("Failed to start server:", err);
+  });
+}
+
+export default app;
