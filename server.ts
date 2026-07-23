@@ -81,10 +81,10 @@ async function generateContentWithRetry(
         attempt++;
         const delay = attempt === 2 ? 1500 : 3000;
         
-        // On third attempt, if original model was gemini-3.5-flash, fall back to gemini-3.1-flash-lite
-        if (attempt === 3 && params.model === "gemini-3.5-flash") {
-          currentModel = "gemini-3.1-flash-lite";
-          console.warn(`Attempt ${attempt}: Falling back to gemini-3.1-flash-lite due to high demand/503 on gemini-3.5-flash.`);
+        // On third attempt, if original model was gemini-2.5-flash, fall back to gemini-1.5-flash
+        if (attempt === 3 && params.model === "gemini-2.5-flash") {
+          currentModel = "gemini-1.5-flash";
+          console.warn(`Attempt ${attempt}: Falling back to gemini-1.5-flash due to high demand/503 on gemini-2.5-flash.`);
         } else {
           console.warn(`Attempt ${attempt}: Retrying ${currentModel} after a delay of ${delay}ms due to 503/timeout...`);
         }
@@ -245,7 +245,7 @@ app.post("/api/chat", async (req, res) => {
     console.log(`Sending chat request to Gemini with ${messages.length} messages and ${sources?.length || 0} sources.`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: contents,
       config: {
         systemInstruction: mergedSystemInstruction,
@@ -390,7 +390,7 @@ app.post("/api/chat", async (req, res) => {
       responseText += `المصادر المتاحة حالياً لا توفر تفاصيل كافية للإجابة على سؤالكم بشكل مباشر. يرجى تعديل تفعيل المصادر أو رفع وثائق جديدة.`;
     }
 
-    res.status(statusCode).json({ 
+    res.status(200).json({ 
       error: errorMessage, 
       text: responseText, 
       isFallback: true 
@@ -503,7 +503,7 @@ ${useMultimodalPdf ? "5. نص المستند المستخرج (extractedText): �
     }
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: contents,
       config: {
         responseMimeType: "application/json",
@@ -718,7 +718,7 @@ ${sourcesContext}`;
     console.log(`Sending synthesis request to Gemini for ${sources.length} sources (type: ${toolType}).`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTIONS,
@@ -1000,7 +1000,7 @@ app.post("/api/extract-glossary", async (req, res) => {
 ${text.substring(0, 3500)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -1096,7 +1096,7 @@ app.post("/api/sweep-glossary", async (req, res) => {
 ${JSON.stringify(terms, null, 2)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
