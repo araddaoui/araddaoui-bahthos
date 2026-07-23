@@ -17,6 +17,7 @@ import {
 import { Source, Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
 import { copyReportToClipboard } from "../utils/exportToWordClipboard";
+import { generateLocalSynthesisFallback } from "../utils/localSynthesisFallback";
 
 interface SynthesisEditorProps {
   sources: Source[];
@@ -57,12 +58,23 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
     setIsFallbackMode(false);
     setViewMode("preview");
 
+    const activeSourcesData = sources.filter((s) => selectedSourceIds.includes(s.id));
+
+    let autoTitle = `توليف بحثي: ${topic}`;
+    if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic}`;
+    else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic}`;
+    else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic}`;
+    else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic}`;
+    setReportTitle(autoTitle);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 18000);
+
     try {
-      const activeSourcesData = sources.filter((s) => selectedSourceIds.includes(s.id));
-      
       const response = await fetch("/api/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           sources: activeSourcesData,
           topic: topic,
@@ -70,27 +82,28 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         }),
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json().catch(() => ({}));
 
       if (data && data.text) {
         setGeneratedText(data.text);
         setIsFallbackMode(!!data.isFallback);
-        
-        let autoTitle = `توليف بحثي: ${topic}`;
-        if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic}`;
-        else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic}`;
-        else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic}`;
-        else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic}`;
-        if (data.isFallback) autoTitle = `تحليل وتقاطعات الأدلة: ${topic}`;
-        
-        setReportTitle(autoTitle);
         setErrorMsg("");
       } else {
-        throw new Error(data.error || "فشلت عملية توليد التوليف. يرجى المحاولة لاحقاً.");
+        // API returned no text or error status - invoke guaranteed local synthesis fallback
+        console.warn("API synthesis returned empty or non-JSON response, using client-side fallback.");
+        const fallbackText = generateLocalSynthesisFallback(activeSourcesData, topic, toolType);
+        setGeneratedText(fallbackText);
+        setIsFallbackMode(true);
+        setErrorMsg("");
       }
     } catch (error: any) {
-      console.error(error);
-      setErrorMsg(error.message || "حدث خطأ أثناء التوليف بالذكاء الاصطناعي. يرجى المحاولة لاحقاً.");
+      clearTimeout(timeoutId);
+      console.warn("API synthesis fetch failed/timed out, generating local synthesis fallback:", error);
+      const fallbackText = generateLocalSynthesisFallback(activeSourcesData, topic, toolType);
+      setGeneratedText(fallbackText);
+      setIsFallbackMode(true);
+      setErrorMsg("");
     } finally {
       setIsGenerating(false);
     }
