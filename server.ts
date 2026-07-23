@@ -952,7 +952,7 @@ ${sourcesContext}`;
       reportText += `يظهر التوليف الشامل للمصادر أن معالجة موضوع "${topic}" تتطلب منظوراً متعدد الأبعاد يدمج بين الجوانب النظرية والتطبيقات العملية الميدانية. يُنصح الباحثون بالبناء على هذه المقارنات لتصميم دراسات مستقبلية تسد الفجوات المعرفية المحددة في هذه الأوراق.\n`;
     }
 
-    res.status(statusCode).json({ 
+    res.status(200).json({ 
       error: errorMessage, 
       text: reportText, 
       isFallback: true 
@@ -1168,11 +1168,42 @@ app.get("/api/load-state", (req, res) => {
 });
 
 app.post("/api/save-state", (req, res) => {
-  const { sources, glossaryTerms } = req.body;
+  const { sources, glossaryTerms, isExplicitDelete } = req.body;
   try {
-    const data = JSON.stringify({ sources, glossaryTerms }, null, 2);
+    let finalSources = Array.isArray(sources) ? sources : [];
+    let finalGlossary = Array.isArray(glossaryTerms) ? glossaryTerms : [];
+
+    // If NOT an explicit delete action, merge with existing disk state to preserve all documents
+    if (!isExplicitDelete && fs.existsSync(STATE_FILE_PATH)) {
+      try {
+        const fileContent = fs.readFileSync(STATE_FILE_PATH, "utf8");
+        const parsed = JSON.parse(fileContent);
+        if (Array.isArray(parsed.sources)) {
+          const merged = [...finalSources];
+          parsed.sources.forEach((es: any) => {
+            if (!merged.some((ms) => ms.id === es.id || ms.title === es.title)) {
+              merged.push(es);
+            }
+          });
+          finalSources = merged;
+        }
+        if (Array.isArray(parsed.glossaryTerms)) {
+          const merged = [...finalGlossary];
+          parsed.glossaryTerms.forEach((eg: any) => {
+            if (!merged.some((mg) => mg.term.toLowerCase() === eg.term.toLowerCase())) {
+              merged.push(eg);
+            }
+          });
+          finalGlossary = merged;
+        }
+      } catch (e) {
+        console.warn("Failed to parse existing state file during merge:", e);
+      }
+    }
+
+    const data = JSON.stringify({ sources: finalSources, glossaryTerms: finalGlossary }, null, 2);
     fs.writeFileSync(STATE_FILE_PATH, data, "utf8");
-    return res.json({ success: true });
+    return res.json({ success: true, sourcesCount: finalSources.length });
   } catch (error) {
     console.error("Error saving state to persistent file:", error);
     return res.status(500).json({ error: "Failed to save state" });

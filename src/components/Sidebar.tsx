@@ -40,6 +40,7 @@ export default function Sidebar({
   const [isOpen, setIsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
   const activeProject = projects.find(p => p.id === currentProjectId) || projects[0] || { id: "default", name: "المشروع التجريبي الأول" };
 
@@ -227,21 +228,17 @@ export default function Sidebar({
                           </button>
 
                           <button
-                            onClick={() => {
-                              const isLast = projects.length <= 1;
-                              const msg = isLast 
-                                ? `هل أنت متأكد من رغبتك في تصفير مشروع "${proj.name}"؟ سيؤدي ذلك إلى حذف جميع المصادر والدردشات والمصطلحات والبدء من جديد بصفحة فارغة تماماً.`
-                                : `هل أنت متأكد من رغبتك في حذف مشروع "${proj.name}"؟ سيتم حذف جميع المصادر والدردشات الخاصة به.`;
-                              if (confirm(msg)) {
-                                onDeleteProject(proj.id);
-                              }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectToDelete(proj);
                             }}
                             className={`p-1 rounded-md transition-colors ${
                               isSelected
                                 ? "text-teal-300 hover:bg-[#073c3d]"
                                 : "text-gray-400 hover:text-red-500 hover:bg-red-50"
                             }`}
-                            title={projects.length <= 1 ? "تصفير المشروع والبدء من جديد" : "حذف المشروع"}
+                            title={projects.length <= 1 ? "تصفير المشروع والبدء من جديد" : `حذف مشروع "${proj.name}"`}
+                            id={`delete-project-btn-${proj.id}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -308,6 +305,58 @@ export default function Sidebar({
           bahthOS v1.0.0
         </div>
       </div>
+
+      {/* Custom Delete Project Modal */}
+      <AnimatePresence>
+        {projectToDelete && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="delete-project-modal">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl border border-[#e2e2dd] shadow-xl max-w-md w-full p-6 text-right space-y-4"
+            >
+              <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
+                <div className="bg-red-50 text-red-600 p-2 rounded-xl">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-red-800">تأكيد حذف المشروع: {projectToDelete.name}</h3>
+                  <p className="text-[10px] text-gray-400 font-medium mt-0.5">تصفير أو إزالة ملف المشروع نهائياً</p>
+                </div>
+              </div>
+              
+              <p className="text-xs text-gray-600 leading-relaxed font-semibold">
+                {projects.length <= 1
+                  ? `هل أنت متأكد من رغبتك في تصفير مشروع "${projectToDelete.name}"؟ سيؤدي ذلك إلى حذف جميع المصادر والدردشات والمصطلحات والبدء من جديد بصفحة فارغة تماماً.`
+                  : `هل أنت متأكد من رغبتك في حذف مشروع "${projectToDelete.name}"؟ سيتم حذف جميع المصادر والدردشات والمصطلحات التابعة له بشكل نهائي.`}
+              </p>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setProjectToDelete(null)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={() => {
+                    const idToDelete = projectToDelete.id;
+                    setProjectToDelete(null);
+                    setIsOpen(false);
+                    onDeleteProject(idToDelete);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                  id="confirm-delete-project-modal-btn"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>نعم، حذف المشروع نهائياً</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

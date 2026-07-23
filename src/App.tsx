@@ -22,6 +22,8 @@ import {
 } from "./firebase";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView";
+import { performLocalTermExtraction } from "./utils/termExtractor";
+import { getStoredItem, setStoredItem, removeStoredItem } from "./utils/indexedDBStorage";
 
 // Default glossary terms to populate on first load (starts empty to ensure a clean slate)
 const initialGlossary: GlossaryTerm[] = [];
@@ -299,10 +301,34 @@ export default function App() {
         const cloudTemp = activeProjObj?.temperature ?? 0.2;
 
         loadedProjectIdRef.current = activeId;
-        setSources(cloudSources);
-        setMessages(cloudMessages);
-        setSyntheses(cloudSyntheses);
-        setGlossaryTerms(cloudGlossary);
+        setSources((prev) => {
+          const merged = [...cloudSources];
+          prev.forEach((localSrc) => {
+            if (!merged.some((m) => m.id === localSrc.id || m.title === localSrc.title)) {
+              merged.push(localSrc);
+            }
+          });
+          return merged;
+        });
+        setMessages((prev) => (prev.length > cloudMessages.length ? prev : cloudMessages));
+        setSyntheses((prev) => {
+          const merged = [...cloudSyntheses];
+          prev.forEach((localSyn) => {
+            if (!merged.some((m) => m.id === localSyn.id)) {
+              merged.push(localSyn);
+            }
+          });
+          return merged;
+        });
+        setGlossaryTerms((prev) => {
+          const merged = [...cloudGlossary];
+          prev.forEach((localTerm) => {
+            if (!merged.some((m) => m.term.toLowerCase() === localTerm.term.toLowerCase())) {
+              merged.push(localTerm);
+            }
+          });
+          return merged;
+        });
         setTemperature(cloudTemp);
         setCurrentProjectId(activeId);
 
@@ -517,10 +543,29 @@ export default function App() {
           const data = await res.json();
           if (data) {
             if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
-              setSources(data.sources);
+              setSources((prev) => {
+                if (prev.length === 0) return data.sources;
+                const merged = [...prev];
+                data.sources.forEach((s: Source) => {
+                  if (!merged.some((m) => m.id === s.id || m.title === s.title)) {
+                    merged.push(s);
+                  }
+                });
+                return merged;
+              });
             }
             if (data.glossaryTerms && Array.isArray(data.glossaryTerms) && data.glossaryTerms.length > 0) {
-              setGlossaryTerms(cleanAndMigrateGlossary(data.glossaryTerms));
+              setGlossaryTerms((prev) => {
+                if (prev.length === 0) return cleanAndMigrateGlossary(data.glossaryTerms);
+                const merged = [...prev];
+                const cleanData = cleanAndMigrateGlossary(data.glossaryTerms);
+                cleanData.forEach((t) => {
+                  if (!merged.some((m) => m.term.toLowerCase() === t.term.toLowerCase())) {
+                    merged.push(t);
+                  }
+                });
+                return merged;
+              });
             }
           }
         }
@@ -532,6 +577,71 @@ export default function App() {
     };
     fetchState();
   }, []);
+
+  // Hydrate state from IndexedDB whenever current project changes or on startup
+  useEffect(() => {
+    let isMounted = true;
+    const hydrateFromIndexedDB = async () => {
+      const activeId = currentProjectId || "default";
+      try {
+        const [idbSources, idbGlossary, idbMessages, idbSyntheses] = await Promise.all([
+          getStoredItem<Source[]>(`bahthos_sources_${activeId}`, []),
+          getStoredItem<GlossaryTerm[]>(`bahthos_glossary_${activeId}`, []),
+          getStoredItem<Message[]>(`bahthos_messages_${activeId}`, []),
+          getStoredItem<Synthesis[]>(`bahthos_syntheses_${activeId}`, [])
+        ]);
+
+        if (!isMounted) return;
+
+        if (idbSources && idbSources.length > 0) {
+          setSources((prev) => {
+            const merged = [...prev];
+            idbSources.forEach((s) => {
+              if (!merged.some((m) => m.id === s.id || m.title === s.title)) {
+                merged.push(s);
+              }
+            });
+            return merged;
+          });
+        }
+
+        if (idbGlossary && idbGlossary.length > 0) {
+          setGlossaryTerms((prev) => {
+            const merged = [...prev];
+            cleanAndMigrateGlossary(idbGlossary).forEach((t) => {
+              if (!merged.some((m) => m.term.toLowerCase() === t.term.toLowerCase())) {
+                merged.push(t);
+              }
+            });
+            return merged;
+          });
+        }
+
+        if (idbMessages && idbMessages.length > 0) {
+          setMessages((prev) => (prev.length === 0 ? idbMessages : prev));
+        }
+
+        if (idbSyntheses && idbSyntheses.length > 0) {
+          setSyntheses((prev) => {
+            const merged = [...prev];
+            idbSyntheses.forEach((syn) => {
+              if (!merged.some((m) => m.id === syn.id)) {
+                merged.push(syn);
+              }
+            });
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.error("IndexedDB hydration error:", err);
+      }
+    };
+
+    hydrateFromIndexedDB();
+    return () => {
+      isMounted = false;
+    };
+  }, [currentProjectId]);
 
   useEffect(() => {
     const runSweep = async () => {
@@ -632,29 +742,36 @@ export default function App() {
 
     // 1. Save current state of the old project to its specific keys
     if (currentProjectId) {
+      setStoredItem(`bahthos_sources_${currentProjectId}`, sources);
+      setStoredItem(`bahthos_messages_${currentProjectId}`, messages);
+      setStoredItem(`bahthos_syntheses_${currentProjectId}`, syntheses);
+      setStoredItem(`bahthos_glossary_${currentProjectId}`, glossaryTerms);
       try {
-        localStorage.setItem(`bahthos_sources_${currentProjectId}`, JSON.stringify(sources));
-        localStorage.setItem(`bahthos_messages_${currentProjectId}`, JSON.stringify(messages));
-        localStorage.setItem(`bahthos_syntheses_${currentProjectId}`, JSON.stringify(syntheses));
-        localStorage.setItem(`bahthos_glossary_${currentProjectId}`, JSON.stringify(glossaryTerms));
         localStorage.setItem(`bahthos_temperature_${currentProjectId}`, temperature.toString());
       } catch (e) {
-        console.error("Failed to save state during switch:", e);
+        console.error("Failed to save temperature during switch:", e);
       }
     }
 
-    // 2. Load the new project's state
+    // 2. Load the new project's state from IndexedDB / localStorage
     try {
+      const [idbSources, idbMessages, idbSyntheses, idbGlossary] = await Promise.all([
+        getStoredItem<Source[]>(`bahthos_sources_${newProjectId}`, []),
+        getStoredItem<Message[]>(`bahthos_messages_${newProjectId}`, []),
+        getStoredItem<Synthesis[]>(`bahthos_syntheses_${newProjectId}`, []),
+        getStoredItem<GlossaryTerm[]>(`bahthos_glossary_${newProjectId}`, [])
+      ]);
+
       const savedSources = localStorage.getItem(`bahthos_sources_${newProjectId}`) || localStorage.getItem(`tawlif_sources_${newProjectId}`);
       const savedMessages = localStorage.getItem(`bahthos_messages_${newProjectId}`) || localStorage.getItem(`tawlif_messages_${newProjectId}`);
       const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${newProjectId}`) || localStorage.getItem(`tawlif_syntheses_${newProjectId}`);
       const savedGlossary = localStorage.getItem(`bahthos_glossary_${newProjectId}`) || localStorage.getItem(`tawlif_glossary_${newProjectId}`);
       const savedTemp = localStorage.getItem(`bahthos_temperature_${newProjectId}`) || localStorage.getItem(`tawlif_temperature_${newProjectId}`);
 
-      const loadedSources = savedSources ? JSON.parse(savedSources) : (newProjectId === "default" ? defaultSources : []);
-      const loadedMessages = savedMessages ? JSON.parse(savedMessages) : [];
-      const loadedSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : (newProjectId === "default" ? initialSyntheses : []);
-      const loadedGlossary = savedGlossary ? JSON.parse(savedGlossary) : (newProjectId === "default" ? initialGlossary : []);
+      const loadedSources = idbSources.length > 0 ? idbSources : (savedSources ? JSON.parse(savedSources) : (newProjectId === "default" ? defaultSources : []));
+      const loadedMessages = idbMessages.length > 0 ? idbMessages : (savedMessages ? JSON.parse(savedMessages) : []);
+      const loadedSyntheses = idbSyntheses.length > 0 ? idbSyntheses : (savedSyntheses ? JSON.parse(savedSyntheses) : (newProjectId === "default" ? initialSyntheses : []));
+      const loadedGlossary = idbGlossary.length > 0 ? idbGlossary : (savedGlossary ? JSON.parse(savedGlossary) : (newProjectId === "default" ? initialGlossary : []));
       const loadedTemp = savedTemp ? parseFloat(savedTemp) : 0.2;
 
       // 3. Update the ref immediately to block reactive saving of old values during render
@@ -701,34 +818,49 @@ export default function App() {
     handleSwitchProject(newProj.id);
   };
 
-  const handleDeleteProject = async (projectId: string) => {
-    const isDeletingActive = currentProjectId === projectId;
+  const handleDeleteProject = async (identifierOrId: string) => {
+    const targetProj = projects.find(
+      (p) => p.id === identifierOrId || p.name.trim().toLowerCase() === identifierOrId.trim().toLowerCase()
+    );
+    const targetId = targetProj ? targetProj.id : identifierOrId;
+    const isDeletingActive = currentProjectId === targetId;
+
+    const updatedProjects = projects.filter((p) => p.id !== targetId);
+
+    // Update ref immediately so that any pending background effects or saves DO NOT touch targetId
+    if (isDeletingActive) {
+      const nextId = updatedProjects[0]?.id || "default";
+      loadedProjectIdRef.current = nextId;
+    }
+
+    // Clean up localstorage & IndexedDB
+    try {
+      localStorage.removeItem(`bahthos_sources_${targetId}`);
+      localStorage.removeItem(`bahthos_messages_${targetId}`);
+      localStorage.removeItem(`bahthos_syntheses_${targetId}`);
+      localStorage.removeItem(`bahthos_glossary_${targetId}`);
+      localStorage.removeItem(`bahthos_temperature_${targetId}`);
+      localStorage.removeItem(`tawlif_sources_${targetId}`);
+      localStorage.removeItem(`tawlif_messages_${targetId}`);
+      localStorage.removeItem(`tawlif_syntheses_${targetId}`);
+      localStorage.removeItem(`tawlif_glossary_${targetId}`);
+      localStorage.removeItem(`tawlif_temperature_${targetId}`);
+
+      removeStoredItem(`bahthos_sources_${targetId}`);
+      removeStoredItem(`bahthos_messages_${targetId}`);
+      removeStoredItem(`bahthos_syntheses_${targetId}`);
+      removeStoredItem(`bahthos_glossary_${targetId}`);
+    } catch (e) {
+      console.error("Failed to clean up storage for deleted project:", e);
+    }
 
     if (currentUser) {
       try {
-        await deleteUserProject(currentUser.uid, projectId);
+        await deleteUserProject(currentUser.uid, targetId);
       } catch (err) {
         console.error("Failed to delete project from Firestore:", err);
       }
     }
-
-    // Clean up localstorage
-    try {
-      localStorage.removeItem(`bahthos_sources_${projectId}`);
-      localStorage.removeItem(`bahthos_messages_${projectId}`);
-      localStorage.removeItem(`bahthos_syntheses_${projectId}`);
-      localStorage.removeItem(`bahthos_glossary_${projectId}`);
-      localStorage.removeItem(`bahthos_temperature_${projectId}`);
-      localStorage.removeItem(`tawlif_sources_${projectId}`);
-      localStorage.removeItem(`tawlif_messages_${projectId}`);
-      localStorage.removeItem(`tawlif_syntheses_${projectId}`);
-      localStorage.removeItem(`tawlif_glossary_${projectId}`);
-      localStorage.removeItem(`tawlif_temperature_${projectId}`);
-    } catch (e) {
-      console.error(e);
-    }
-
-    const updatedProjects = projects.filter((p) => p.id !== projectId);
 
     if (updatedProjects.length === 0) {
       // If there are no projects left, create a fresh "default" project
@@ -740,7 +872,11 @@ export default function App() {
       };
       
       setProjects([freshProj]);
-      
+      try {
+        localStorage.setItem("bahthos_projects", JSON.stringify([freshProj]));
+        localStorage.setItem("bahthos_current_project_id", "default");
+      } catch (e) {}
+
       if (currentUser) {
         try {
           await saveUserProject(currentUser.uid, freshProj);
@@ -755,6 +891,7 @@ export default function App() {
         }
       }
       
+      loadedProjectIdRef.current = "default";
       setCurrentProjectId("default");
       setSources([]);
       setMessages([]);
@@ -765,41 +902,93 @@ export default function App() {
       setActiveMainView("chat");
     } else {
       setProjects(updatedProjects);
+      try {
+        localStorage.setItem("bahthos_projects", JSON.stringify(updatedProjects));
+      } catch (e) {}
+
       if (isDeletingActive) {
         const nextActiveProject = updatedProjects[0];
-        handleSwitchProject(nextActiveProject.id);
+        // Load state for nextActiveProject directly without saving deleted project
+        if (currentUser) {
+          setIsFirebaseLoading(true);
+          try {
+            const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
+              await loadProjectData(currentUser.uid, nextActiveProject.id);
+
+            loadedProjectIdRef.current = nextActiveProject.id;
+            setSources(cloudSources);
+            setMessages(cloudMessages);
+            setSyntheses(cloudSyntheses);
+            setGlossaryTerms(cloudGlossary);
+            setTemperature(nextActiveProject.temperature ?? 0.2);
+            setCurrentProjectId(nextActiveProject.id);
+            try {
+              localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
+            } catch (e) {}
+            setSelectedSourceId(null);
+            setActiveMainView("chat");
+          } catch (e) {
+            console.error("Failed to load next project data:", e);
+          } finally {
+            setIsFirebaseLoading(false);
+          }
+        } else {
+          try {
+            const [idbSources, idbMessages, idbSyntheses, idbGlossary] = await Promise.all([
+              getStoredItem<Source[]>(`bahthos_sources_${nextActiveProject.id}`, []),
+              getStoredItem<Message[]>(`bahthos_messages_${nextActiveProject.id}`, []),
+              getStoredItem<Synthesis[]>(`bahthos_syntheses_${nextActiveProject.id}`, []),
+              getStoredItem<GlossaryTerm[]>(`bahthos_glossary_${nextActiveProject.id}`, [])
+            ]);
+
+            const savedSources = localStorage.getItem(`bahthos_sources_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_sources_${nextActiveProject.id}`);
+            const savedMessages = localStorage.getItem(`bahthos_messages_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_messages_${nextActiveProject.id}`);
+            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_syntheses_${nextActiveProject.id}`);
+            const savedGlossary = localStorage.getItem(`bahthos_glossary_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_glossary_${nextActiveProject.id}`);
+            const savedTemp = localStorage.getItem(`bahthos_temperature_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_temperature_${nextActiveProject.id}`);
+
+            const loadedSources = idbSources.length > 0 ? idbSources : (savedSources ? JSON.parse(savedSources) : (nextActiveProject.id === "default" ? defaultSources : []));
+            const loadedMessages = idbMessages.length > 0 ? idbMessages : (savedMessages ? JSON.parse(savedMessages) : []);
+            const loadedSyntheses = idbSyntheses.length > 0 ? idbSyntheses : (savedSyntheses ? JSON.parse(savedSyntheses) : (nextActiveProject.id === "default" ? initialSyntheses : []));
+            const loadedGlossary = idbGlossary.length > 0 ? idbGlossary : (savedGlossary ? JSON.parse(savedGlossary) : (nextActiveProject.id === "default" ? initialGlossary : []));
+            const loadedTemp = savedTemp ? parseFloat(savedTemp) : 0.2;
+
+            loadedProjectIdRef.current = nextActiveProject.id;
+            setSources(loadedSources);
+            setMessages(loadedMessages);
+            setSyntheses(loadedSyntheses);
+            setGlossaryTerms(loadedGlossary);
+            setTemperature(loadedTemp);
+            setCurrentProjectId(nextActiveProject.id);
+            try {
+              localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
+            } catch (e) {}
+            setSelectedSourceId(null);
+            setActiveMainView("chat");
+          } catch (e) {
+            console.error("Failed to switch to next active project:", e);
+          }
+        }
       }
     }
   };
 
-  // Save sources to localStorage on change
+  // Save sources to IndexedDB & localStorage on change
   useEffect(() => {
     if (currentProjectId !== loadedProjectIdRef.current) return;
-    try {
-      localStorage.setItem(`bahthos_sources_${currentProjectId}`, JSON.stringify(sources));
-    } catch (e) {
-      console.error("Failed to save sources to localStorage", e);
-    }
+    setStoredItem(`bahthos_sources_${currentProjectId}`, sources);
   }, [sources, currentProjectId]);
 
-  // Save messages to localStorage on change
+  // Save messages to IndexedDB & localStorage on change
   useEffect(() => {
     if (currentProjectId !== loadedProjectIdRef.current) return;
-    try {
-      localStorage.setItem(`bahthos_messages_${currentProjectId}`, JSON.stringify(messages));
-    } catch (e) {
-      console.error("Failed to save messages to localStorage", e);
-    }
+    setStoredItem(`bahthos_messages_${currentProjectId}`, messages);
   }, [messages, currentProjectId]);
 
-  // Save syntheses to localStorage on change
+  // Save syntheses to IndexedDB & localStorage on change
   useEffect(() => {
     if (currentProjectId !== loadedProjectIdRef.current) return;
-    try {
-      localStorage.setItem(`bahthos_syntheses_${currentProjectId}`, JSON.stringify(syntheses));
-    } catch (e) {
-      console.error("Failed to save syntheses to localStorage", e);
-    }
+    setStoredItem(`bahthos_syntheses_${currentProjectId}`, syntheses);
   }, [syntheses, currentProjectId]);
 
   // Save temperature to localStorage on change
@@ -812,14 +1001,10 @@ export default function App() {
     }
   }, [temperature, currentProjectId]);
 
-  // Save glossary to localStorage on change
+  // Save glossary to IndexedDB & localStorage on change
   useEffect(() => {
     if (currentProjectId !== loadedProjectIdRef.current) return;
-    try {
-      localStorage.setItem(`bahthos_glossary_${currentProjectId}`, JSON.stringify(glossaryTerms));
-    } catch (e) {
-      console.error("Failed to save glossary to localStorage", e);
-    }
+    setStoredItem(`bahthos_glossary_${currentProjectId}`, glossaryTerms);
   }, [glossaryTerms, currentProjectId]);
 
   // Save sources, messages, syntheses, and glossary terms to Firebase Firestore when they change
@@ -977,18 +1162,39 @@ export default function App() {
       const response = await fetch("/api/extract-glossary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: text.substring(0, 8000) }),
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.terms && Array.isArray(data.terms)) {
+        if (data.terms && Array.isArray(data.terms) && data.terms.length > 0) {
           addGlossaryTermsDirectly(data.terms, sourceId);
         }
       }
     } catch (e) {
       console.warn("Passive glossary extraction failed:", e);
     }
+
+    // Always run heuristic local term extraction fallback so concepts and terms NEVER remain zero!
+    const localTerms = performLocalTermExtraction(text, sourceId);
+    if (localTerms.length > 0) {
+      addGlossaryTermsDirectly(localTerms, sourceId);
+    }
   };
+
+  // Auto-extract terms for all uploaded sources so concepts and terms ALWAYS populate
+  useEffect(() => {
+    if (sources.length === 0) return;
+
+    sources.forEach((src) => {
+      const srcText = src.content || "";
+      if (srcText.length > 10) {
+        const localTerms = performLocalTermExtraction(srcText, src.id);
+        if (localTerms.length > 0) {
+          addGlossaryTermsDirectly(localTerms, src.id);
+        }
+      }
+    });
+  }, [sources]);
 
   // Add pre-extracted terms directly to the glossary
   const addGlossaryTermsDirectly = (terms: any[], sourceId?: string) => {
@@ -1125,7 +1331,26 @@ export default function App() {
       error,
     };
 
-    setSources((prev) => [...prev, newSrc]);
+    setSources((prev) => {
+      const updated = [...prev, newSrc];
+      setStoredItem(`bahthos_sources_${currentProjectId}`, updated);
+
+      // Save immediately to server
+      fetch("/api/save-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sources: updated, glossaryTerms }),
+      }).catch((err) => console.error("Failed to save source to server:", err));
+
+      // Save immediately to Firestore if logged in
+      if (currentUser) {
+        saveProjectData(currentUser.uid, currentProjectId, { sources: updated, glossaryTerms })
+          .catch((err) => console.error("Failed to sync new source to Firestore:", err));
+      }
+
+      return updated;
+    });
+
     if (!error) {
       setSelectedSourceId(newSrc.id);
       setActiveMainView("source");
@@ -1144,6 +1369,19 @@ export default function App() {
   const handleDeleteSource = (id: string) => {
     const updated = sources.filter((src) => src.id !== id);
     setSources(updated);
+    setStoredItem(`bahthos_sources_${currentProjectId}`, updated);
+
+    // Synchronously send explicit delete to backend
+    fetch("/api/save-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sources: updated, glossaryTerms, isExplicitDelete: true }),
+    }).catch((err) => console.error("Failed to sync delete to server:", err));
+
+    if (currentUser) {
+      saveProjectData(currentUser.uid, currentProjectId, { sources: updated, glossaryTerms, isExplicitReset: true })
+        .catch((err) => console.error("Failed to sync delete to Firestore:", err));
+    }
     
     if (updated.length === 0) {
       setGlossaryTerms([]);
@@ -1473,6 +1711,10 @@ export default function App() {
               onResetWorkspace={handleResetWorkspace}
               currentUser={currentUser}
               onSignOut={handleSignOut}
+              projects={projects}
+              currentProjectId={currentProjectId}
+              onDeleteProject={handleDeleteProject}
+              onSwitchProject={handleSwitchProject}
               onShowLandingPage={() => {
                 setShowLandingPage(true);
                 try {

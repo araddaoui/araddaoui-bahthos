@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Source, Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
+import { copyReportToClipboard } from "../utils/exportToWordClipboard";
 
 interface SynthesisEditorProps {
   sources: Source[];
@@ -69,32 +70,24 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errText = errorData.error || "فشلت عملية توليد التوليف.";
+      const data = await response.json().catch(() => ({}));
 
-        if (errorData.isFallback && errorData.text) {
-          setGeneratedText(errorData.text);
-          setIsFallbackMode(true);
-          
-          let autoTitle = `مسودة تقريبية أوفلاين: ${topic}`;
-          setReportTitle(autoTitle);
-        }
+      if (data && data.text) {
+        setGeneratedText(data.text);
+        setIsFallbackMode(!!data.isFallback);
         
-        throw new Error(errText);
+        let autoTitle = `توليف بحثي: ${topic}`;
+        if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic}`;
+        else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic}`;
+        else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic}`;
+        else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic}`;
+        if (data.isFallback) autoTitle = `تحليل وتقاطعات الأدلة: ${topic}`;
+        
+        setReportTitle(autoTitle);
+        setErrorMsg("");
+      } else {
+        throw new Error(data.error || "فشلت عملية توليد التوليف. يرجى المحاولة لاحقاً.");
       }
-
-      const data = await response.json();
-      setGeneratedText(data.text);
-      setIsFallbackMode(false);
-      
-      let autoTitle = `توليف بحثي: ${topic}`;
-      if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic}`;
-      else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic}`;
-      else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic}`;
-      else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic}`;
-      
-      setReportTitle(autoTitle);
     } catch (error: any) {
       console.error(error);
       setErrorMsg(error.message || "حدث خطأ أثناء التوليف بالذكاء الاصطناعي. يرجى المحاولة لاحقاً.");
@@ -103,10 +96,9 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!generatedText) return;
-    const cleanText = stripEvidenceTags(generatedText);
-    navigator.clipboard.writeText(cleanText);
+    await copyReportToClipboard(generatedText, reportTitle);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };

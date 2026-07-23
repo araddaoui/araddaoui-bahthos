@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
+import { copyReportToClipboard } from "../utils/exportToWordClipboard";
 
 interface SynthesisHistoryProps {
   syntheses: Synthesis[];
@@ -25,9 +26,8 @@ export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: Synth
 
   const activeSyn = syntheses.find((s) => s.id === selectedSynId);
 
-  const handleCopy = (text: string) => {
-    const cleanText = stripEvidenceTags(text);
-    navigator.clipboard.writeText(cleanText);
+  const handleCopy = async (text: string, title?: string) => {
+    await copyReportToClipboard(text, title);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
@@ -118,7 +118,7 @@ export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: Synth
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleCopy(activeSyn.text)}
+                  onClick={() => handleCopy(activeSyn.text, activeSyn.title)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f4f3ee] hover:bg-[#eae9e2] text-gray-700 text-xs font-semibold rounded-lg border border-[#e2e2dd] transition-all"
                   id="history-copy-btn"
                 >
