@@ -80,10 +80,10 @@ async function generateContentWithRetry(
         attempt++;
         const delay = attempt === 2 ? 1500 : 3000;
         
-        // On third attempt, if original model was gemini-2.5-flash, fall back to gemini-1.5-flash
-        if (attempt === 3 && params.model === "gemini-2.5-flash") {
+        // On second or third attempt, if original model was gemini-2.0-flash, fall back to gemini-1.5-flash
+        if (attempt >= 2 && currentModel === "gemini-2.0-flash") {
           currentModel = "gemini-1.5-flash";
-          console.warn(`Attempt ${attempt}: Falling back to gemini-1.5-flash due to high demand/503 on gemini-2.5-flash.`);
+          console.warn(`Attempt ${attempt}: Falling back to gemini-1.5-flash due to demand/status on gemini-2.0-flash.`);
         } else {
           console.warn(`Attempt ${attempt}: Retrying ${currentModel} after a delay of ${delay}ms due to 503/timeout...`);
         }
@@ -502,7 +502,7 @@ ${useMultimodalPdf ? "5. نص المستند المستخرج (extractedText): �
     }
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: contents,
       config: {
         responseMimeType: "application/json",
@@ -717,7 +717,7 @@ ${sourcesContext}`;
     console.log(`Sending synthesis request to Gemini for ${sources.length} sources (type: ${toolType}).`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTIONS,
@@ -919,13 +919,13 @@ ${sourcesContext}`;
       reportText += `يتمحور التساؤل البحثي حول "${topic || "المقارنة العامة للمصادر"}". يمثل هذا الموضوع أحد المحاور الحيوية التي تتطلب تكاملاً في الرؤى وتدقيقاً في المنهجيات المتبعة. ومن خلال قراءة المصادر المتاحة، يتضح أن هناك تقاطعات جوهرية واختلافات منهجية تثري هذا النقاش البحثي.\n\n`;
       reportText += `### 2. نقاط الاتفاق والتكامل المنهجي\n`;
       if (sources.length > 1) {
-        reportText += `تتفق كل من **الوثيقة 1 (${sources[0].title})** و**الوثيقة 2 (${sources[1].title})** على الأهمية البالغة لدراسة العوامل المؤثرة وسياقات تطبيقها. تشير البيانات الواردة إلى أن هناك ارتباطاً وثيقاً بين المتغيرات المستقلة والنتائج النهائية الملاحظة.`;
+        reportText += `تتفق كل من **الوثيقة 1 (${sources[0]?.title || "الوثيقة الأولى"})** و**الوثيقة 2 (${sources[1]?.title || "الوثيقة الثانية"})** على الأهمية البالغة لدراسة العوامل المؤثرة وسياقات تطبيقها. تشير البيانات الواردة إلى أن هناك ارتباطاً وثيقاً بين المتغيرات المستقلة والنتائج النهائية الملاحظة.`;
         if (sources.length > 2) {
-          reportText += ` وتدعم **الوثيقة 3 (${sources[2].title})** هذا التوجه من خلال إبراز أهمية التحليل الهيكلي وتوفر المتطلبات الأساسية للنجاح.`;
+          reportText += ` وتدعم **الوثيقة 3 (${sources[2]?.title || "الوثيقة الثالثة"})** هذا التوجه من خلال إبراز أهمية التحليل الهيكلي وتوفر المتطلبات الأساسية للنجاح.`;
         }
         reportText += `\n\nتتقاطع هذه المصادر في تأكيدها على ضرورة تهيئة البيئة المناسبة ودعم الكوادر المعنية لضمان فاعلية المخرجات، وهو ما يظهر جلياً في التوافق العام حول التوصيات العملية الرامية إلى تحسين الأداء.\n\n`;
       } else {
-        reportText += `تتناول **الوثيقة 1 (${sources[0].title})** بشكل منفرد وأساسي هذا الجانب، حيث تقدم تحليلاً دقيقاً وهيكلياً للموضوع. وتوضح الوثيقة بوضوح أن الإجراءات المنهجية المتبعة تساهم بشكل مباشر في تحقيق الأهداف المرجوة وتجاوز التحديات القائمة.\n\n`;
+        reportText += `تتناول **الوثيقة 1 (${sources[0]?.title || "الوثيقة الأولى"})** بشكل منفرد وأساسي هذا الجانب، حيث تقدم تحليلاً دقيقاً وهيكلياً للموضوع. وتوضح الوثيقة بوضوح أن الإجراءات المنهجية المتبعة تساهم بشكل مباشر في تحقيق الأهداف المرجوة وتجاوز التحديات القائمة.\n\n`;
       }
       reportText += `<evidence strength="جيدة" agreement="متفقة" supporting="1 من أصل 2 مصادر">
   <supporting>
@@ -945,7 +945,7 @@ ${sourcesContext}`;
         });
         reportText += `\nيمكن تفسير هذه التباينات باختلاف منهجية جمع البيانات وحجم العينة المستهدفة، أو التنوع في الفترات الزمنية والبيئات المؤسسية التي أجريت فيها كل دراسة. هذا التباين لا يقلل من قيمة النتائج، بل يثري عملية الفهم الشامل للظاهرة من زوايا متعددة.\n\n`;
       } else {
-        reportText += `نظراً للاعتماد على مصدر واحد فقط وهو **الوثيقة 1 (${sources[0].title})**، فإن هذا التحليل يمثل وجهة نظر فردية غير مدعومة بمصادر موازية أو مقارنة في هذه المجموعة الحالية. لتوسيع أفق البحث، يوصى بإضافة وثائق أخرى تتناول نفس الموضوع من سياقات جغرافية أو منهجية مختلفة (كمية مقابل نوعية).\n\n`;
+        reportText += `نظراً للاعتماد على مصدر واحد فقط وهو **الوثيقة 1 (${sources[0]?.title || "الوثيقة الأولى"})**، فإن هذا التحليل يمثل وجهة نظر فردية غير مدعومة بمصادر موازية أو مقارنة في هذه المجموعة الحالية. لتوسيع أفق البحث، يوصى بإضافة وثائق أخرى تتناول نفس الموضوع من سياقات جغرافية أو منهجية مختلفة (كمية مقابل نوعية).\n\n`;
       }
       reportText += `### 4. الخلاصة والاستنتاجات التوليفية\n`;
       reportText += `يظهر التوليف الشامل للمصادر أن معالجة موضوع "${topic}" تتطلب منظوراً متعدد الأبعاد يدمج بين الجوانب النظرية والتطبيقات العملية الميدانية. يُنصح الباحثون بالبناء على هذه المقارنات لتصميم دراسات مستقبلية تسد الفجوات المعرفية المحددة في هذه الأوراق.\n`;
@@ -999,7 +999,7 @@ app.post("/api/extract-glossary", async (req, res) => {
 ${text.substring(0, 3500)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -1095,7 +1095,7 @@ app.post("/api/sweep-glossary", async (req, res) => {
 ${JSON.stringify(terms, null, 2)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -1151,7 +1151,7 @@ ${JSON.stringify(terms, null, 2)}`;
   }
 });
 
-const STATE_FILE_PATH = path.join(process.cwd(), "persistent_state.json");
+const STATE_FILE_PATH = path.join(process.env.TMPDIR || "/tmp", "persistent_state.json");
 
 app.get("/api/load-state", (req, res) => {
   try {
