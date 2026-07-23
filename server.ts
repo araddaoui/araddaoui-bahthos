@@ -20,6 +20,15 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Express route path normalizer for Vercel Serverless Functions
+app.use((req, res, next) => {
+  if (req.url.includes("index.ts")) {
+    req.url = req.url.replace(/\/api\/index\.ts\/?/, "/api/").replace(/index\.ts\/?/, "");
+    if (!req.url.startsWith("/api")) req.url = "/api" + req.url;
+  }
+  next();
+});
+
 // Initialize GoogleGenAI client lazy-loaded or at startup
 const getAiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -205,7 +214,7 @@ Respond entirely in clear Modern Standard Arabic, regardless of the language of 
 
 
 // API routes FIRST
-app.post("/api/chat", async (req, res) => {
+app.post(["/api/chat", "/chat"], async (req, res) => {
   const { messages, sources } = req.body;
   try {
     if (!messages || !Array.isArray(messages)) {
@@ -244,7 +253,7 @@ app.post("/api/chat", async (req, res) => {
     console.log(`Sending chat request to Gemini with ${messages.length} messages and ${sources?.length || 0} sources.`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: contents,
       config: {
         systemInstruction: mergedSystemInstruction,
@@ -398,7 +407,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // Endpoint for automatic single-document analysis (title, language, summary extraction)
-app.post("/api/analyze-document", async (req, res) => {
+app.post(["/api/analyze-document", "/analyze-document"], async (req, res) => {
   const { content, base64, mimeType, fileName } = req.body;
   if (!content && !base64) {
     return res.status(400).json({ error: "محتوى المستند فارغ أو غير صالح." });
@@ -586,7 +595,7 @@ const isDefaultSources = (sources: any[]) => {
          sources.some(s => s.title?.includes("Wellbeing") || s.id === "source-3");
 };
 
-app.post("/api/synthesize", async (req, res) => {
+app.post(["/api/synthesize", "/synthesize"], async (req, res) => {
   const { sources, topic, toolType } = req.body;
   if (!sources || !Array.isArray(sources) || sources.length === 0) {
     return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
@@ -960,7 +969,7 @@ ${sourcesContext}`;
 });
 
 // Endpoint to passively extract academic/technical terms from a text snippet
-app.post("/api/extract-glossary", async (req, res) => {
+app.post(["/api/extract-glossary", "/extract-glossary"], async (req, res) => {
   const { text } = req.body;
   if (!text || typeof text !== "string" || text.trim().length < 10) {
     return res.json({ terms: [] });
@@ -1057,7 +1066,7 @@ ${text.substring(0, 3500)}`;
 });
 
 // Endpoint to retrospectively sweep existing glossary terms and verify them
-app.post("/api/sweep-glossary", async (req, res) => {
+app.post(["/api/sweep-glossary", "/sweep-glossary"], async (req, res) => {
   const { terms } = req.body;
   if (!Array.isArray(terms) || terms.length === 0) {
     return res.json({ terms: [] });
@@ -1153,7 +1162,7 @@ ${JSON.stringify(terms, null, 2)}`;
 
 const STATE_FILE_PATH = path.join(process.env.TMPDIR || "/tmp", "persistent_state.json");
 
-app.get("/api/load-state", (req, res) => {
+app.get(["/api/load-state", "/load-state"], (req, res) => {
   try {
     if (fs.existsSync(STATE_FILE_PATH)) {
       const data = fs.readFileSync(STATE_FILE_PATH, "utf8");
@@ -1166,7 +1175,7 @@ app.get("/api/load-state", (req, res) => {
   }
 });
 
-app.post("/api/save-state", (req, res) => {
+app.post(["/api/save-state", "/save-state"], (req, res) => {
   const { sources, glossaryTerms, isExplicitDelete } = req.body;
   try {
     let finalSources = Array.isArray(sources) ? sources : [];
@@ -1209,7 +1218,7 @@ app.post("/api/save-state", (req, res) => {
   }
 });
 
-app.post("/api/reset-state", (req, res) => {
+app.post(["/api/reset-state", "/reset-state"], (req, res) => {
   try {
     if (fs.existsSync(STATE_FILE_PATH)) {
       fs.unlinkSync(STATE_FILE_PATH);
