@@ -25,6 +25,7 @@ interface SidebarProps {
   onSwitchProject: (id: string) => void;
   onCreateProject: (name: string) => void;
   onDeleteProject: (id: string) => void;
+  onShowLandingPage?: () => void;
 }
 
 export default function Sidebar({ 
@@ -35,7 +36,8 @@ export default function Sidebar({
   currentProjectId,
   onSwitchProject,
   onCreateProject,
-  onDeleteProject
+  onDeleteProject,
+  onShowLandingPage
 }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -81,12 +83,20 @@ export default function Sidebar({
     <div className="w-20 md:w-64 bg-[#f4f3ee] border-l border-[#e2e2dd] h-full flex flex-col justify-between p-4" id="bahthos-sidebar">
       <div className="flex flex-col gap-5">
         {/* Logo and Brand */}
-        <div className="flex items-center gap-3 px-2 py-3 border-b border-[#e2e2dd] justify-center md:justify-start">
-          <div className="bg-[#094d4e] text-[#fafaf8] p-2 rounded-lg flex items-center justify-center shadow-sm">
+        <div 
+          onClick={onShowLandingPage}
+          className="flex items-center gap-3 px-2 py-3 border-b border-[#e2e2dd] justify-center md:justify-start cursor-pointer group hover:bg-[#eae8e1] rounded-xl transition-all"
+          title="عرض الصفحة التعريفية الرئيسية"
+          id="sidebar-brand-logo-btn"
+        >
+          <div className="bg-[#094d4e] group-hover:bg-[#07393a] text-[#fafaf8] p-2 rounded-lg flex items-center justify-center shadow-sm transition-colors">
             <BookOpen className="w-6 h-6" />
           </div>
           <div className="hidden md:flex flex-col select-none">
-            <span className="font-extrabold text-[25px] text-[#094d4e] tracking-tight leading-none">بحث OS</span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-extrabold text-[25px] text-[#094d4e] tracking-tight leading-none">بحث OS</span>
+              <span className="text-[9px] bg-teal-100 text-teal-800 font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">الرئيسية</span>
+            </div>
             <span className="text-xs font-semibold text-gray-500 tracking-wide mt-1">bahthOS</span>
             <span className="text-[9px] text-gray-400 font-medium mt-1">مساعد البحث المنهجي</span>
           </div>

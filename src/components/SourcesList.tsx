@@ -772,10 +772,9 @@ export default function SourcesList({
                 <p className="text-[10px] text-gray-400 mt-1">المصطلحات تظهر تلقائياً عند رفع المستندات أو تفعيل المصادر.</p>
               </div>
               
-              <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-amber-850 leading-relaxed" dir="rtl">
-                <span className="font-bold text-amber-950 block mb-1">توضيح هام حول حصة الاستخدام (API Quotas):</span>
-                إذا قمت برفع مستندات متعددة (مثل 5-6 مستندات في جلسة واحدة)، فقد يتم تجاوز الحد اليومي المسموح به مجاناً من طلبات الذكاء الاصطناعي (<span className="font-bold font-mono text-amber-950">20 طلباً/يومياً</span> لنموذج Gemini 3.5 Flash).
-                عند حدوث ذلك، يتوقف خادم المعجم والتحليل تلقائياً لحين تجديد الحصة اليومية أو تهيئة مفتاح API مدفوع لتفادي التوقف الممتد.
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-slate-700 leading-relaxed" dir="rtl">
+                <span className="font-bold text-slate-900 block mb-1">دليل معجم المصطلحات الأكاديمية:</span>
+                يتم بناء المعجم تلقائياً عند تحليل الوثائق المرفوعة في الجلسة، لتوليد استخراج دقيق للمصطلحات والترجمات المعتمدة.
               </div>
             </div>
           ) : (

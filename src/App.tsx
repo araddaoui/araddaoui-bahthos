@@ -1601,6 +1601,13 @@ export default function App() {
         onSwitchProject={handleSwitchProject}
         onCreateProject={handleCreateProject}
         onDeleteProject={handleDeleteProject}
+        onShowLandingPage={() => {
+          setShowLandingPage(true);
+          try {
+            localStorage.removeItem("bahthos_entered_app");
+            localStorage.removeItem("tawlif_entered_app");
+          } catch (e) {}
+        }}
       />
 
       {/* Main Grid Wrapper for responsive layout:
