@@ -170,7 +170,7 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
     })
     .filter(isValidAcademicConcept);
 
-  // Deduplicate and cap per source to max 2 top concepts, and overall cap at max 20 concepts
+  // Deduplicate and cap per source to max 10 top concepts, and overall cap at max 50 concepts
   const uniqueTerms: GlossaryTerm[] = [];
   const seenKeys = new Set<string>();
   const sourceCounts = new Map<string, number>();
@@ -182,14 +182,14 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
     const sId = t.sourceId || "default";
     const countForSource = sourceCounts.get(sId) || 0;
 
-    // Cap at max 2 per source
-    if (countForSource >= 2) continue;
+    // Cap at max 10 per source
+    if (countForSource >= 10) continue;
 
     seenKeys.add(key);
     sourceCounts.set(sId, countForSource + 1);
     uniqueTerms.push(t);
 
-    if (uniqueTerms.length >= 20) break; // Overall cap at 20 terms
+    if (uniqueTerms.length >= 50) break; // Overall cap at 50 terms
   }
 
   return uniqueTerms;
@@ -1150,39 +1150,25 @@ export default function App() {
       const response = await fetch("/api/extract-glossary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.substring(0, 8000) }),
+        body: JSON.stringify({ text: text.substring(0, 10000) }),
       });
       if (response.ok) {
         const data = await response.json();
         if (data.terms && Array.isArray(data.terms) && data.terms.length > 0) {
           addGlossaryTermsDirectly(data.terms, sourceId);
+          return; // AI extraction succeeded
         }
       }
     } catch (e) {
       console.warn("Passive glossary extraction failed:", e);
     }
 
-    // Always run heuristic local term extraction fallback so concepts and terms NEVER remain zero!
+    // Dynamic local extraction fallback only if AI returned no terms or failed
     const localTerms = performLocalTermExtraction(text, sourceId);
     if (localTerms.length > 0) {
       addGlossaryTermsDirectly(localTerms, sourceId);
     }
   };
-
-  // Auto-extract terms for all uploaded sources so concepts and terms ALWAYS populate
-  useEffect(() => {
-    if (sources.length === 0) return;
-
-    sources.forEach((src) => {
-      const srcText = src.content || "";
-      if (srcText.length > 10) {
-        const localTerms = performLocalTermExtraction(srcText, src.id);
-        if (localTerms.length > 0) {
-          addGlossaryTermsDirectly(localTerms, src.id);
-        }
-      }
-    });
-  }, [sources]);
 
   // Add pre-extracted terms directly to the glossary
   const addGlossaryTermsDirectly = (terms: any[], sourceId?: string) => {

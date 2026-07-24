@@ -193,30 +193,20 @@ export function isValidAcademicConcept(item: { term: string; definition?: string
   const verified = (item.verified_term || "").trim().toLowerCase();
 
   // 1. Length & Basic Structure Checks
-  if (t.length < 2 || t.length > 55) return false;
-  if (t.split(/\s+/).length > 4) return false; // concepts are usually 1-4 words max
+  if (t.length < 2 || t.length > 70) return false;
+  if (t.split(/\s+/).length > 6) return false; // concepts are 1-6 words max
   if (/^(vol|volume|no|issue|pp|pages?|page|\d+|http|https|doi|isbn|issn)\b/i.test(t)) return false;
 
-  // 2. Reject placeholder / generic / non-conceptual definitions
-  if (
-    !def ||
-    def.length < 15 ||
-    def.includes("مفهوم أو عنوان") ||
-    def.includes("عنوان بحثي") ||
-    def.includes("مستخرج من نص المستند") ||
-    def.includes("مقتطف مضاف") ||
-    def.includes("تعذر توليد") ||
-    def.includes("مسودة محددة")
-  ) {
-    return false;
-  }
+  // 2. Reject empty definitions
+  if (!def || def.length < 10) return false;
 
-  // 3. Banned Person Names / Author Names / Proper First-Last Names
+  // 3. Banned Person Names / Author Names / Publishers
   const BANNED_NAME_TOKENS = [
     "jollie", "carol", "javed", "khumalo", "sharma", "chiriac", "ramsuraj", "cantillon",
-    "siddiqui", "ahmad", "khan", "hassan", "pedag", "matt", "david", "peter", "tatiana",
-    "trisha", "sunil", "kumar", "seddik", "kansara", "mbalenhle", "imshad", "jamshed",
-    "moulay", "mohamed", "ahmed", "ali", "john", "smith", "michael", "robert"
+    "siddiqui", "ahmad", "khan", "pedag", "tatiana", "trisha", "seddik",
+    "springer", "elsevier", "routledge", "ieee", "wiley", "nature", "sage", 
+    "oxford", "cambridge", "jstor", "pubmed", "scopus", "web of science", "frontiers", "mdpi",
+    "emerald", "proquest", "arxiv", "researchgate", "academia.edu", "google scholar"
   ];
 
   for (const nameToken of BANNED_NAME_TOKENS) {
@@ -225,56 +215,26 @@ export function isValidAcademicConcept(item: { term: string; definition?: string
     }
   }
 
-  // 4. Banned Publishers, Organizations, Universities & Software
-  const BANNED_PATTERNS = [
-    "springer", "elsevier", "routledge", "ieee", "wiley", "nature", "sage", 
-    "taylor & francis", "oxford", "cambridge", "jstor", "pubmed", "scopus",
-    "web of science", "frontiers", "mdpi", "emerald", "proquest", "arxiv",
-    "researchgate", "academia.edu", "google scholar", "harvester", "press",
-    "university press", "palgrave", "macmillan", "brill", "de gruyter", "harper",
-    "mit press", "harvard university", "stanford university", "princeton university",
-    "yale university", "columbia university", "chicago university", "macquarie",
-    "durban", "open university", "state university", "blackwell", "microsoft",
-    "netscape", "explorer", "communicator", "madrasati"
-  ];
-
-  for (const banned of BANNED_PATTERNS) {
-    if (t.includes(banned)) return false;
-  }
-
-  // 5. Bibliographic, Section Headings, Title Snippets, Vague Words
+  // 4. Banned Bibliographic Section Headings & Meta Items
   const BANNED_WORDS = [
     "journal of", "proceedings of", "bulletin of", "annals of", "review of", "handbook of",
-    "edited by", "volume ", "issue ", "chapter ", "table of contents", "page number",
-    "united states", "united kingdom", "north america", "south america", "western europe",
-    "eastern europe", "middle east", "north africa", "new york", "london", "paris", "berlin",
-    "vague process", "general process", "analysis process", "key finding",
-    "important result", "study result", "research paper", "book title", "paper title",
-    "author name", "publisher name", "main result", "overview of", "abstract this",
-    "abstract", "introduction", "nowadays", "developing effective", "achieving",
-    "practical guide", "world wide", "supervisors", "educational supervisors",
-    "strategic studies", "corporate management", "research scholar"
+    "edited by", "table of contents", "page number", "references list", "abstract section"
   ];
 
   for (const word of BANNED_WORDS) {
     if (t.includes(word)) return false;
   }
 
-  // 6. Banned Arabic Indicators (Publishers, Authors, Titles, Institutions, Locations, Vague terms)
+  // 5. Banned Arabic Metadata Indicators
   const BANNED_ARABIC_INDICATORS = [
-    "دار نشر", "اسم ناشر", "اسم مؤلف", "كاتب", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
-    "عنوان مقال", "مجلة علمية", "دورية علمية", "جامعة", "مؤسسة أكاديمية", "كلية", "وزارة",
-    "جمعية", "منظمة", "مؤتمر", "مدينة", "دولة", "مطبعة", "منشورات", "مكتبة", "طبعة", "مجلد",
-    "رسالة ماجستير", "أطروحة دكتوراه", "قسم ", "معهد ", "مركز بحوث", "دراسة حول", "بحث بعنوان",
-    "كتاب بعنوان", "دكتور", "أستاذ", "البروفيسور", "الباحث", "الباحثة", "عملية معقدة",
-    "نتائج هامة", "جانب رئيسي", "نقاط أساسية", "دراسة هامة", "بحث جيد", "العملية البحثية"
+    "دار نشر", "اسم ناشر", "اسم مؤلف", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
+    "عنوان مقال", "مجلة علمية", "دورية علمية", "جدول المحتويات", "قائمة المراجع",
+    "رسالة ماجستير", "أطروحة دكتوراه", "بحث بعنوان", "كتاب بعنوان"
   ];
 
   for (const ind of BANNED_ARABIC_INDICATORS) {
     if (t.includes(ind) || draft.includes(ind) || verified.includes(ind)) {
-      if (!def.includes("المفهوم") && !def.includes("مصطلح") && !def.includes("مبدأ") && !def.includes("طريقة") && !def.includes("أسلوب")) {
-        return false;
-      }
+      return false;
     }
   }
 
@@ -288,7 +248,21 @@ export function performLocalTermExtraction(text: string, sourceId?: string): Glo
   const extractedTerms: GlossaryTerm[] = [];
   const addedTermKeys = new Set<string>();
 
-  // 1. Match ONLY against curated academic dictionary keywords
+  // Helper to extract a surrounding sentence context as a definition
+  const getContextSentence = (phrase: string): string => {
+    const idx = text.indexOf(phrase);
+    if (idx === -1) return `مصطلح ومفهوم محوري استخلص من تحليل متن المستند المرفوع.`;
+    const start = Math.max(0, text.lastIndexOf(".", idx) + 1);
+    let end = text.indexOf(".", idx + phrase.length);
+    if (end === -1) end = Math.min(text.length, idx + 200);
+    const sentence = text.substring(start, end).trim().replace(/\s+/g, " ");
+    if (sentence.length >= 20 && sentence.length <= 250) {
+      return sentence;
+    }
+    return `مفهوم علمي وتخصصي تم استخلاصه مباشرة من النص في سياق: "${sentence.substring(0, 120)}..."`;
+  };
+
+  // 1. Match against curated dictionary entries
   for (const entry of ACADEMIC_DICTIONARY) {
     const matched = entry.keywords.some((kw) => textLower.includes(kw));
     if (matched && !addedTermKeys.has(entry.term.toLowerCase())) {
@@ -303,30 +277,90 @@ export function performLocalTermExtraction(text: string, sourceId?: string): Glo
 
       if (isValidAcademicConcept(termObj)) {
         addedTermKeys.add(entry.term.toLowerCase());
+        addedTermKeys.add(entry.verified_term.toLowerCase());
         extractedTerms.push(termObj);
       }
     }
   }
 
-  // 2. Match Arabic academic terms explicitly defined in dictionary/curated list
-  const arabicTermsRegex = /(?:السيادة الويستفالية|المركزية الأوروبية|معيار التحضر|الوضعية القانونية|المجتمع الدولي|الإطار المفاهيمي|المنهجية البحثية|التحليل التجريبي|نظرية المعرفة|الهيمنة|البنائية|الواقعية الهيكلية|التعددية|الإطار المعياري|تحليل الخطاب|التعلم الهجين|بيئة التعلم الافتراضية|التحصيل الأكاديمي|الفجوة الرقمية|ضمان الجودة|الرفاه النفسي|العزلة الأكاديمية|الارتباط الإحصائي|الانحراف المعياري)/g;
-  
-  let arMatch: RegExpExecArray | null;
-  while ((arMatch = arabicTermsRegex.exec(text)) !== null) {
-    const arPhrase = arMatch[0].trim();
+  // 2. Dynamic Arabic Domain Term Discovery (Common domain phrases in scientific & technical literature)
+  const commonDomainPhrases = [
+    "الذكاء الاصطناعي", "التعلم العميق", "تعلم الآلة", "إدارة المعرفة", "التحول الرقمي",
+    "الرعاية الصحية", "التحليل المالي", "الجودة الشاملة", "السياسات العامة", "الحوكمة المؤسسية",
+    "إدارة المخاطر", "الأمن السيبراني", "التنظيم الذاتي", "البيانات الضخمة", "سلسلة الكتل",
+    "الحوسبة السحابية", "التنمية المستدامة", "التسويق الرقمي", "القانون الدولي", "الاستقرار المالي",
+    "الطباعة ثلاثية الأبعاد", "إنترنت الأشياء", "علم البيانات", "الهندسة الوراثية", "التعلم الهجين",
+    "التعليم الرقمي", "ضمان الجودة", "المنهجية البحثية", "التحليل التجريبي", "الإطار المفاهيمي",
+    "تحليل البيانات", "التصميم البحثي", "تقييم الأثر", "التوازن البيئي", "الطاقة المتجددة",
+    "التجارة الإلكترونية", "الاقتصاد الدائري", "الأمن الغذائي", "التنمية البشرية", "التخطيط الاستراتيجي"
+  ];
+
+  for (const phrase of commonDomainPhrases) {
+    if (text.includes(phrase) && !addedTermKeys.has(phrase.toLowerCase())) {
+      const termObj = {
+        term: phrase,
+        transliteration: phrase,
+        draft_term: phrase,
+        verified_term: phrase,
+        definition: getContextSentence(phrase),
+        sourceId: sourceId
+      };
+
+      if (isValidAcademicConcept(termObj)) {
+        addedTermKeys.add(phrase.toLowerCase());
+        extractedTerms.push(termObj);
+      }
+    }
+  }
+
+  // 3. Dynamic English Multi-Word Concept Extraction (e.g. "Machine Learning", "Public Policy")
+  const englishConceptRegex = /\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,3})\b/g;
+  let enMatch: RegExpExecArray | null;
+  while ((enMatch = englishConceptRegex.exec(text)) !== null && extractedTerms.length < 12) {
+    const enPhrase = enMatch[1].trim();
+    const enLower = enPhrase.toLowerCase();
+
+    // Skip common stop-phrase matches
+    if (/^(United States|United Kingdom|Table Of|Page Number|Journal Of|Volume|Issue|Research Paper|University Of|Department Of|Google Scholar)/i.test(enPhrase)) {
+      continue;
+    }
+
+    if (!addedTermKeys.has(enLower)) {
+      const termObj = {
+        term: enPhrase,
+        transliteration: enPhrase,
+        draft_term: enPhrase,
+        verified_term: enPhrase,
+        definition: getContextSentence(enPhrase),
+        sourceId: sourceId
+      };
+
+      if (isValidAcademicConcept(termObj)) {
+        addedTermKeys.add(enLower);
+        extractedTerms.push(termObj);
+      }
+    }
+  }
+
+  // 4. Dynamic Arabic Concept Pattern Discovery (`الـ... الـ...`)
+  const arabicPatternRegex = /\b(ال[آأإء-ي]{3,}\s+ال[آأإء-ي]{3,}(?:\s+ال[آأإء-ي]{3,})?)\b/g;
+  let arPatternMatch: RegExpExecArray | null;
+  while ((arPatternMatch = arabicPatternRegex.exec(text)) !== null && extractedTerms.length < 15) {
+    const arPhrase = arPatternMatch[1].trim();
     const arLower = arPhrase.toLowerCase();
 
-    if (!addedTermKeys.has(arLower)) {
-      const dictMatch = ACADEMIC_DICTIONARY.find(
-        (d) => d.verified_term === arPhrase || d.draft_term === arPhrase
-      );
+    // Skip stop phrases
+    if (arPhrase.includes("التي") || arPhrase.includes("الذي") || arPhrase.includes("الذين") || arPhrase.includes("اللذين") || arPhrase.includes("الصفحة") || arPhrase.includes("المكتبة")) {
+      continue;
+    }
 
+    if (!addedTermKeys.has(arLower)) {
       const termObj = {
-        term: dictMatch?.term || arPhrase,
+        term: arPhrase,
         transliteration: arPhrase,
         draft_term: arPhrase,
         verified_term: arPhrase,
-        definition: dictMatch?.definition || `مصطلح أكاديمي محوري استخلص من تحليل متن المستند.`,
+        definition: getContextSentence(arPhrase),
         sourceId: sourceId
       };
 

@@ -108,88 +108,51 @@ function isValidAcademicConcept(item: { term: string; definition?: string; draft
   const def = (item.definition || "").trim().toLowerCase();
   const draft = (item.draft_term || "").trim().toLowerCase();
   const verified = (item.verified_term || "").trim().toLowerCase();
-  const translit = (item.transliteration || "").trim().toLowerCase();
 
   // 1. Length & Basic Structure Checks
-  if (t.length < 3 || t.length > 50) return false;
-  if (t.split(/\s+/).length > 4) return false; // concepts are concise (1-4 words max)
+  if (t.length < 2 || t.length > 70) return false;
+  if (t.split(/\s+/).length > 6) return false; // concepts are 1-6 words max
   if (/^(vol|volume|no|issue|pp|pages?|page|\d+|http|https|doi|isbn|issn)\b/i.test(t)) return false;
 
-  // 2. Reject non-conceptual or placeholder definitions
-  if (
-    !def ||
-    def.length < 20 ||
-    def.includes("مفهوم أو عنوان") ||
-    def.includes("عنوان بحثي") ||
-    def.includes("مستخرج من نص المستند") ||
-    def.includes("مقتطف مضاف") ||
-    def.includes("تعذر توليد") ||
-    def.includes("مسودة محددة")
-  ) {
-    return false;
-  }
+  // 2. Reject empty definitions
+  if (!def || def.length < 10) return false;
 
-  // 3. Strict Banned Tokens (Authors, Names, Universities, Software, Publishers, Non-concept words)
+  // 3. Strict Banned Person Names & Publishers
   const BANNED_TOKENS = [
-    // Person names & author name fragments
     "jollie", "carol", "javed", "khumalo", "sharma", "chiriac", "ramsuraj", "cantillon",
-    "siddiqui", "ahmad", "khan", "hassan", "pedag", "matt", "david", "peter", "tatiana",
-    "trisha", "sunil", "kumar", "seddik", "kansara", "mbalenhle", "imshad", "jamshed",
-    "moulay", "mohamed", "ahmed", "ali", "john", "smith", "michael", "robert", "creanga",
-    // Universities, Institutions, Software & Platforms
-    "macquarie", "durban", "open university", "state university", "blackwell", "microsoft",
-    "netscape", "explorer", "communicator", "madrasati", "springer", "elsevier", "routledge",
-    "ieee", "wiley", "nature", "sage", "taylor", "francis", "oxford", "cambridge", "jstor",
-    "pubmed", "scopus", "web of science", "frontiers", "mdpi", "emerald", "proquest", "arxiv",
-    "researchgate", "academia", "google scholar", "harvester", "press", "university",
-    "department", "scholar", "supervisors", "supervisor", "faculty", "school", "college",
-    // Vague phrases, title snippets, non-concept general terms
-    "abstract", "introduction", "nowadays", "developing", "achieving", "practical",
-    "guide", "world wide", "strategic", "management", "corporate", "education", "science",
-    "learning technologies", "plug-ins", "html", "hyperlinks", "videostreaming", "self assessments"
+    "siddiqui", "ahmad", "khan", "pedag", "tatiana", "trisha", "seddik",
+    "springer", "elsevier", "routledge", "ieee", "wiley", "nature", "sage",
+    "oxford", "cambridge", "jstor", "pubmed", "scopus", "web of science", "frontiers", "mdpi",
+    "emerald", "proquest", "arxiv", "researchgate", "academia.edu", "google scholar"
   ];
 
   for (const token of BANNED_TOKENS) {
-    if (
-      t.includes(token) ||
-      draft.includes(token) ||
-      verified.includes(token) ||
-      translit.includes(token)
-    ) {
+    if (t.includes(token) || draft.includes(token) || verified.includes(token)) {
       return false;
     }
   }
 
-  // 4. Banned Bibliographic / Heading / Location indicators
+  // 4. Banned Bibliographic Section Headings & Meta Items
   const BANNED_PHRASES = [
     "journal of", "proceedings of", "bulletin of", "annals of", "review of", "handbook of",
-    "edited by", "volume ", "issue ", "chapter ", "table of contents", "page number",
-    "united states", "united kingdom", "north america", "south america", "western europe",
-    "eastern europe", "middle east", "north africa", "new york", "london", "paris", "berlin",
-    "vague process", "general process", "analysis process", "key finding",
-    "important result", "study result", "research paper", "book title", "paper title",
-    "author name", "publisher name", "main result", "overview of"
+    "edited by", "table of contents", "page number", "author name", "publisher name",
+    "references list", "abstract section"
   ];
 
   for (const phrase of BANNED_PHRASES) {
     if (t.includes(phrase)) return false;
   }
 
-  // 5. Banned Arabic Indicators
+  // 5. Banned Meta-Arabic Indicators (Metadata headers, non-concept phrases)
   const BANNED_ARABIC = [
-    "دار نشر", "اسم ناشر", "اسم مؤلف", "كاتب", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
-    "عنوان مقال", "مجلة علمية", "دورية علمية", "جامعة", "مؤسسة أكاديمية", "كلية", "وزارة",
-    "جمعية", "منظمة", "مؤتمر", "مدينة", "دولة", "مطبعة", "منشورات", "مكتبة", "طبعة", "مجلد",
-    "رسالة ماجستير", "أطروحة دكتوراه", "قسم ", "معهد ", "مركز بحوث", "دراسة حول", "بحث بعنوان",
-    "كتاب بعنوان", "دكتور", "أستاذ", "البروفيسور", "الباحث", "الباحثة", "عملية معقدة",
-    "نتائج هامة", "جانب رئيسي", "نقاط أساسية", "دراسة هامة", "بحث جيد", "العملية البحثية"
+    "دار نشر", "اسم ناشر", "اسم مؤلف", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
+    "عنوان مقال", "مجلة علمية", "دورية علمية", "جدول المحتويات", "قائمة المراجع",
+    "رسالة ماجستير", "أطروحة دكتوراه", "بحث بعنوان", "كتاب بعنوان"
   ];
 
   for (const ar of BANNED_ARABIC) {
-    if (t.includes(ar) || draft.includes(ar) || verified.includes(ar) || translit.includes(ar)) {
-      if (!def.includes("المفهوم") && !def.includes("مصطلح") && !def.includes("مبدأ") && !def.includes("طريقة") && !def.includes("أسلوب")) {
-        return false;
-      }
+    if (t.includes(ar) || draft.includes(ar) || verified.includes(ar)) {
+      return false;
     }
   }
 
@@ -271,9 +234,13 @@ app.post(["/api/analyze-document", "/analyze-document", "/api/process-document",
 
   try {
     const ai = getAiClient();
-    const promptText = `أنت محرك متقدم للتحليل الأكاديمي في "بحث OS".
-قم بتحليل المستند واستخرج عنوانه، لغته، ملخصه، والمصطلحات الأكاديمية أو التقنية فقط.
-تنبيه صارم: يمنع استخراج أسماء الناشرين أو المؤلفين أو العناوين كـ "مصطلحات".`;
+    const promptText = `أنت محرك متقدم للتحليل الاستخراجي والأكاديمي في "بحث OS".
+قم بتحليل المستند المرفق بدقة، واستخرج منه:
+1. العنوان الرئيسي الدقيق
+2. لغة المستند (ar أو en)
+3. ملخصاً أكاديمياً مكثفاً وبليغاً (3-5 جمل)
+4. استخرج بين 5 إلى 10 مصطلحات ومفاهيم تخصصية وعلمية جوهرية وردت في متن هذا المستند تحديداً، مع بيان صياغتها العربية الفصيحة، واسمها الأصلي، وتعريف أكاديمي موجز من واقع النص.
+تنبيه: يمنع تماماً استخراج أسماء المؤلفين أو الناشرين أو الفهارس كـ "مصطلحات".`;
 
     let contents: any;
     if (useMultimodalPdf) {
@@ -283,10 +250,10 @@ app.post(["/api/analyze-document", "/analyze-document", "/api/process-document",
       }
       contents = [
         { inlineData: { data: cleanBase64, mimeType: "application/pdf" } },
-        { text: `${promptText}\n\nالرجاء قراءة وتحليل ملف PDF المرفق أعلاه بالكامل وإنتاج النتيجة بصيغة JSON.` }
+        { text: `${promptText}\n\nالرجاء قراءة وتحليل ملف PDF المرفق أعلاه بالكامل وإنتاج النتيجة بصيغة JSON وفق المخطط المطلوب.` }
       ];
     } else {
-      contents = `${promptText}\n\nنص المستند:\n${parsedContent.substring(0, 4000)}`;
+      contents = `${promptText}\n\nنص المستند:\n${parsedContent.substring(0, 12000)}`;
     }
 
     const response = await generateContentWithRetry(ai, {
@@ -295,6 +262,28 @@ app.post(["/api/analyze-document", "/analyze-document", "/api/process-document",
       config: {
         responseMimeType: "application/json",
         temperature: 0.1,
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            language: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            terms: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  term: { type: Type.STRING, description: "اسم المصطلح بلغته الأصلية أو بالإنجليزية" },
+                  draft_term: { type: Type.STRING, description: "التعريب أو الاسم العربي للمصطلح" },
+                  verified_term: { type: Type.STRING, description: "الاسم الفصيح المعتمد للمفهوم بالعربية" },
+                  definition: { type: Type.STRING, description: "تعريف أكاديمي واضح من واقع المستند" },
+                },
+                required: ["term", "draft_term", "verified_term", "definition"],
+              },
+            },
+          },
+          required: ["title", "language", "summary", "terms"],
+        },
       }
     });
 
@@ -303,7 +292,13 @@ app.post(["/api/analyze-document", "/analyze-document", "/api/process-document",
     result.language = data.language || "ar";
     result.summary = data.summary || "تعذر توليد ملخص أكاديمي تلقائي.";
     result.extractedText = data.extractedText || "";
-    result.terms = (data.terms || []).filter(isValidAcademicConcept);
+    result.terms = (data.terms || []).map((t: any) => ({
+      term: t.term,
+      draft_term: t.draft_term,
+      verified_term: t.verified_term,
+      transliteration: t.verified_term || t.draft_term || t.term,
+      definition: t.definition,
+    })).filter(isValidAcademicConcept);
   } catch (error) {
     console.warn("AI analysis failed, falling back to simple extraction:", error);
     result.title = fileName || "مستند مقتبس";
@@ -474,19 +469,16 @@ app.post(["/api/extract-glossary", "/extract-glossary"], async (req, res) => {
 
   try {
     const ai = getAiClient();
-    const prompt = `أنت خبير تدقيق مفاهيمي وأكاديمي متقدم في "بحث OS".
-مهتك: استخراج ما لا يزيد عن مفهومين (2) رئيسيين وحقيقيين فقط من النص المرفق.
-المفاهيم المقبولة حصراً: النظريات المعرفية، المناهج البحثية، الأطر النظرية، والمؤشرات الإحصائية الأساسية (مثال: الإطار المفاهيمي، المنهجية البحثية، البنائية، الواقعية الهيكلية، التحليل التجريبي، الارتباط الإحصائي، العزلة الأكاديمية).
+    const prompt = `أنت خبير استخراج المفاهيم والمصطلحات الأكاديمية والعلمية والتقنية في "بحث OS".
+مهمتك: قراءة النص المرفق بعناية واستخراج أهم 5 إلى 10 مصطلحات ومفاهيم تخصصية وعلمية جوهرية وردت في هذا النص تحديداً.
 
-قيود صارمة للغاية (ممنوع تماماً):
-1. يمنع منعاً باتاً استخراج أسماء الأشخاص والمؤلفين والباحثين (مثل: Carol, Javed, Khumalo, Matt, David, Khan, Ahmad, Siddiqui).
-2. يمنع منعاً باتاً استخراج أسماء الجامعات والمؤسسات ودور النشر (مثل: Durban University, Macquarie, Blackwell, Springer, Elsevier).
-3. يمنع منعاً باتاً استخراج البرامج والتقنيات والمستعرضات العامة (مثل: Microsoft Explorer, Netscape, HTML, Hyperlinks).
-4. يمنع منعاً باتاً استخراج عناوين الكتب أو الأوراق أو رؤوس الفقرات أو العبارات العامة العابرة (مثل: Abstract, Developing Effective, Educational Supervisors, Research Scholar).
-5. يجب أن يحتوي كل مفهوم على تعريف أكاديمي رصين ومفصّل باللغة العربية.
+تعليمات الاستخراج:
+1. استخرج المفاهيم التي تشكل الركائز المعرفية والتحليلية للنص (سواء كانت مفاهيم طبية، قانونية، اقتصادية، تقنية، تعليمية، سياسية، إلخ).
+2. بالنسبة لكل مفهوم، اذكر الاسم الأصلي أو الإنجليزي (term)، والاسم أو التعريب العربي (draft_term)، والاسم الفصيح المعتمد (verified_term)، وتعريف أكاديمي واضح ومختصر من واقع سياق النص (definition).
+3. يمنع استخراج أسماء المؤلفين أو الناشرين أو الفهارس أو العناوين العامة كـ "مصطلحات".
 
 النص:
-${text.substring(0, 3500)}`;
+${text.substring(0, 10000)}`;
 
     const response = await generateContentWithRetry(ai, {
       model: "gemini-2.0-flash",
