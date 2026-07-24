@@ -107,17 +107,31 @@ export default function Sidebar({
           {/* Desktop Selector */}
           <div className="hidden md:flex flex-col gap-1.5">
             <span className="text-[10px] font-bold text-gray-400 tracking-wider uppercase select-none">المشروع البحثي الحالي</span>
-            <button
-              onClick={() => setIsOpen(!isOpen)}
-              className="w-full flex items-center justify-between px-3 py-2.5 bg-[#eae9e2] hover:bg-[#dfded7] text-gray-800 rounded-xl border border-[#e2e2dd] transition-all duration-200 text-xs font-semibold shadow-sm group"
-              id="sidebar-project-dropdown-trigger"
-            >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <FolderOpen className="w-4 h-4 text-[#094d4e] flex-shrink-0" />
-                <span className="truncate text-right">{activeProject.name}</span>
-              </div>
-              <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex-1 flex items-center justify-between px-3 py-2.5 bg-[#eae9e2] hover:bg-[#dfded7] text-gray-800 rounded-xl border border-[#e2e2dd] transition-all duration-200 text-xs font-semibold shadow-sm group"
+                id="sidebar-project-dropdown-trigger"
+              >
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <FolderOpen className="w-4 h-4 text-[#094d4e] flex-shrink-0" />
+                  <span className="truncate text-right">{activeProject.name}</span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setProjectToDelete(activeProject);
+                }}
+                className="p-2.5 bg-[#eae9e2] hover:bg-red-100 text-gray-500 hover:text-red-600 rounded-xl border border-[#e2e2dd] transition-all flex-shrink-0 cursor-pointer"
+                title={projects.length <= 1 ? "تصفير المشروع الحالي والبدء من جديد" : `حذف مشروع "${activeProject.name}"`}
+                id={`delete-active-project-btn-${activeProject.id}`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Mobile Selector Icon */}
@@ -240,6 +254,7 @@ export default function Sidebar({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              setIsOpen(false);
                               setProjectToDelete(proj);
                             }}
                             className={`p-1 rounded-md transition-colors ${

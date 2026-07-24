@@ -22,7 +22,7 @@ import {
 } from "./firebase";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView";
-import { performLocalTermExtraction } from "./utils/termExtractor";
+import { performLocalTermExtraction, isValidAcademicConcept } from "./utils/termExtractor";
 import { getStoredItem, setStoredItem, removeStoredItem } from "./utils/indexedDBStorage";
 
 // Default glossary terms to populate on first load (starts empty to ensure a clean slate)
@@ -150,43 +150,49 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
     "بيئة التعلم المانيجد": "بيئة التعلم المُدارة"
   };
 
-  return terms.map((t) => {
-    const englishKey = t.term.trim().toLowerCase();
-    const currentTransliteration = t.transliteration || t.verified_term || t.draft_term || "";
+  const mapped = terms
+    .map((t) => {
+      const englishKey = (t.term || "").trim().toLowerCase();
+      const currentTransliteration = t.transliteration || t.verified_term || t.draft_term || "";
 
-    if (dictionary[englishKey]) {
-      return {
-        ...t,
-        transliteration: dictionary[englishKey],
-        draft_term: t.draft_term || dictionary[englishKey],
-        verified_term: t.verified_term || dictionary[englishKey],
-      };
-    }
-
-    const translitVal = currentTransliteration.trim();
-    if (arabicTransliterationDictionary[translitVal]) {
-      return {
-        ...t,
-        transliteration: arabicTransliterationDictionary[translitVal],
-        draft_term: t.draft_term || arabicTransliterationDictionary[translitVal],
-        verified_term: t.verified_term || arabicTransliterationDictionary[translitVal],
-      };
-    }
-
-    let updatedTransliteration = currentTransliteration;
-    Object.entries(arabicTransliterationDictionary).forEach(([bad, good]) => {
-      if (currentTransliteration.includes(bad)) {
-        updatedTransliteration = updatedTransliteration.replace(new RegExp(bad, "g"), good);
+      let updatedTrans = currentTransliteration;
+      if (dictionary[englishKey]) {
+        updatedTrans = dictionary[englishKey];
       }
-    });
 
-    return {
-      ...t,
-      transliteration: updatedTransliteration || t.term,
-      draft_term: t.draft_term || updatedTransliteration || t.term,
-      verified_term: t.verified_term || updatedTransliteration || t.term,
-    };
-  });
+      return {
+        ...t,
+        term: (t.term || "").trim(),
+        transliteration: updatedTrans || t.term,
+        draft_term: t.draft_term || updatedTrans || t.term,
+        verified_term: t.verified_term || updatedTrans || t.term,
+      };
+    })
+    .filter(isValidAcademicConcept);
+
+  // Deduplicate and cap per source to max 2 top concepts, and overall cap at max 20 concepts
+  const uniqueTerms: GlossaryTerm[] = [];
+  const seenKeys = new Set<string>();
+  const sourceCounts = new Map<string, number>();
+
+  for (const t of mapped) {
+    const key = (t.term + "___" + (t.transliteration || t.verified_term || t.draft_term)).toLowerCase().trim();
+    if (seenKeys.has(key)) continue;
+
+    const sId = t.sourceId || "default";
+    const countForSource = sourceCounts.get(sId) || 0;
+
+    // Cap at max 2 per source
+    if (countForSource >= 2) continue;
+
+    seenKeys.add(key);
+    sourceCounts.set(sId, countForSource + 1);
+    uniqueTerms.push(t);
+
+    if (uniqueTerms.length >= 20) break; // Overall cap at 20 terms
+  }
+
+  return uniqueTerms;
 }
 
 export default function App() {
@@ -532,6 +538,15 @@ export default function App() {
   const [isSweeping, setIsSweeping] = useState(false);
   const [sweepCorrectionCount, setSweepCorrectionCount] = useState<number | null>(null);
 
+  // Auto-clean glossaryTerms state whenever it changes to immediately purge any fluff
+  useEffect(() => {
+    if (!glossaryTerms || glossaryTerms.length === 0) return;
+    const cleaned = cleanAndMigrateGlossary(glossaryTerms);
+    if (cleaned.length !== glossaryTerms.length || JSON.stringify(cleaned) !== JSON.stringify(glossaryTerms)) {
+      setGlossaryTerms(cleaned);
+    }
+  }, [glossaryTerms]);
+
   const [stateLoadedFromServer, setStateLoadedFromServer] = useState(false);
 
   // Load state from server on startup (for whatever project is loaded)
@@ -726,7 +741,7 @@ export default function App() {
         setSources(cloudSources);
         setMessages(cloudMessages);
         setSyntheses(cloudSyntheses);
-        setGlossaryTerms(cloudGlossary);
+        setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary));
         setTemperature(cloudTemp);
         setCurrentProjectId(newProjectId);
 
@@ -781,7 +796,7 @@ export default function App() {
       setSources(loadedSources);
       setMessages(loadedMessages);
       setSyntheses(loadedSyntheses);
-      setGlossaryTerms(loadedGlossary);
+      setGlossaryTerms(cleanAndMigrateGlossary(loadedGlossary));
       setTemperature(loadedTemp);
       
       // 5. Update current project ID
@@ -827,13 +842,98 @@ export default function App() {
 
     const updatedProjects = projects.filter((p) => p.id !== targetId);
 
-    // Update ref immediately so that any pending background effects or saves DO NOT touch targetId
-    if (isDeletingActive) {
-      const nextId = updatedProjects[0]?.id || "default";
-      loadedProjectIdRef.current = nextId;
+    // 1. Instantly update local project state and storage so the UI updates with zero lag
+    if (updatedProjects.length === 0) {
+      const freshProj: Project = {
+        id: "default",
+        name: "المشروع التجريبي الأول",
+        dateCreated: new Date().toISOString().split("T")[0],
+        temperature: 0.2
+      };
+      setProjects([freshProj]);
+      try {
+        localStorage.setItem("bahthos_projects", JSON.stringify([freshProj]));
+        localStorage.setItem("bahthos_current_project_id", "default");
+      } catch (e) {}
+
+      loadedProjectIdRef.current = "default";
+      setCurrentProjectId("default");
+      setSources([]);
+      setMessages([]);
+      setSyntheses([]);
+      setGlossaryTerms([]);
+      setTemperature(0.2);
+      setSelectedSourceId(null);
+      setActiveMainView("chat");
+
+      if (currentUser) {
+        saveUserProject(currentUser.uid, freshProj).catch(console.error);
+        saveProjectData(currentUser.uid, "default", {
+          sources: [],
+          messages: [],
+          syntheses: [],
+          glossaryTerms: []
+        }).catch(console.error);
+      }
+    } else {
+      setProjects(updatedProjects);
+      try {
+        localStorage.setItem("bahthos_projects", JSON.stringify(updatedProjects));
+      } catch (e) {}
+
+      if (isDeletingActive) {
+        const nextActiveProject = updatedProjects[0];
+        loadedProjectIdRef.current = nextActiveProject.id;
+        setCurrentProjectId(nextActiveProject.id);
+        try {
+          localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
+        } catch (e) {}
+        setSelectedSourceId(null);
+        setActiveMainView("chat");
+
+        // Load state for next active project
+        if (currentUser) {
+          setIsFirebaseLoading(true);
+          loadProjectData(currentUser.uid, nextActiveProject.id)
+            .then(({ sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary }) => {
+              setSources(cloudSources);
+              setMessages(cloudMessages);
+              setSyntheses(cloudSyntheses);
+              setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary));
+              setTemperature(nextActiveProject.temperature ?? 0.2);
+            })
+            .catch((e) => console.error("Failed to load next project data:", e))
+            .finally(() => setIsFirebaseLoading(false));
+        } else {
+          Promise.all([
+            getStoredItem<Source[]>(`bahthos_sources_${nextActiveProject.id}`, []),
+            getStoredItem<Message[]>(`bahthos_messages_${nextActiveProject.id}`, []),
+            getStoredItem<Synthesis[]>(`bahthos_syntheses_${nextActiveProject.id}`, []),
+            getStoredItem<GlossaryTerm[]>(`bahthos_glossary_${nextActiveProject.id}`, [])
+          ]).then(([idbSources, idbMessages, idbSyntheses, idbGlossary]) => {
+            const savedSources = localStorage.getItem(`bahthos_sources_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_sources_${nextActiveProject.id}`);
+            const savedMessages = localStorage.getItem(`bahthos_messages_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_messages_${nextActiveProject.id}`);
+            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_syntheses_${nextActiveProject.id}`);
+            const savedGlossary = localStorage.getItem(`bahthos_glossary_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_glossary_${nextActiveProject.id}`);
+            const savedTemp = localStorage.getItem(`bahthos_temperature_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_temperature_${nextActiveProject.id}`);
+
+            const loadedSources = idbSources.length > 0 ? idbSources : (savedSources ? JSON.parse(savedSources) : (nextActiveProject.id === "default" ? defaultSources : []));
+            const loadedMessages = idbMessages.length > 0 ? idbMessages : (savedMessages ? JSON.parse(savedMessages) : []);
+            const loadedSyntheses = idbSyntheses.length > 0 ? idbSyntheses : (savedSyntheses ? JSON.parse(savedSyntheses) : (nextActiveProject.id === "default" ? initialSyntheses : []));
+            const loadedGlossary = idbGlossary.length > 0 ? idbGlossary : (savedGlossary ? JSON.parse(savedGlossary) : (nextActiveProject.id === "default" ? initialGlossary : []));
+            const loadedTemp = savedTemp ? parseFloat(savedTemp) : 0.2;
+
+            setSources(loadedSources);
+            setMessages(loadedMessages);
+            setSyntheses(loadedSyntheses);
+            setGlossaryTerms(cleanAndMigrateGlossary(loadedGlossary));
+            setTemperature(loadedTemp);
+          }).catch((e) => console.error("Failed to switch to next active project:", e));
+        }
+      }
     }
 
-    // Clean up localstorage & IndexedDB
+    // 2. Asynchronously delete from local cache & Firestore in the background
     try {
       localStorage.removeItem(`bahthos_sources_${targetId}`);
       localStorage.removeItem(`bahthos_messages_${targetId}`);
@@ -855,121 +955,9 @@ export default function App() {
     }
 
     if (currentUser) {
-      try {
-        await deleteUserProject(currentUser.uid, targetId);
-      } catch (err) {
+      deleteUserProject(currentUser.uid, targetId).catch((err) => {
         console.error("Failed to delete project from Firestore:", err);
-      }
-    }
-
-    if (updatedProjects.length === 0) {
-      // If there are no projects left, create a fresh "default" project
-      const freshProj: Project = {
-        id: "default",
-        name: "المشروع التجريبي الأول",
-        dateCreated: new Date().toISOString().split("T")[0],
-        temperature: 0.2
-      };
-      
-      setProjects([freshProj]);
-      try {
-        localStorage.setItem("bahthos_projects", JSON.stringify([freshProj]));
-        localStorage.setItem("bahthos_current_project_id", "default");
-      } catch (e) {}
-
-      if (currentUser) {
-        try {
-          await saveUserProject(currentUser.uid, freshProj);
-          await saveProjectData(currentUser.uid, "default", {
-            sources: [],
-            messages: [],
-            syntheses: [],
-            glossaryTerms: []
-          });
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      
-      loadedProjectIdRef.current = "default";
-      setCurrentProjectId("default");
-      setSources([]);
-      setMessages([]);
-      setSyntheses([]);
-      setGlossaryTerms([]);
-      setTemperature(0.2);
-      setSelectedSourceId(null);
-      setActiveMainView("chat");
-    } else {
-      setProjects(updatedProjects);
-      try {
-        localStorage.setItem("bahthos_projects", JSON.stringify(updatedProjects));
-      } catch (e) {}
-
-      if (isDeletingActive) {
-        const nextActiveProject = updatedProjects[0];
-        // Load state for nextActiveProject directly without saving deleted project
-        if (currentUser) {
-          setIsFirebaseLoading(true);
-          try {
-            const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
-              await loadProjectData(currentUser.uid, nextActiveProject.id);
-
-            loadedProjectIdRef.current = nextActiveProject.id;
-            setSources(cloudSources);
-            setMessages(cloudMessages);
-            setSyntheses(cloudSyntheses);
-            setGlossaryTerms(cloudGlossary);
-            setTemperature(nextActiveProject.temperature ?? 0.2);
-            setCurrentProjectId(nextActiveProject.id);
-            try {
-              localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
-            } catch (e) {}
-            setSelectedSourceId(null);
-            setActiveMainView("chat");
-          } catch (e) {
-            console.error("Failed to load next project data:", e);
-          } finally {
-            setIsFirebaseLoading(false);
-          }
-        } else {
-          try {
-            const [idbSources, idbMessages, idbSyntheses, idbGlossary] = await Promise.all([
-              getStoredItem<Source[]>(`bahthos_sources_${nextActiveProject.id}`, []),
-              getStoredItem<Message[]>(`bahthos_messages_${nextActiveProject.id}`, []),
-              getStoredItem<Synthesis[]>(`bahthos_syntheses_${nextActiveProject.id}`, []),
-              getStoredItem<GlossaryTerm[]>(`bahthos_glossary_${nextActiveProject.id}`, [])
-            ]);
-
-            const savedSources = localStorage.getItem(`bahthos_sources_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_sources_${nextActiveProject.id}`);
-            const savedMessages = localStorage.getItem(`bahthos_messages_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_messages_${nextActiveProject.id}`);
-            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_syntheses_${nextActiveProject.id}`);
-            const savedGlossary = localStorage.getItem(`bahthos_glossary_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_glossary_${nextActiveProject.id}`);
-            const savedTemp = localStorage.getItem(`bahthos_temperature_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_temperature_${nextActiveProject.id}`);
-
-            const loadedSources = idbSources.length > 0 ? idbSources : (savedSources ? JSON.parse(savedSources) : (nextActiveProject.id === "default" ? defaultSources : []));
-            const loadedMessages = idbMessages.length > 0 ? idbMessages : (savedMessages ? JSON.parse(savedMessages) : []);
-            const loadedSyntheses = idbSyntheses.length > 0 ? idbSyntheses : (savedSyntheses ? JSON.parse(savedSyntheses) : (nextActiveProject.id === "default" ? initialSyntheses : []));
-            const loadedGlossary = idbGlossary.length > 0 ? idbGlossary : (savedGlossary ? JSON.parse(savedGlossary) : (nextActiveProject.id === "default" ? initialGlossary : []));
-            const loadedTemp = savedTemp ? parseFloat(savedTemp) : 0.2;
-
-            loadedProjectIdRef.current = nextActiveProject.id;
-            setSources(loadedSources);
-            setMessages(loadedMessages);
-            setSyntheses(loadedSyntheses);
-            setGlossaryTerms(loadedGlossary);
-            setTemperature(loadedTemp);
-            setCurrentProjectId(nextActiveProject.id);
-            try {
-              localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
-            } catch (e) {}
-            setSelectedSourceId(null);
-            setActiveMainView("chat");
-          } catch (e) {
-            console.error("Failed to switch to next active project:", e);
-          }
-        }
-      }
+      });
     }
   };
 
@@ -1200,31 +1188,18 @@ export default function App() {
   const addGlossaryTermsDirectly = (terms: any[], sourceId?: string) => {
     if (!terms || !Array.isArray(terms) || terms.length === 0) return;
     setGlossaryTerms((prev) => {
-      const normalizedNewTerms = cleanAndMigrateGlossary(
-        terms.filter((t: any) => t.term && (t.transliteration || t.verified_term || t.draft_term) && t.definition)
-          .map((t: any) => ({
-            term: t.term,
-            transliteration: t.transliteration || t.verified_term || t.draft_term,
-            definition: t.definition,
-            draft_term: t.draft_term || t.transliteration || t.term,
-            verified_term: t.verified_term || t.transliteration || t.draft_term || t.term,
-            sourceId: sourceId
-          }))
-      );
+      const incoming = terms
+        .filter((t: any) => t.term && (t.transliteration || t.verified_term || t.draft_term) && t.definition)
+        .map((t: any) => ({
+          term: t.term,
+          transliteration: t.transliteration || t.verified_term || t.draft_term,
+          definition: t.definition,
+          draft_term: t.draft_term || t.transliteration || t.term,
+          verified_term: t.verified_term || t.transliteration || t.draft_term || t.term,
+          sourceId: sourceId
+        }));
 
-      const existingTermsLower = prev.map((t) => t.term.toLowerCase());
-      const existingTransLower = prev.map((t) => t.transliteration.toLowerCase());
-
-      const filteredNew = normalizedNewTerms.filter(
-        (t) =>
-          !existingTermsLower.includes(t.term.toLowerCase()) &&
-          !existingTransLower.includes(t.transliteration.toLowerCase())
-      );
-
-      if (filteredNew.length > 0) {
-        return [...prev, ...filteredNew];
-      }
-      return prev;
+      return cleanAndMigrateGlossary([...prev, ...incoming]);
     });
   };
 

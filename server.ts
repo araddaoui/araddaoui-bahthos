@@ -102,44 +102,95 @@ async function generateContentWithRetry(
   throw lastError || new Error("All Gemini model attempts failed.");
 }
 
-function isValidAcademicConcept(item: { term: string; definition?: string; draft_term?: string; verified_term?: string }): boolean {
+function isValidAcademicConcept(item: { term: string; definition?: string; draft_term?: string; verified_term?: string; transliteration?: string }): boolean {
   if (!item || !item.term || typeof item.term !== "string") return false;
   const t = item.term.trim().toLowerCase();
-  const def = (item.definition || "").toLowerCase();
-  const draft = (item.draft_term || "").toLowerCase();
-  const verified = (item.verified_term || "").toLowerCase();
+  const def = (item.definition || "").trim().toLowerCase();
+  const draft = (item.draft_term || "").trim().toLowerCase();
+  const verified = (item.verified_term || "").trim().toLowerCase();
+  const translit = (item.transliteration || "").trim().toLowerCase();
 
-  const BANNED_PATTERNS = [
-    "springer", "elsevier", "routledge", "ieee", "wiley", "nature", "sage", 
-    "taylor & francis", "oxford", "cambridge", "jstor", "pubmed", "scopus",
-    "web of science", "frontiers", "mdpi", "emerald", "proquest", "arxiv",
-    "researchgate", "academia.edu", "google scholar", "harvester", "press"
-  ];
+  // 1. Length & Basic Structure Checks
+  if (t.length < 3 || t.length > 50) return false;
+  if (t.split(/\s+/).length > 4) return false; // concepts are concise (1-4 words max)
+  if (/^(vol|volume|no|issue|pp|pages?|page|\d+|http|https|doi|isbn|issn)\b/i.test(t)) return false;
 
-  for (const banned of BANNED_PATTERNS) {
-    if (t.includes(banned)) return false;
+  // 2. Reject non-conceptual or placeholder definitions
+  if (
+    !def ||
+    def.length < 20 ||
+    def.includes("مفهوم أو عنوان") ||
+    def.includes("عنوان بحثي") ||
+    def.includes("مستخرج من نص المستند") ||
+    def.includes("مقتطف مضاف") ||
+    def.includes("تعذر توليد") ||
+    def.includes("مسودة محددة")
+  ) {
+    return false;
   }
 
-  const BANNED_ARABIC_INDICATORS = [
-    "دار نشر", "اسم ناشر", "اسم مؤلف", "كاتب", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
-    "عنوان مقال", "مجلة علمية", "دورية علمية", "جامعة", "مؤسسة أكاديمية", "كلية", "وزارة",
-    "جمعية", "منظمة", "مؤتمر", "مدينة", "دولة"
+  // 3. Strict Banned Tokens (Authors, Names, Universities, Software, Publishers, Non-concept words)
+  const BANNED_TOKENS = [
+    // Person names & author name fragments
+    "jollie", "carol", "javed", "khumalo", "sharma", "chiriac", "ramsuraj", "cantillon",
+    "siddiqui", "ahmad", "khan", "hassan", "pedag", "matt", "david", "peter", "tatiana",
+    "trisha", "sunil", "kumar", "seddik", "kansara", "mbalenhle", "imshad", "jamshed",
+    "moulay", "mohamed", "ahmed", "ali", "john", "smith", "michael", "robert", "creanga",
+    // Universities, Institutions, Software & Platforms
+    "macquarie", "durban", "open university", "state university", "blackwell", "microsoft",
+    "netscape", "explorer", "communicator", "madrasati", "springer", "elsevier", "routledge",
+    "ieee", "wiley", "nature", "sage", "taylor", "francis", "oxford", "cambridge", "jstor",
+    "pubmed", "scopus", "web of science", "frontiers", "mdpi", "emerald", "proquest", "arxiv",
+    "researchgate", "academia", "google scholar", "harvester", "press", "university",
+    "department", "scholar", "supervisors", "supervisor", "faculty", "school", "college",
+    // Vague phrases, title snippets, non-concept general terms
+    "abstract", "introduction", "nowadays", "developing", "achieving", "practical",
+    "guide", "world wide", "strategic", "management", "corporate", "education", "science",
+    "learning technologies", "plug-ins", "html", "hyperlinks", "videostreaming", "self assessments"
   ];
 
-  for (const ind of BANNED_ARABIC_INDICATORS) {
-    if (def.includes(ind) || draft.includes(ind) || verified.includes(ind)) {
+  for (const token of BANNED_TOKENS) {
+    if (
+      t.includes(token) ||
+      draft.includes(token) ||
+      verified.includes(token) ||
+      translit.includes(token)
+    ) {
+      return false;
+    }
+  }
+
+  // 4. Banned Bibliographic / Heading / Location indicators
+  const BANNED_PHRASES = [
+    "journal of", "proceedings of", "bulletin of", "annals of", "review of", "handbook of",
+    "edited by", "volume ", "issue ", "chapter ", "table of contents", "page number",
+    "united states", "united kingdom", "north america", "south america", "western europe",
+    "eastern europe", "middle east", "north africa", "new york", "london", "paris", "berlin",
+    "vague process", "general process", "analysis process", "key finding",
+    "important result", "study result", "research paper", "book title", "paper title",
+    "author name", "publisher name", "main result", "overview of"
+  ];
+
+  for (const phrase of BANNED_PHRASES) {
+    if (t.includes(phrase)) return false;
+  }
+
+  // 5. Banned Arabic Indicators
+  const BANNED_ARABIC = [
+    "دار نشر", "اسم ناشر", "اسم مؤلف", "كاتب", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
+    "عنوان مقال", "مجلة علمية", "دورية علمية", "جامعة", "مؤسسة أكاديمية", "كلية", "وزارة",
+    "جمعية", "منظمة", "مؤتمر", "مدينة", "دولة", "مطبعة", "منشورات", "مكتبة", "طبعة", "مجلد",
+    "رسالة ماجستير", "أطروحة دكتوراه", "قسم ", "معهد ", "مركز بحوث", "دراسة حول", "بحث بعنوان",
+    "كتاب بعنوان", "دكتور", "أستاذ", "البروفيسور", "الباحث", "الباحثة", "عملية معقدة",
+    "نتائج هامة", "جانب رئيسي", "نقاط أساسية", "دراسة هامة", "بحث جيد", "العملية البحثية"
+  ];
+
+  for (const ar of BANNED_ARABIC) {
+    if (t.includes(ar) || draft.includes(ar) || verified.includes(ar) || translit.includes(ar)) {
       if (!def.includes("المفهوم") && !def.includes("مصطلح") && !def.includes("مبدأ") && !def.includes("طريقة") && !def.includes("أسلوب")) {
         return false;
       }
     }
-  }
-
-  if (/^(handbook|journal|proceedings|advances|international journal|bulletin|annals|volume|issue) of/i.test(item.term)) {
-    return false;
-  }
-
-  if (t.split(/\s+/).length > 6) {
-    return false;
   }
 
   return true;
@@ -423,9 +474,16 @@ app.post(["/api/extract-glossary", "/extract-glossary"], async (req, res) => {
 
   try {
     const ai = getAiClient();
-    const prompt = `أنت خبير في استخراج المصطلحات والمفاهيم الأكاديمية والتقنية في "بحث OS".
-استخرج فقط المفاهيم والأدوات العلمية الحقيقية من النص التالي.
-تنويه صارم: يمنع تماماً استخراج أسماء الناشرين (مثل Springer, Elsevier, IEEE)، أسماء المؤلفين والمؤلفات، وعناوين الأوراق والكتب والمؤسسات.
+    const prompt = `أنت خبير تدقيق مفاهيمي وأكاديمي متقدم في "بحث OS".
+مهتك: استخراج ما لا يزيد عن مفهومين (2) رئيسيين وحقيقيين فقط من النص المرفق.
+المفاهيم المقبولة حصراً: النظريات المعرفية، المناهج البحثية، الأطر النظرية، والمؤشرات الإحصائية الأساسية (مثال: الإطار المفاهيمي، المنهجية البحثية، البنائية، الواقعية الهيكلية، التحليل التجريبي، الارتباط الإحصائي، العزلة الأكاديمية).
+
+قيود صارمة للغاية (ممنوع تماماً):
+1. يمنع منعاً باتاً استخراج أسماء الأشخاص والمؤلفين والباحثين (مثل: Carol, Javed, Khumalo, Matt, David, Khan, Ahmad, Siddiqui).
+2. يمنع منعاً باتاً استخراج أسماء الجامعات والمؤسسات ودور النشر (مثل: Durban University, Macquarie, Blackwell, Springer, Elsevier).
+3. يمنع منعاً باتاً استخراج البرامج والتقنيات والمستعرضات العامة (مثل: Microsoft Explorer, Netscape, HTML, Hyperlinks).
+4. يمنع منعاً باتاً استخراج عناوين الكتب أو الأوراق أو رؤوس الفقرات أو العبارات العامة العابرة (مثل: Abstract, Developing Effective, Educational Supervisors, Research Scholar).
+5. يجب أن يحتوي كل مفهوم على تعريف أكاديمي رصين ومفصّل باللغة العربية.
 
 النص:
 ${text.substring(0, 3500)}`;

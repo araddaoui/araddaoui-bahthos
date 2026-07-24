@@ -185,6 +185,102 @@ const ACADEMIC_DICTIONARY: Array<{
   }
 ];
 
+export function isValidAcademicConcept(item: { term: string; definition?: string; draft_term?: string; verified_term?: string }): boolean {
+  if (!item || !item.term || typeof item.term !== "string") return false;
+  const t = item.term.trim().toLowerCase();
+  const def = (item.definition || "").trim().toLowerCase();
+  const draft = (item.draft_term || "").trim().toLowerCase();
+  const verified = (item.verified_term || "").trim().toLowerCase();
+
+  // 1. Length & Basic Structure Checks
+  if (t.length < 2 || t.length > 55) return false;
+  if (t.split(/\s+/).length > 4) return false; // concepts are usually 1-4 words max
+  if (/^(vol|volume|no|issue|pp|pages?|page|\d+|http|https|doi|isbn|issn)\b/i.test(t)) return false;
+
+  // 2. Reject placeholder / generic / non-conceptual definitions
+  if (
+    !def ||
+    def.length < 15 ||
+    def.includes("مفهوم أو عنوان") ||
+    def.includes("عنوان بحثي") ||
+    def.includes("مستخرج من نص المستند") ||
+    def.includes("مقتطف مضاف") ||
+    def.includes("تعذر توليد") ||
+    def.includes("مسودة محددة")
+  ) {
+    return false;
+  }
+
+  // 3. Banned Person Names / Author Names / Proper First-Last Names
+  const BANNED_NAME_TOKENS = [
+    "jollie", "carol", "javed", "khumalo", "sharma", "chiriac", "ramsuraj", "cantillon",
+    "siddiqui", "ahmad", "khan", "hassan", "pedag", "matt", "david", "peter", "tatiana",
+    "trisha", "sunil", "kumar", "seddik", "kansara", "mbalenhle", "imshad", "jamshed",
+    "moulay", "mohamed", "ahmed", "ali", "john", "smith", "michael", "robert"
+  ];
+
+  for (const nameToken of BANNED_NAME_TOKENS) {
+    if (t.includes(nameToken) || draft.includes(nameToken) || verified.includes(nameToken)) {
+      return false;
+    }
+  }
+
+  // 4. Banned Publishers, Organizations, Universities & Software
+  const BANNED_PATTERNS = [
+    "springer", "elsevier", "routledge", "ieee", "wiley", "nature", "sage", 
+    "taylor & francis", "oxford", "cambridge", "jstor", "pubmed", "scopus",
+    "web of science", "frontiers", "mdpi", "emerald", "proquest", "arxiv",
+    "researchgate", "academia.edu", "google scholar", "harvester", "press",
+    "university press", "palgrave", "macmillan", "brill", "de gruyter", "harper",
+    "mit press", "harvard university", "stanford university", "princeton university",
+    "yale university", "columbia university", "chicago university", "macquarie",
+    "durban", "open university", "state university", "blackwell", "microsoft",
+    "netscape", "explorer", "communicator", "madrasati"
+  ];
+
+  for (const banned of BANNED_PATTERNS) {
+    if (t.includes(banned)) return false;
+  }
+
+  // 5. Bibliographic, Section Headings, Title Snippets, Vague Words
+  const BANNED_WORDS = [
+    "journal of", "proceedings of", "bulletin of", "annals of", "review of", "handbook of",
+    "edited by", "volume ", "issue ", "chapter ", "table of contents", "page number",
+    "united states", "united kingdom", "north america", "south america", "western europe",
+    "eastern europe", "middle east", "north africa", "new york", "london", "paris", "berlin",
+    "vague process", "general process", "analysis process", "key finding",
+    "important result", "study result", "research paper", "book title", "paper title",
+    "author name", "publisher name", "main result", "overview of", "abstract this",
+    "abstract", "introduction", "nowadays", "developing effective", "achieving",
+    "practical guide", "world wide", "supervisors", "educational supervisors",
+    "strategic studies", "corporate management", "research scholar"
+  ];
+
+  for (const word of BANNED_WORDS) {
+    if (t.includes(word)) return false;
+  }
+
+  // 6. Banned Arabic Indicators (Publishers, Authors, Titles, Institutions, Locations, Vague terms)
+  const BANNED_ARABIC_INDICATORS = [
+    "دار نشر", "اسم ناشر", "اسم مؤلف", "كاتب", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
+    "عنوان مقال", "مجلة علمية", "دورية علمية", "جامعة", "مؤسسة أكاديمية", "كلية", "وزارة",
+    "جمعية", "منظمة", "مؤتمر", "مدينة", "دولة", "مطبعة", "منشورات", "مكتبة", "طبعة", "مجلد",
+    "رسالة ماجستير", "أطروحة دكتوراه", "قسم ", "معهد ", "مركز بحوث", "دراسة حول", "بحث بعنوان",
+    "كتاب بعنوان", "دكتور", "أستاذ", "البروفيسور", "الباحث", "الباحثة", "عملية معقدة",
+    "نتائج هامة", "جانب رئيسي", "نقاط أساسية", "دراسة هامة", "بحث جيد", "العملية البحثية"
+  ];
+
+  for (const ind of BANNED_ARABIC_INDICATORS) {
+    if (t.includes(ind) || draft.includes(ind) || verified.includes(ind)) {
+      if (!def.includes("المفهوم") && !def.includes("مصطلح") && !def.includes("مبدأ") && !def.includes("طريقة") && !def.includes("أسلوب")) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 export function performLocalTermExtraction(text: string, sourceId?: string): GlossaryTerm[] {
   if (!text || text.trim().length < 10) return [];
 
@@ -192,80 +288,52 @@ export function performLocalTermExtraction(text: string, sourceId?: string): Glo
   const extractedTerms: GlossaryTerm[] = [];
   const addedTermKeys = new Set<string>();
 
-  // 1. Match against academic dictionary keywords
+  // 1. Match ONLY against curated academic dictionary keywords
   for (const entry of ACADEMIC_DICTIONARY) {
     const matched = entry.keywords.some((kw) => textLower.includes(kw));
     if (matched && !addedTermKeys.has(entry.term.toLowerCase())) {
-      addedTermKeys.add(entry.term.toLowerCase());
-      extractedTerms.push({
+      const termObj = {
         term: entry.term,
         transliteration: entry.verified_term,
         draft_term: entry.draft_term,
         verified_term: entry.verified_term,
         definition: entry.definition,
         sourceId: sourceId
-      });
+      };
+
+      if (isValidAcademicConcept(termObj)) {
+        addedTermKeys.add(entry.term.toLowerCase());
+        extractedTerms.push(termObj);
+      }
     }
   }
 
-  // 2. Extract capitalized multi-word phrases (e.g., "North Africa", "Conceptual Framework", "Regional Integration")
-  const capRegex = /\b([A-Z][a-z]{3,}(?:\s+[A-Z][a-z]{3,}){1,2})\b/g;
-  let match: RegExpExecArray | null;
-  let customCount = 0;
-
-  while ((match = capRegex.exec(text)) !== null && customCount < 5) {
-    const rawPhrase = match[1].trim();
-    const rawLower = rawPhrase.toLowerCase();
-
-    // Skip common generic English words
-    if (
-      rawLower.includes("table of") ||
-      rawLower.includes("page number") ||
-      rawLower.includes("university press") ||
-      rawLower.includes("all rights")
-    ) {
-      continue;
-    }
-
-    if (!addedTermKeys.has(rawLower)) {
-      addedTermKeys.add(rawLower);
-      customCount++;
-      extractedTerms.push({
-        term: rawPhrase,
-        transliteration: rawPhrase,
-        draft_term: rawPhrase,
-        verified_term: rawPhrase,
-        definition: `مفهوم أو عنوان بحثي رئيسي مستخرج من نص المستند (${rawPhrase}).`,
-        sourceId: sourceId
-      });
-    }
-  }
-
-  // 3. Extract Arabic academic terms enclosed in quotes or parentheses or specific key phrases
+  // 2. Match Arabic academic terms explicitly defined in dictionary/curated list
   const arabicTermsRegex = /(?:السيادة الويستفالية|المركزية الأوروبية|معيار التحضر|الوضعية القانونية|المجتمع الدولي|الإطار المفاهيمي|المنهجية البحثية|التحليل التجريبي|نظرية المعرفة|الهيمنة|البنائية|الواقعية الهيكلية|التعددية|الإطار المعياري|تحليل الخطاب|التعلم الهجين|بيئة التعلم الافتراضية|التحصيل الأكاديمي|الفجوة الرقمية|ضمان الجودة|الرفاه النفسي|العزلة الأكاديمية|الارتباط الإحصائي|الانحراف المعياري)/g;
   
   let arMatch: RegExpExecArray | null;
-  while ((arMatch = arabicTermsRegex.exec(text)) !== null && customCount < 8) {
+  while ((arMatch = arabicTermsRegex.exec(text)) !== null) {
     const arPhrase = arMatch[0].trim();
     const arLower = arPhrase.toLowerCase();
 
     if (!addedTermKeys.has(arLower)) {
-      addedTermKeys.add(arLower);
-      customCount++;
-      
-      // Find matching entry definition if possible
       const dictMatch = ACADEMIC_DICTIONARY.find(
         (d) => d.verified_term === arPhrase || d.draft_term === arPhrase
       );
 
-      extractedTerms.push({
+      const termObj = {
         term: dictMatch?.term || arPhrase,
         transliteration: arPhrase,
         draft_term: arPhrase,
         verified_term: arPhrase,
         definition: dictMatch?.definition || `مصطلح أكاديمي محوري استخلص من تحليل متن المستند.`,
         sourceId: sourceId
-      });
+      };
+
+      if (isValidAcademicConcept(termObj)) {
+        addedTermKeys.add(arLower);
+        extractedTerms.push(termObj);
+      }
     }
   }
 

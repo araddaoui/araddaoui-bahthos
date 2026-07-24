@@ -6,6 +6,7 @@ import {
   Trash2, 
   Globe, 
   BookOpen, 
+  BookMarked,
   X,
   FileCheck,
   AlertCircle,
@@ -749,7 +750,18 @@ export default function SourcesList({
         </>
       ) : (
         /* Glossary Tab View */
-        <div className="flex-1 overflow-y-auto p-3 space-y-2.5" id="glossary-list-container">
+        <div className="flex-1 overflow-y-auto p-3 space-y-3" id="glossary-list-container">
+          {/* Definition Banner for المصطلحات والمفاهيم */}
+          <div className="bg-[#f0f7f7] border border-[#a2d2d2]/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-[#094d4e] leading-relaxed shadow-3xs" id="glossary-concept-definition-card" dir="rtl">
+            <div className="flex items-center gap-1.5 font-extrabold text-xs text-[#07393a] mb-1">
+              <BookMarked className="w-4 h-4 text-[#094d4e] flex-shrink-0" />
+              <span>تعريف المصطلحات والمفاهيم الأكاديمية:</span>
+            </div>
+            <p className="text-[11px] text-gray-700 leading-relaxed font-normal">
+              المصطلحات والمفاهيم هي <span className="font-bold text-[#094d4e]">النظريات المعرفية</span>، و<span className="font-bold text-[#094d4e]">المناهج العلمية</span>، و<span className="font-bold text-[#094d4e]">الأطر المفاهيمية</span>، و<span className="font-bold text-[#094d4e]">المؤشرات الإحصائية</span> المحورية المقتبسة من الأدبيات المرفوعة (مثل: <span className="font-bold text-[#094d4e]">الإطار المفاهيمي</span>، <span className="font-bold text-[#094d4e]">المنهجية البحثية</span>، <span className="font-bold text-[#094d4e]">البنائية</span>، <span className="font-bold text-[#094d4e]">الارتباط الإحصائي</span>). تُستخرج وتُعرَّف صراحة لبيان الركائز المعرفية للدراسة، مع الاستبعاد التام والتحقق الصارم ضد أسماء الأعلام، والمؤسسات، ودور النشر، وعناوين الكتب العابرة.
+            </p>
+          </div>
+
           {isSweeping && (
             <div className="bg-[#fcfbf7] border border-[#eae9e2] rounded-xl p-3 flex items-center gap-2.5 text-gray-700 text-[11px] font-medium animate-pulse" id="glossary-sweeping-banner" dir="rtl">
               <Loader2 className="w-4 h-4 animate-spin text-gray-500 flex-shrink-0" />
