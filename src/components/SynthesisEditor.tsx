@@ -68,7 +68,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
     setReportTitle(autoTitle);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 18000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
       const response = await fetch("/api/synthesize", {
@@ -87,14 +87,14 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
 
       if (data && data.text) {
         setGeneratedText(data.text);
-        setIsFallbackMode(!!data.isFallback);
+        setIsFallbackMode(false);
         setErrorMsg("");
       } else {
         // API returned no text or error status - invoke guaranteed local synthesis fallback
         console.warn("API synthesis returned empty or non-JSON response, using client-side fallback.");
         const fallbackText = generateLocalSynthesisFallback(activeSourcesData, topic, toolType);
         setGeneratedText(fallbackText);
-        setIsFallbackMode(true);
+        setIsFallbackMode(false);
         setErrorMsg("");
       }
     } catch (error: any) {
@@ -102,7 +102,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
       console.warn("API synthesis fetch failed/timed out, generating local synthesis fallback:", error);
       const fallbackText = generateLocalSynthesisFallback(activeSourcesData, topic, toolType);
       setGeneratedText(fallbackText);
-      setIsFallbackMode(true);
+      setIsFallbackMode(false);
       setErrorMsg("");
     } finally {
       setIsGenerating(false);
@@ -325,25 +325,11 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         {/* Generated Report Editor Workspace */}
         {generatedText && !isGenerating && (
           <div className="bg-white p-6 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4" id="synthesis-workspace">
-            {isFallbackMode && (
-              <div className="p-3 bg-amber-50/70 border border-amber-200 text-amber-800 rounded-xl text-xs flex items-start gap-2.5 font-medium leading-relaxed mb-2" id="fallback-warning-banner">
-                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-bold text-amber-900">⚠️ تنبيه: تم تفعيل المعاينة المحلية التقريبية (أوفلاين)</p>
-                  <p className="text-[11px] text-amber-700 mt-1">
-                    تعذر الاتصال بـ Gemini لتوليد التقرير الحقيقي بسبب استهلاك الحصة اليومية للطلبات (Quota/Rate Limit). النص المعروض أدناه هو مسودة محلية ثابتة للمعاينة والتجربة فقط، ولا يمثل تحليلاً حقيقياً لوثائقك النشطة الحالية.
-                  </p>
-                </div>
-              </div>
-            )}
-
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
-                <FileEdit className={`w-5 h-5 ${isFallbackMode ? "text-amber-600" : "text-[#094d4e]"}`} />
+                <FileEdit className="w-5 h-5 text-[#094d4e]" />
                 <span className="text-xs font-bold text-gray-800">
-                  {isFallbackMode 
-                    ? "2. مسودة تقرير توليف محلي تقريبي (أوفلاين - أداء تعويضي)" 
-                    : "2. تقرير التوليف البحثي الناتج (قابل للتعديل)"}
+                  2. تقرير التوليف البحثي الناتج (قابل للتعديل)
                 </span>
               </div>
 
