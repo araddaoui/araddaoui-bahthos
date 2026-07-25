@@ -16,6 +16,7 @@ import {
   FileText
 } from "lucide-react";
 import { Source, GlossaryTerm } from "../types";
+import { isValidAcademicConcept, getConceptPair } from "../utils/termExtractor";
 
 interface SourcesListProps {
   sources: Source[];
@@ -359,9 +360,20 @@ export default function SourcesList({
             <BookOpen className="w-5 h-5 text-[#094d4e]" />
             <span>المصادر البحثية</span>
           </h2>
-          <span className="text-xs bg-teal-50 text-[#094d4e] border border-teal-100/80 px-2.5 py-1 rounded-full font-semibold">
-            {activeCount} من {sources.length} نشطة
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs bg-teal-50 text-[#094d4e] border border-teal-100/80 px-2.5 py-1 rounded-full font-semibold">
+              {activeCount} من {sources.length} نشطة
+            </span>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="px-2.5 py-1 bg-[#094d4e] hover:bg-[#07393a] text-white text-[11px] font-extrabold rounded-lg transition-all shadow-xs flex items-center gap-1"
+              id="header-upload-source-btn"
+              title="رفع واستخراج مستند بحثي جديد فوراً"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>رفع مصدر</span>
+            </button>
+          </div>
         </div>
         <p className="text-[11px] text-gray-600 leading-relaxed font-semibold">
           الوثائق المفعّلة يتم تضمينها تلقائياً في سياق التحليل والمقارنة بواسطة الذكاء الاصطناعي.
@@ -459,7 +471,34 @@ export default function SourcesList({
 
       {/* Sources List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-        {filteredSources.length === 0 ? (
+        {sources.length === 0 ? (
+          <div className="space-y-3" id="zero-sources-upload-container">
+            <div 
+              onClick={() => setShowAddForm(true)}
+              className="bg-white border-2 border-dashed border-[#094d4e]/40 rounded-2xl p-5 text-center flex flex-col items-center justify-center space-y-3 bg-[#f0f7f7]/30 hover:bg-[#f0f7f7]/60 shadow-xs cursor-pointer transition-all" 
+              dir="rtl"
+            >
+              <UploadCloud className="w-10 h-10 text-[#094d4e] bg-teal-50 p-2 rounded-full border border-teal-100/80 animate-bounce" />
+              <div className="space-y-1">
+                <h3 className="text-xs font-extrabold text-[#1f1f1f]">مركز رفع وتحليل المستندات البحثية</h3>
+                <p className="text-[10px] text-gray-500 font-medium max-w-xs leading-relaxed">
+                  قم برفع أو اسقاط مستنداتك العلمية (PDF، Word، Text) للبدء المباشر في الاستخراج والتحليل الأكاديمي الشامل.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowAddForm(true);
+                setUploadTab("paste");
+              }}
+              className="w-full py-2 bg-white border border-[#e2e2dd] hover:border-gray-300 text-gray-700 text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+            >
+              <FileText className="w-3.5 h-3.5 text-[#094d4e]" />
+              <span>أو لصق نص مقتبس مستخرج يدوياً</span>
+            </button>
+          </div>
+        ) : filteredSources.length === 0 ? (
           <div className="text-center py-6 px-4 text-gray-400 space-y-3 bg-white rounded-xl border border-[#e2e2dd] my-2 shadow-2xs" id="no-sources-fallback-container">
             <div className="text-xs font-medium">
               لا توجد مصادر تطابق بحثك.
@@ -777,39 +816,54 @@ export default function SourcesList({
               </div>
             </div>
           )}
-          {glossaryTerms.length === 0 ? (
-            <div className="space-y-4">
-              <div className="text-center py-8 px-4 text-gray-400 text-xs font-medium bg-white rounded-xl border border-[#e2e2dd]">
-                لا توجد مصطلحات في المعجم حتى الآن.
-                <p className="text-[10px] text-gray-400 mt-1">المصطلحات تظهر تلقائياً عند رفع المستندات أو تفعيل المصادر.</p>
-              </div>
-              
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-slate-700 leading-relaxed" dir="rtl">
-                <span className="font-bold text-slate-900 block mb-1">دليل معجم المصطلحات الأكاديمية:</span>
-                يتم بناء المعجم تلقائياً عند تحليل الوثائق المرفوعة في الجلسة، لتوليد استخراج دقيق للمصطلحات والترجمات المعتمدة.
-              </div>
-            </div>
-          ) : (
-            glossaryTerms.map((termItem, idx) => (
-              <div
-                key={idx}
-                className="bg-white border border-[#e2e2dd] hover:border-gray-300 transition-all p-3.5 rounded-xl text-right shadow-3xs hover:shadow-2xs"
-                id={`glossary-item-${idx}`}
-              >
-                <div className="flex flex-wrap items-center gap-2 justify-between mb-2 pb-1.5 border-b border-gray-100/50">
-                  <span className="text-xs font-bold text-gray-950 text-right">
-                    {termItem.transliteration}
-                  </span>
-                  <span className="font-mono text-[10px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200" dir="ltr">
-                    {termItem.term}
-                  </span>
+          {(() => {
+            const validTerms = glossaryTerms.filter(isValidAcademicConcept);
+            if (validTerms.length === 0) {
+              return (
+                <div className="space-y-4">
+                  <div className="text-center py-8 px-4 text-gray-400 text-xs font-medium bg-white rounded-xl border border-[#e2e2dd]">
+                    لا توجد مصطلحات في المعجم حتى الآن.
+                    <p className="text-[10px] text-gray-400 mt-1">المصطلحات تظهر تلقائياً عند رفع المستندات أو تفعيل المصادر.</p>
+                  </div>
+                  
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-slate-700 leading-relaxed" dir="rtl">
+                    <span className="font-bold text-slate-900 block mb-1">دليل معجم المصطلحات الأكاديمية:</span>
+                    يتم بناء المعجم تلقائياً عند تحليل الوثائق المرفوعة في الجلسة، لتوليد استخراج دقيق للمصطلحات والترجمات المعتمدة.
+                  </div>
                 </div>
-                <p className="text-[11px] text-gray-600 leading-relaxed font-medium">
-                  {termItem.definition}
-                </p>
-              </div>
-            ))
-          )}
+              );
+            }
+
+            return validTerms.map((termItem, idx) => {
+              const { arabicTerm, englishTerm } = getConceptPair(termItem);
+              const displayEnglish = englishTerm && englishTerm.toLowerCase() !== arabicTerm.toLowerCase() ? englishTerm : null;
+
+              return (
+                <div
+                  key={idx}
+                  className="bg-white border border-[#e2e2dd] hover:border-gray-300 transition-all p-3.5 rounded-xl text-right shadow-3xs hover:shadow-2xs space-y-2"
+                  id={`glossary-item-${idx}`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-gray-100/80" dir="rtl">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="text-xs font-bold text-gray-950 text-right">
+                        {arabicTerm}
+                      </span>
+                    </div>
+                    {displayEnglish && (
+                      <span className="font-mono text-[10px] font-semibold text-slate-700 bg-slate-50 px-2.5 py-0.5 rounded-md border border-slate-200/80 tracking-wide" dir="ltr">
+                        {displayEnglish}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-600 leading-relaxed font-normal text-right pt-0.5" dir="rtl">
+                    {termItem.definition}
+                  </p>
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 

@@ -103,57 +103,120 @@ async function generateContentWithRetry(
 }
 
 function isValidAcademicConcept(item: { term: string; definition?: string; draft_term?: string; verified_term?: string; transliteration?: string }): boolean {
-  if (!item || !item.term || typeof item.term !== "string") return false;
-  const t = item.term.trim().toLowerCase();
+  if (!item) return false;
+
+  const rawTerm = (item.term || "").trim();
+  if (!rawTerm || rawTerm.length < 3 || rawTerm.length > 60) return false;
+
+  if (rawTerm === "مفهوم متخصص" || rawTerm === "Academic Concept") return false;
+
+  // Reject strings containing slashes, URLs, DOIs, email, brackets, or math symbols in term
+  if (/[\/\\@=\?&%\[\]{}_<>]|https?:\/\/|www\.|doi\.org|\.com\b|\.org\b|\.net\b|journalcode|issn|isbn/i.test(rawTerm)) {
+    return false;
+  }
+
+  const t = rawTerm.toLowerCase();
   const def = (item.definition || "").trim().toLowerCase();
   const draft = (item.draft_term || "").trim().toLowerCase();
   const verified = (item.verified_term || "").trim().toLowerCase();
+  const trans = (item.transliteration || "").trim().toLowerCase();
 
-  // 1. Length & Basic Structure Checks
-  if (t.length < 2 || t.length > 70) return false;
-  if (t.split(/\s+/).length > 6) return false; // concepts are 1-6 words max
-  if (/^(vol|volume|no|issue|pp|pages?|page|\d+|http|https|doi|isbn|issn)\b/i.test(t)) return false;
+  const termOnly = `${t} ${draft} ${verified} ${trans}`;
 
-  // 2. Reject empty definitions
+  if (termOnly.includes("مفهوم متخصص") || termOnly.includes("academic concept")) {
+    return false;
+  }
+
+  // 1. Definition quality check (must be a valid explanation, not a URL or citation fragment)
   if (!def || def.length < 10) return false;
-
-  // 3. Strict Banned Person Names & Publishers
-  const BANNED_TOKENS = [
-    "jollie", "carol", "javed", "khumalo", "sharma", "chiriac", "ramsuraj", "cantillon",
-    "siddiqui", "ahmad", "khan", "pedag", "tatiana", "trisha", "seddik",
-    "springer", "elsevier", "routledge", "ieee", "wiley", "nature", "sage",
-    "oxford", "cambridge", "jstor", "pubmed", "scopus", "web of science", "frontiers", "mdpi",
-    "emerald", "proquest", "arxiv", "researchgate", "academia.edu", "google scholar"
-  ];
-
-  for (const token of BANNED_TOKENS) {
-    if (t.includes(token) || draft.includes(token) || verified.includes(token)) {
-      return false;
-    }
+  if (/^https?:\/\/|submit your article|download by|journal homepage|article views|view related|crossmark|full terms/i.test(def)) {
+    return false;
   }
 
-  // 4. Banned Bibliographic Section Headings & Meta Items
-  const BANNED_PHRASES = [
-    "journal of", "proceedings of", "bulletin of", "annals of", "review of", "handbook of",
-    "edited by", "table of contents", "page number", "author name", "publisher name",
-    "references list", "abstract section"
-  ];
-
-  for (const phrase of BANNED_PHRASES) {
-    if (t.includes(phrase)) return false;
+  // 1b. Reject definitions that are raw transcriptions, interview excerpts, or publication citations
+  if (/\b(columbia studies|middle east|press|journal|published|edited by|printed in|isbn|issn|doi|pages?|vol|volume|issue|conceptually extracted from|analysed through the lenses of|interview|panels and the interviews)\b/i.test(def)) {
+    return false;
   }
 
-  // 5. Banned Meta-Arabic Indicators (Metadata headers, non-concept phrases)
-  const BANNED_ARABIC = [
-    "دار نشر", "اسم ناشر", "اسم مؤلف", "عنوان كتاب", "عنوان ورقة", "عنوان دراسة",
-    "عنوان مقال", "مجلة علمية", "دورية علمية", "جدول المحتويات", "قائمة المراجع",
-    "رسالة ماجستير", "أطروحة دكتوراه", "بحث بعنوان", "كتاب بعنوان"
+  // 1c. Reject generic dummy fallback definitions
+  if (
+    def.includes("مفهوم أكاديمي وتخصصي") ||
+    def.includes("مفهوم متخصص") ||
+    def.includes("تم تحليله واستخلاصه من سياق")
+  ) {
+    return false;
+  }
+
+  // 2. Word count constraint (1 to 5 words)
+  const words = t.split(/\s+/);
+  if (words.length > 5) return false;
+
+  // 2b. Reject non-concept titles, proper noun fragments, methodology phrases, or case study topics
+  if (/\b(international african|african-american|african american|norman fairclough|fairclough|cda framework|reflexive museology|museum theory|computer-assisted|arab uprisings|columbia studies|security politics|gulf monarchies|journal|review|quarterly|proceedings|uprisings explained|case study|narrative about|personal spark|first person)\b/i.test(termOnly)) {
+    return false;
+  }
+
+  // 3. Reject bibliographic meta indicators / IDs / Pages
+  if (/^(vol|volume|no|issue|pp|pages?|page|\d+|http|https|doi|isbn|issn|url|doi\.org)\b/i.test(t)) return false;
+
+  // 4. Banned Publishers, Journals, Reviews, Publications, Press, Web Debris (in TERM ONLY)
+  const PUBLICATION_REGEX = /\b(journal|comillas|review|bulletin|proceedings|quarterly|annals|monograph|periodical|magazine|newsletter|press|publisher|publishing|publication|editorial|edition|series|springer|elsevier|routledge|ieee|wiley|nature|sage|oxford|cambridge|jstor|pubmed|scopus|web of science|frontiers|mdpi|emerald|proquest|arxiv|researchgate|google scholar|crossmark|view crossmark|full terms|terms & conditions|terms and conditions|download by|journal homepage|article views|submit your article|survival global)\b/i;
+  const ARABIC_PUBLICATION_REGEX = /(مجلة|دورية|صحيفة|جريدة|مطبعة|دار نشر|ناشر|إصدار|مجلد|عدد|قائمة المراجع|جدول المحتويات|فهرس|أطروحة|رسالة ماجستير|شروط وأحكام|تحميل بواسطة)/i;
+
+  if (PUBLICATION_REGEX.test(termOnly) || ARABIC_PUBLICATION_REGEX.test(termOnly)) {
+    return false;
+  }
+
+  // 5. Banned Proper Places, Countries, Cities, & Regions (in TERM ONLY)
+  const GEOGRAPHY_REGEX = /\b(northern ireland|ireland|irish|sidi bouszid|sidi bouzid|bouszid|bouzid|south carolina|carolina|ulster|bardo|kairouan|sfax|sousse|tunis|tunisia|tunisian|central arabian|arabian tribal|qatar|qatari|doha|saudi|arabia|emirates|uae|bahrain|kuwait|oman|gulf|persian gulf|arabian gulf|middle east|middle eastern|near east|far east|north america|south america|latin america|europe|asia|africa|oceania|egypt|egyptian|iran|iranian|iraq|iraqi|syria|syrian|turkey|turkish|yemen|jordan|jordanian|lebanon|lebanese|palestine|palestinian|israel|israeli|sudan|algeria|morocco|libya|united states|usa|america|american|uk|britain|british|china|chinese|russia|russian|france|french|germany|german|japan|japanese|india|indian|spain|spanish|madrid|washington|london|beijing|moscow|tehran|riyadh|abu dhabi|cairo|ankara|baghdad|damascus|beirut|jerusalem)\b/i;
+  const ARABIC_GEOGRAPHY_REGEX = /(أيرلندا الشمالية|أيرلندا|سيدي بوزيد|سيدي بو زيد|كارولاينا|ألستر|باردو|صفاقس|سوسة|القيروان|قطر|قطري|قطرية|الدوحة|السعودية|الإمارات|البحرين|الكويت|عمان|الخليج|الشرق الأوسط|مصر|إيران|العراق|سوريا|تركيا|اليمن|الأردن|لبنان|فلسطين|السودان|الجزائر|المغرب|تونس|تونسية|ليبيا|أمريكا|الولايات المتحدة|بريطانيا|الصين|روسيا|فرنسا|ألمانيا|اليابان|الهند|إسبانيا|مدريد|واشنطن|لندن|بكين|مسكوا|طهران|الرياض|القاهرة|أنقرة|بغداد)/i;
+
+  if (GEOGRAPHY_REGEX.test(termOnly) || ARABIC_GEOGRAPHY_REGEX.test(termOnly)) {
+    return false;
+  }
+
+  // 6. Banned Persons, Scholars, Authors, Rulers, Figures, Names (in TERM ONLY)
+  const PERSON_REGEX = /\b(fairclough|norman fairclough|norman|cda framework|foucault|michel foucault|gramsci|antonio gramsci|bourdieu|chomsky|derrida|habermas|edward said|said|spivak|bhabha|fanon|agamben|zizek|butler|hardt|negri|wallerstein|cox|robert cox|gilpin|bull|hedley bull|lynch|marc lynch|marc|abdel fatah|sisi|al-sisi|sheikh jassim|sheikh|jassim|mohammed ibn abd al-wahhab|abd al-wahhab|al-wahhab|wahhab|qaradawi|joseph nye|nye|roberts king|roberts|king|kenneth waltz|waltz|alexander wendt|wendt|mearsheimer|keohane|huntington|fukuyama|hobbes|locke|machiavelli|weber|marx|clausewitz|tamim|qaboos|zayed|salman|mbs|mbz|erdogan|khamenei|trump|biden|obama|bush|clinton|putin|xi jinping|macron|scholz|thatcher|blair|al-thani|althani|al thani|bin hamad|bin zayed|bin salman|jollie|carol|javed|khumalo|sharma|chiriac|ramsuraj|cantillon|siddiqui|ahmad|khan|tatiana|trisha|seddik|saqr|abdul|badi|abbas|mahmoud|david|john|michael|kobaisi|abdulla|juma)\b/i;
+  const ARABIC_PERSON_REGEX = /(نورمان فيركلوف|فيركلوف|نورمان|فوكو|ميشيل فوكو|غرامشي|أنطونيو غرامشي|بورديو|تشومسكي|ديريدا|هابيرماس|إدوارد سعيد|سعيد|سبيفاك|بهابها|فانون|مارك لينش|لينش|عبد الفتاح السيسي|عبد الفتاح|السيسي|الشيخ جاسم|الشيخ|جاسم|محمد بن عبد الوهاب|عبد الوهاب|القرضاوي|جوزيف ناي|ناي|روبرتس|روبرتس كينغ|والتز|ميرشايمر|كينيث والتز|تميم|قابوس|زايد|سلمان|أردوغان|خامنئي|ترامب|بايدن|أوباما|بوش|كلينتون|بوتين|شي جين بينغ|آل ثاني|بن حمد|بن زايد|بن سلمان|صقر|عبد البديع|عباس|محمود|الكبيسي|عبد الله)/i;
+
+  if (PERSON_REGEX.test(termOnly) || ARABIC_PERSON_REGEX.test(termOnly)) {
+    return false;
+  }
+
+  // 7. Banned Academic/Administrative Buildings, Colleges, Organizations, Movements, Commands (in TERM ONLY)
+  const INSTITUTION_REGEX = /\b(grand mufti|office of grand mufti|islamic affairs|endowments|ministry of endowments|brotherhood|muslim brotherhood|ikhwan|al-ikhwan|hamas|hezbollah|al-qaeda|isis|daesh|staff college|college|staff|academy|university|school|faculty|department|ministry|command|joint services|armed forces|defense force|general command|supreme council|national assembly|parliament|shura council|security council|bureau|committee|commission|institute|center|organisation|organization|foundation|agency|brigade|division|regiment|squadron|unit)\b/i;
+  const ARABIC_INSTITUTION_REGEX = /(مفتي الديار|مفتي|مفتى|مكتب المفتي|الأوقاف والإشكاليات|الأوقاف|وزارة الأوقاف|الشؤون الإسلامية|الإخوان|الإخوان المسلمين|حركة|حزب|كلية|كلية الأركان|أركان|قيادة|القيادة المشتركة|قيادة القوات|القوات المسلحة|جامعة|وزارة|معهد|مركز|هيئة|مجلس|برلمان|مجلس الشورى|مجلس النواب|مجلس الأمن|لجنة|مدرسة|أكاديمية|لواء|كتيبة|فرقة)/i;
+
+  if (INSTITUTION_REGEX.test(termOnly) || ARABIC_INSTITUTION_REGEX.test(termOnly)) {
+    return false;
+  }
+
+  // 8. Starting/Ending Junk Words (conjunctions, prepositions, debris, sentence fragments)
+  const STARTING_ENDING_JUNK = [
+    "yet", "however", "in", "on", "at", "by", "for", "with", "from", "to", "this", "that", "these", "those",
+    "when", "where", "while", "after", "before", "during", "since", "until", "through", "about", "against",
+    "between", "into", "above", "below", "further", "then", "here", "there", "why", "how", "all", "any",
+    "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same",
+    "so", "than", "too", "very", "can", "will", "just", "should", "now", "although", "because", "despite",
+    "whereas", "indeed", "thus", "hence", "therefore", "moreover", "furthermore", "according", "based", "using",
+    "via", "within", "without", "among", "under", "over", "full", "terms", "view", "submit", "download", "adi"
   ];
 
-  for (const ar of BANNED_ARABIC) {
-    if (t.includes(ar) || draft.includes(ar) || verified.includes(ar)) {
-      return false;
-    }
+  const firstWord = words[0];
+  const lastWord = words[words.length - 1];
+  if (STARTING_ENDING_JUNK.includes(firstWord) || STARTING_ENDING_JUNK.includes(lastWord)) {
+    return false;
+  }
+
+  // 9. Single-word validation: Only allow recognized academic concept words if word count === 1
+  const VALID_SINGLE_CONCEPTS = [
+    "constructivism", "realism", "neorealism", "liberalism", "neoliberalism", "hegemony", "epistemology", "governance",
+    "multilateralism", "institutionalism", "deterrence", "correlation", "sovereignty", "globalization", "interdependence",
+    "البنائية", "الواقعية", "الهيمنة", "الحوكمة", "الردع", "المؤسسية", "السيادة", "العولمة", "الارتباط"
+  ];
+
+  if (words.length === 1 && !VALID_SINGLE_CONCEPTS.includes(t)) {
+    return false;
   }
 
   return true;
@@ -234,13 +297,24 @@ app.post(["/api/analyze-document", "/analyze-document", "/api/process-document",
 
   try {
     const ai = getAiClient();
-    const promptText = `أنت محرك متقدم للتحليل الاستخراجي والأكاديمي في "بحث OS".
-قم بتحليل المستند المرفق بدقة، واستخرج منه:
-1. العنوان الرئيسي الدقيق
-2. لغة المستند (ar أو en)
-3. ملخصاً أكاديمياً مكثفاً وبليغاً (3-5 جمل)
-4. استخرج بين 5 إلى 10 مصطلحات ومفاهيم تخصصية وعلمية جوهرية وردت في متن هذا المستند تحديداً، مع بيان صياغتها العربية الفصيحة، واسمها الأصلي، وتعريف أكاديمي موجز من واقع النص.
-تنبيه: يمنع تماماً استخراج أسماء المؤلفين أو الناشرين أو الفهارس كـ "مصطلحات".`;
+    const promptText = `أنت محرك متقدم للتحليل الاستخراجي والأكاديمي التخصصي في "بحث OS".
+قم بتحليل المستند المرفق بدقة عالية، واستخرج منه:
+1. العنوان الرئيسي الدقيق للوثيقة.
+2. لغة المستند الأساسية (ar أو en).
+3. ملخصاً أكاديمياً بليغاً ومكثفاً (3-5 جمل).
+4. استخرج المفاهيم العلمية والمصطلحات التخصصية الجوهرية (Key Concepts & Theoretical Keywords) التي تعبر عن نظريات، أو أطر منهجية، أو مفاهيم علمية دقيقة وردت في متن النص (مثل: "Soft Power" / "القوة الناعمة"، "Constructivism" / "البنائية"، "Deterrence Theory" / "نظرية الردع"، "Strategic Culture" / "الثقافة الاستراتيجية"، "Discourse Analysis" / "تحليل الخطاب"، "Balance of Power" / "توازن القوى").
+
+خمسة محظورات صارمة جداً (يُمنع منعاً باتاً استخراج أيٍ منها كـ "مصطلح"):
+1. يمنع استخراج أسماء الأشخاص والعلماء والقادة والأعلام مطلقاً (مثل: Mahmoud Abbas, Abdul-Badi Saqr, Adi Saqr, Brotherhood David, Joseph Nye, Roberts King, Tamim, etc.).
+2. يمنع استخراج أسماء الأحزاب والحركات والمنظمات والمجتمعات (مثل: Muslim Brotherhood, Jama'at Al-Ikhwan, Hamas, etc.).
+3. يمنع استخراج أسماء المجلات المطبوعة وشروط الموقع وبقايا الروابط والمعلومات التوثيقية (مثل: Comillas Journal, Full Terms, Survival Global Politics, Full Terms & Conditions, DOI, http, etc.).
+4. يمنع استخراج أسماء الدول والمدن والأقاليم والكليات والمؤسسات (مثل: Qatar, Middle East, Cairo, Staff College, Joint Services Command, Ministry, etc.).
+5. يمنع استخراج العبارات الوظيفية والإدارية العامة أو بقايا الجمل والوصلات الإنشائية (مثل: Yet Qatar, According to, etc.).
+
+مواصفات كل عنصر استخراج:
+- term: الاسم العلمي الدقيق باللغة الإنجليزية للمفهوم (مثال: "Soft Power").
+- draft_term / verified_term: المفهوم العربي الفصيح المعتمد أكاديمياً (مثال: "القوة الناعمة").
+- definition: شرح وتفسير أكاديمي للمفهوم باللغة العربية بناءً على سياق النص.`;
 
     let contents: any;
     if (useMultimodalPdf) {
@@ -469,15 +543,25 @@ app.post(["/api/extract-glossary", "/extract-glossary"], async (req, res) => {
 
   try {
     const ai = getAiClient();
-    const prompt = `أنت خبير استخراج المفاهيم والمصطلحات الأكاديمية والعلمية والتقنية في "بحث OS".
-مهمتك: قراءة النص المرفق بعناية واستخراج أهم 5 إلى 10 مصطلحات ومفاهيم تخصصية وعلمية جوهرية وردت في هذا النص تحديداً.
+    const prompt = `أنت خبير فحص واستخراج المفاهيم والمصطلحات الأكاديمية والعلمية في "بحث OS".
+مهمتك: قراءة النص المرفق بعناية فائقة واستخراج المفاهيم الأكاديمية والتحليلية والمناهج العلمية الجوهرية فقط (مثل: "الجنوب العالمي Global South"، "البنائية Constructivism"، "السيادة الويستفالية Westphalian Sovereignty"، "تحليل الخطاب Discourse Analysis"، "الواقعية الهيكلية Structural Realism"، "القوة الناعمة Soft Power").
 
-تعليمات الاستخراج:
-1. استخرج المفاهيم التي تشكل الركائز المعرفية والتحليلية للنص (سواء كانت مفاهيم طبية، قانونية، اقتصادية، تقنية، تعليمية، سياسية، إلخ).
-2. بالنسبة لكل مفهوم، اذكر الاسم الأصلي أو الإنجليزي (term)، والاسم أو التعريب العربي (draft_term)، والاسم الفصيح المعتمد (verified_term)، وتعريف أكاديمي واضح ومختصر من واقع سياق النص (definition).
-3. يمنع استخراج أسماء المؤلفين أو الناشرين أو الفهارس أو العناوين العامة كـ "مصطلحات".
+شروط صارمة ومطلقة لضمان الجودة الأكاديمية:
+1. يُحظر حظراً تاماً وقاطعاً استخراج ما يلي:
+   - المتاحف والمعارض والنصب التذكارية والأرشيفات والمباني (مثل: "متحف باردو Bardo Museum"، "المتحف الوطني Ulster Museum").
+   - الفترات الزمنية العامة والتقاويم (مثل: "الألفية الجديدة New Millennium"، "القرن العشرين").
+   - أسماء الأشخاص والعلماء والحكام والأعلام (مثل: "مارك لينش Marc Lynch"، "عبد الفتاح السيسي"، "الشيخ جاسم").
+   - أسماء الأحزاب والحركات والمنظمات والمناصب والدواوين (مثل: "جماعة الإخوان المسلمين"، "مفتي الديار Grand Mufti"، "وزارة الأوقاف").
+   - أسماء المجلات والمقالات وشروط دور النشر والمجموعات الكتب (مثل: "Columbia Studies", "Full Terms").
+   - أسماء الدول والمدن والأقاليم والمناطق (مثل: "قطر"، "الشرق الأوسط"، "القاهرة").
+2. لكل مفهوم مجاز أكاديمياً، يجب تقديم:
+   - term: الاسم الأجنبي/الإنجليزي الدقيق للمفهوم (مثل: "Global South").
+   - verified_term: الترجمة العربية الفصيحة المعتمدة للمفهوم (مثل: "الجنوب العالمي").
+   - draft_term: المفهوم بالعربية (مثل: "الجنوب العالمي").
+   - definition: شرح أكاديمي موجز ودقيق للمفهوم من سياق النص (وليس رابطاً أو نصاً فرعياً أو اقتباساً مشوهاً).
+3. يُحظر تماماً استخدام عبارات تلقائية أو وهمية مثل "مفهوم متخصص" أو "Academic Concept".
 
-النص:
+النص المراد تحليله:
 ${text.substring(0, 10000)}`;
 
     const response = await generateContentWithRetry(ai, {
@@ -552,37 +636,10 @@ app.get(["/api/load-state", "/load-state"], (req, res) => {
 });
 
 app.post(["/api/save-state", "/save-state"], (req, res) => {
-  const { sources, glossaryTerms, isExplicitDelete } = req.body;
+  const { sources, glossaryTerms } = req.body;
   try {
-    let finalSources = Array.isArray(sources) ? sources : [];
-    let finalGlossary = Array.isArray(glossaryTerms) ? glossaryTerms : [];
-
-    if (!isExplicitDelete && fs.existsSync(STATE_FILE_PATH)) {
-      try {
-        const fileContent = fs.readFileSync(STATE_FILE_PATH, "utf8");
-        const parsed = JSON.parse(fileContent);
-        if (Array.isArray(parsed.sources)) {
-          const merged = [...finalSources];
-          parsed.sources.forEach((es: any) => {
-            if (!merged.some((ms) => ms.id === es.id || ms.title === es.title)) {
-              merged.push(es);
-            }
-          });
-          finalSources = merged;
-        }
-        if (Array.isArray(parsed.glossaryTerms)) {
-          const merged = [...finalGlossary];
-          parsed.glossaryTerms.forEach((eg: any) => {
-            if (!merged.some((mg) => mg.term.toLowerCase() === eg.term.toLowerCase())) {
-              merged.push(eg);
-            }
-          });
-          finalGlossary = merged;
-        }
-      } catch (e) {
-        console.warn("Failed to parse existing state file during merge:", e);
-      }
-    }
+    const finalSources = Array.isArray(sources) ? sources : [];
+    const finalGlossary = Array.isArray(glossaryTerms) ? glossaryTerms : [];
 
     const data = JSON.stringify({ sources: finalSources, glossaryTerms: finalGlossary }, null, 2);
     fs.writeFileSync(STATE_FILE_PATH, data, "utf8");

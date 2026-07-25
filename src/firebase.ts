@@ -122,27 +122,25 @@ export async function saveProjectData(
       }
     }
 
-    // 2. Delete non-existent sources ONLY if explicit reset OR if state is confirmed and non-empty
-    if (isExplicitReset) {
-      try {
-        const colRef = collection(db, "users", userId, "projects", projectId, "sources");
-        const snapshot = await getDocs(colRef);
-        const existingIds = snapshot.docs.map(d => d.id);
-        const currentIds = new Set(sources.map(s => s.id));
-        const batch = writeBatch(db);
-        let hasDeletes = false;
-        for (const id of existingIds) {
-          if (!currentIds.has(id)) {
-            batch.delete(doc(db, "users", userId, "projects", projectId, "sources", id));
-            hasDeletes = true;
-          }
+    // 2. Always delete non-existent sources from Firestore
+    try {
+      const colRef = collection(db, "users", userId, "projects", projectId, "sources");
+      const snapshot = await getDocs(colRef);
+      const existingIds = snapshot.docs.map(d => d.id);
+      const currentIds = new Set(sources.map(s => s.id));
+      const batch = writeBatch(db);
+      let hasDeletes = false;
+      for (const id of existingIds) {
+        if (!currentIds.has(id)) {
+          batch.delete(doc(db, "users", userId, "projects", projectId, "sources", id));
+          hasDeletes = true;
         }
-        if (hasDeletes) {
-          await batch.commit();
-        }
-      } catch (err) {
-        console.error("Failed to perform source deletes in Firestore:", err);
       }
+      if (hasDeletes) {
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error("Failed to perform source deletes in Firestore:", err);
     }
   }
 
@@ -155,26 +153,24 @@ export async function saveProjectData(
       }
     }
 
-    if (isExplicitReset) {
-      try {
-        const colRef = collection(db, "users", userId, "projects", projectId, "messages");
-        const snapshot = await getDocs(colRef);
-        const existingIds = snapshot.docs.map(d => d.id);
-        const currentIds = new Set(messages.map(m => m.id));
-        const batch = writeBatch(db);
-        let hasDeletes = false;
-        for (const id of existingIds) {
-          if (!currentIds.has(id)) {
-            batch.delete(doc(db, "users", userId, "projects", projectId, "messages", id));
-            hasDeletes = true;
-          }
+    try {
+      const colRef = collection(db, "users", userId, "projects", projectId, "messages");
+      const snapshot = await getDocs(colRef);
+      const existingIds = snapshot.docs.map(d => d.id);
+      const currentIds = new Set(messages.map(m => m.id));
+      const batch = writeBatch(db);
+      let hasDeletes = false;
+      for (const id of existingIds) {
+        if (!currentIds.has(id)) {
+          batch.delete(doc(db, "users", userId, "projects", projectId, "messages", id));
+          hasDeletes = true;
         }
-        if (hasDeletes) {
-          await batch.commit();
-        }
-      } catch (err) {
-        console.error("Failed to perform message deletes in Firestore:", err);
       }
+      if (hasDeletes) {
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error("Failed to perform message deletes in Firestore:", err);
     }
   }
 
@@ -187,26 +183,24 @@ export async function saveProjectData(
       }
     }
 
-    if (isExplicitReset) {
-      try {
-        const colRef = collection(db, "users", userId, "projects", projectId, "syntheses");
-        const snapshot = await getDocs(colRef);
-        const existingIds = snapshot.docs.map(d => d.id);
-        const currentIds = new Set(syntheses.map(s => s.id));
-        const batch = writeBatch(db);
-        let hasDeletes = false;
-        for (const id of existingIds) {
-          if (!currentIds.has(id)) {
-            batch.delete(doc(db, "users", userId, "projects", projectId, "syntheses", id));
-            hasDeletes = true;
-          }
+    try {
+      const colRef = collection(db, "users", userId, "projects", projectId, "syntheses");
+      const snapshot = await getDocs(colRef);
+      const existingIds = snapshot.docs.map(d => d.id);
+      const currentIds = new Set(syntheses.map(s => s.id));
+      const batch = writeBatch(db);
+      let hasDeletes = false;
+      for (const id of existingIds) {
+        if (!currentIds.has(id)) {
+          batch.delete(doc(db, "users", userId, "projects", projectId, "syntheses", id));
+          hasDeletes = true;
         }
-        if (hasDeletes) {
-          await batch.commit();
-        }
-      } catch (err) {
-        console.error("Failed to perform synthesis deletes in Firestore:", err);
       }
+      if (hasDeletes) {
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error("Failed to perform synthesis deletes in Firestore:", err);
     }
   }
 
@@ -220,26 +214,24 @@ export async function saveProjectData(
       }
     }
 
-    if (isExplicitReset) {
-      try {
-        const colRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
-        const snapshot = await getDocs(colRef);
-        const existingIds = snapshot.docs.map(d => d.id);
-        const currentIds = new Set(glossaryTerms.map(t => (t.term || "").replace(/[\/\#\?\[\]]/g, "_")));
-        const batch = writeBatch(db);
-        let hasDeletes = false;
-        for (const id of existingIds) {
-          if (!currentIds.has(id)) {
-            batch.delete(doc(db, "users", userId, "projects", projectId, "glossaryTerms", id));
-            hasDeletes = true;
-          }
+    try {
+      const colRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
+      const snapshot = await getDocs(colRef);
+      const existingIds = snapshot.docs.map(d => d.id);
+      const currentIds = new Set(glossaryTerms.map(t => (t.term || "").replace(/[\/\#\?\[\]]/g, "_")));
+      const batch = writeBatch(db);
+      let hasDeletes = false;
+      for (const id of existingIds) {
+        if (!currentIds.has(id)) {
+          batch.delete(doc(db, "users", userId, "projects", projectId, "glossaryTerms", id));
+          hasDeletes = true;
         }
-        if (hasDeletes) {
-          await batch.commit();
-        }
-      } catch (err) {
-        console.error("Failed to perform glossary deletes in Firestore:", err);
       }
+      if (hasDeletes) {
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error("Failed to perform glossary deletes in Firestore:", err);
     }
   }
 }

@@ -22,7 +22,7 @@ import {
 } from "./firebase";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView";
-import { performLocalTermExtraction, isValidAcademicConcept } from "./utils/termExtractor";
+import { performLocalTermExtraction, isValidAcademicConcept, getConceptPair } from "./utils/termExtractor";
 import { getStoredItem, setStoredItem, removeStoredItem } from "./utils/indexedDBStorage";
 
 // Default glossary terms to populate on first load (starts empty to ensure a clean slate)
@@ -151,21 +151,27 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
   };
 
   const mapped = terms
+    .filter(isValidAcademicConcept)
     .map((t) => {
-      const englishKey = (t.term || "").trim().toLowerCase();
-      const currentTransliteration = t.transliteration || t.verified_term || t.draft_term || "";
+      const { arabicTerm, englishTerm, dictDefinition } = getConceptPair(t);
+      const termStr = (t.term || "").trim();
+      const isArabicTerm = /[\u0600-\u06FF]/.test(termStr);
 
-      let updatedTrans = currentTransliteration;
-      if (dictionary[englishKey]) {
-        updatedTrans = dictionary[englishKey];
+      const finalTerm = englishTerm || (isArabicTerm ? termStr : (t.term || ""));
+      const finalArabic = arabicTerm || (isArabicTerm ? termStr : (t.verified_term || t.transliteration || t.draft_term || ""));
+
+      let finalDef = t.definition || "";
+      if (dictDefinition && (!finalDef || finalDef.includes("مفهوم أكاديمي وتخصصي") || finalDef.includes("مفهوم متخصص") || finalDef.length < 20)) {
+        finalDef = dictDefinition;
       }
 
       return {
         ...t,
-        term: (t.term || "").trim(),
-        transliteration: updatedTrans || t.term,
-        draft_term: t.draft_term || updatedTrans || t.term,
-        verified_term: t.verified_term || updatedTrans || t.term,
+        term: finalTerm,
+        transliteration: finalArabic || finalTerm,
+        draft_term: finalArabic || finalTerm,
+        verified_term: finalArabic || finalTerm,
+        definition: finalDef,
       };
     })
     .filter(isValidAcademicConcept);
@@ -307,34 +313,10 @@ export default function App() {
         const cloudTemp = activeProjObj?.temperature ?? 0.2;
 
         loadedProjectIdRef.current = activeId;
-        setSources((prev) => {
-          const merged = [...cloudSources];
-          prev.forEach((localSrc) => {
-            if (!merged.some((m) => m.id === localSrc.id || m.title === localSrc.title)) {
-              merged.push(localSrc);
-            }
-          });
-          return merged;
-        });
-        setMessages((prev) => (prev.length > cloudMessages.length ? prev : cloudMessages));
-        setSyntheses((prev) => {
-          const merged = [...cloudSyntheses];
-          prev.forEach((localSyn) => {
-            if (!merged.some((m) => m.id === localSyn.id)) {
-              merged.push(localSyn);
-            }
-          });
-          return merged;
-        });
-        setGlossaryTerms((prev) => {
-          const merged = [...cloudGlossary];
-          prev.forEach((localTerm) => {
-            if (!merged.some((m) => m.term.toLowerCase() === localTerm.term.toLowerCase())) {
-              merged.push(localTerm);
-            }
-          });
-          return merged;
-        });
+        setSources(cloudSources);
+        setMessages(cloudMessages);
+        setSyntheses(cloudSyntheses);
+        setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary));
         setTemperature(cloudTemp);
         setCurrentProjectId(activeId);
 
@@ -549,38 +531,32 @@ export default function App() {
 
   const [stateLoadedFromServer, setStateLoadedFromServer] = useState(false);
 
-  // Load state from server on startup (for whatever project is loaded)
+  // Helper to merge sources by unique ID without dropping user-created sources
+  const mergeUniqueSources = (existing: Source[], incoming: Source[]): Source[] => {
+    if (!incoming || !Array.isArray(incoming) || incoming.length === 0) return existing;
+    const map = new Map<string, Source>();
+    existing.forEach((s) => map.set(s.id, s));
+    incoming.forEach((s) => map.set(s.id, s));
+    return Array.from(map.values());
+  };
+
+  // Load state from server on startup ONLY if guest and no local state exists
   useEffect(() => {
+    if (currentUser) {
+      setStateLoadedFromServer(true);
+      return;
+    }
     const fetchState = async () => {
       try {
         const res = await fetch("/api/load-state");
         if (res.ok) {
           const data = await res.json();
-          if (data) {
+          if (data && !currentUser) {
             if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
-              setSources((prev) => {
-                if (prev.length === 0) return data.sources;
-                const merged = [...prev];
-                data.sources.forEach((s: Source) => {
-                  if (!merged.some((m) => m.id === s.id || m.title === s.title)) {
-                    merged.push(s);
-                  }
-                });
-                return merged;
-              });
+              setSources((prev) => mergeUniqueSources(prev, data.sources));
             }
             if (data.glossaryTerms && Array.isArray(data.glossaryTerms) && data.glossaryTerms.length > 0) {
-              setGlossaryTerms((prev) => {
-                if (prev.length === 0) return cleanAndMigrateGlossary(data.glossaryTerms);
-                const merged = [...prev];
-                const cleanData = cleanAndMigrateGlossary(data.glossaryTerms);
-                cleanData.forEach((t) => {
-                  if (!merged.some((m) => m.term.toLowerCase() === t.term.toLowerCase())) {
-                    merged.push(t);
-                  }
-                });
-                return merged;
-              });
+              setGlossaryTerms((prev) => cleanAndMigrateGlossary([...prev, ...data.glossaryTerms]));
             }
           }
         }
@@ -591,10 +567,12 @@ export default function App() {
       }
     };
     fetchState();
-  }, []);
+  }, [currentUser]);
 
-  // Hydrate state from IndexedDB whenever current project changes or on startup
+  // Hydrate state from IndexedDB whenever current project changes or on startup (guests only)
   useEffect(() => {
+    if (currentUser) return; // Firebase is source of truth when logged in
+
     let isMounted = true;
     const hydrateFromIndexedDB = async () => {
       const activeId = currentProjectId || "default";
@@ -609,27 +587,11 @@ export default function App() {
         if (!isMounted) return;
 
         if (idbSources && idbSources.length > 0) {
-          setSources((prev) => {
-            const merged = [...prev];
-            idbSources.forEach((s) => {
-              if (!merged.some((m) => m.id === s.id || m.title === s.title)) {
-                merged.push(s);
-              }
-            });
-            return merged;
-          });
+          setSources((prev) => mergeUniqueSources(prev, idbSources));
         }
 
         if (idbGlossary && idbGlossary.length > 0) {
-          setGlossaryTerms((prev) => {
-            const merged = [...prev];
-            cleanAndMigrateGlossary(idbGlossary).forEach((t) => {
-              if (!merged.some((m) => m.term.toLowerCase() === t.term.toLowerCase())) {
-                merged.push(t);
-              }
-            });
-            return merged;
-          });
+          setGlossaryTerms((prev) => cleanAndMigrateGlossary([...prev, ...idbGlossary]));
         }
 
         if (idbMessages && idbMessages.length > 0) {
@@ -637,18 +599,10 @@ export default function App() {
         }
 
         if (idbSyntheses && idbSyntheses.length > 0) {
-          setSyntheses((prev) => {
-            const merged = [...prev];
-            idbSyntheses.forEach((syn) => {
-              if (!merged.some((m) => m.id === syn.id)) {
-                merged.push(syn);
-              }
-            });
-            return merged;
-          });
+          setSyntheses((prev) => (prev.length === 0 ? idbSyntheses : prev));
         }
       } catch (err) {
-        console.error("IndexedDB hydration error:", err);
+        console.error("Failed to hydrate from IndexedDB:", err);
       }
     };
 
@@ -656,7 +610,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [currentProjectId]);
+  }, [currentProjectId, currentUser]);
 
   useEffect(() => {
     const runSweep = async () => {
@@ -933,8 +887,10 @@ export default function App() {
       }
     }
 
-    // 2. Asynchronously delete from local cache & Firestore in the background
+    // 2. Asynchronously delete from local cache, server cache, & Firestore in the background
     try {
+      fetch("/api/reset-state", { method: "POST" }).catch(() => {});
+
       localStorage.removeItem(`bahthos_sources_${targetId}`);
       localStorage.removeItem(`bahthos_messages_${targetId}`);
       localStorage.removeItem(`bahthos_syntheses_${targetId}`);
@@ -1146,6 +1102,8 @@ export default function App() {
   // Passive background extraction of technical/academic terms
   const extractGlossaryTerms = async (text: string, sourceId?: string) => {
     if (!text || text.trim().length < 10) return;
+
+    let aiTerms: any[] = [];
     try {
       const response = await fetch("/api/extract-glossary", {
         method: "POST",
@@ -1154,19 +1112,20 @@ export default function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.terms && Array.isArray(data.terms) && data.terms.length > 0) {
-          addGlossaryTermsDirectly(data.terms, sourceId);
-          return; // AI extraction succeeded
+        if (data.terms && Array.isArray(data.terms)) {
+          aiTerms = data.terms;
         }
       }
     } catch (e) {
       console.warn("Passive glossary extraction failed:", e);
     }
 
-    // Dynamic local extraction fallback only if AI returned no terms or failed
+    // Dynamic local extraction to ensure comprehensive coverage
     const localTerms = performLocalTermExtraction(text, sourceId);
-    if (localTerms.length > 0) {
-      addGlossaryTermsDirectly(localTerms, sourceId);
+    const combinedTerms = [...aiTerms, ...localTerms];
+
+    if (combinedTerms.length > 0) {
+      addGlossaryTermsDirectly(combinedTerms, sourceId);
     }
   };
 
@@ -1188,6 +1147,26 @@ export default function App() {
       return cleanAndMigrateGlossary([...prev, ...incoming]);
     });
   };
+
+  // Auto-scan uploaded resources to extract at least 3 terms/concepts per resource
+  useEffect(() => {
+    if (!stateLoadedFromServer) return;
+    if (!sources || sources.length === 0) return;
+
+    sources.forEach((source) => {
+      if (!source.enabled || !source.content || source.error) return;
+
+      const existingForSource = glossaryTerms.filter((t) => t.sourceId === source.id);
+      const contentLower = source.content.toLowerCase();
+      const matchingTermsInContent = glossaryTerms.filter((t) => 
+        t.term && contentLower.includes(t.term.toLowerCase())
+      );
+
+      if (existingForSource.length < 3 && matchingTermsInContent.length < 3) {
+        extractGlossaryTerms(source.content, source.id);
+      }
+    });
+  }, [sources, stateLoadedFromServer, glossaryTerms.length]);
 
   // Auto-populate glossary for uploaded Westphalian/Eurocentrism sources if not already present
   useEffect(() => {
