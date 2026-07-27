@@ -15,6 +15,7 @@ import {
   FileText
 } from "lucide-react";
 import { Source, GlossaryTerm } from "../types";
+import { parseDocumentFile } from "../utils/documentParser";
 
 interface SourcesListProps {
   sources: Source[];
@@ -108,43 +109,27 @@ export default function SourcesList({
     }
   };
 
-  const readAndAnalyzeFile = (file: File) => {
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    const isDoc = file.name.toLowerCase().endsWith(".docx") || file.name.toLowerCase().endsWith(".doc") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.type === "application/msword";
-    const reader = new FileReader();
+  const readAndAnalyzeFile = async (file: File) => {
+    setIsAnalyzing(true);
+    setErrorMsg("");
+    setAnalysisStep("جاري استخراج واستلقاء نص المستند...");
 
-    reader.onload = async (event) => {
-      const result = event.target?.result;
-      if (typeof result === "string" && result.trim()) {
-        if (isPdf) {
-          const base64 = result.split(",")[1];
-          await runAutomaticAnalysis("", base64, "application/pdf", file.name);
-        } else if (isDoc) {
-          const base64 = result.split(",")[1];
-          const mimeType = file.type || (file.name.toLowerCase().endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/msword");
-          await runAutomaticAnalysis("", base64, mimeType, file.name);
-        } else {
-          await runAutomaticAnalysis(result, undefined, undefined, file.name);
-        }
-      } else {
-        setErrorMsg("عذراً، لا يمكن قراءة محتوى هذا الملف أو أنه فارغ.");
-      }
-    };
-
-    reader.onerror = () => {
-      setErrorMsg("حدث خطأ أثناء قراءة الملف.");
-    };
-
-    if (isPdf || isDoc) {
-      reader.readAsDataURL(file);
-    } else {
-      reader.readAsText(file);
+    try {
+      const parsed = await parseDocumentFile(file);
+      await runAutomaticAnalysis(parsed.text, parsed.base64, parsed.mimeType, parsed.fileName);
+    } catch (err: any) {
+      console.error("Failed to parse document file:", err);
+      setErrorMsg("تعذر قراءة المستند. يرجى تجربة ملف آخر.");
+      setIsAnalyzing(false);
+      setAnalysisStep("");
     }
   };
 
   const runAutomaticAnalysis = async (content: string, base64?: string, mimeType?: string, fileName?: string) => {
     if (!content.trim() && !base64) {
       setErrorMsg("يرجى إدخال محتوى المستند أو لصقه أو رفع ملف صالح.");
+      setIsAnalyzing(false);
+      setAnalysisStep("");
       return;
     }
     setIsAnalyzing(true);
@@ -152,8 +137,8 @@ export default function SourcesList({
     setAnalysisStep("جاري قراءة محتوى الملف والمستند...");
     
     try {
-      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 600);
-      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص أكاديمي بليغ..."), 1300);
+      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 400);
+      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص أكاديمي بليغ..."), 800);
 
       const response = await fetch("/api/analyze-document", {
         method: "POST",
@@ -175,7 +160,7 @@ export default function SourcesList({
             } else if (text.includes("413") || text.toLowerCase().includes("payload too large")) {
               errMsg = "حجم الملف كبير جداً بالنسبة للشبكة حالياً. يرجى محاولة رفع مستند أصغر أو استخدام اتصال إنترنت أسرع.";
             } else if (response.status === 504 || response.status === 502) {
-              errMsg = "انتهت مهلة اتصال خادم التحليل (Timeout) نظراً لبطء اتصال الإنترنت (Hotspot) أو الحجم الكبير للملف. يرجى إعادة المحاولة.";
+              errMsg = "انتهت مهلة اتصال خادم التحليل (Timeout) نظراً لبطء اتصال الإنترنت أو الحجم الكبير للملف.";
             }
           }
         } catch (parseErr) {
@@ -188,22 +173,30 @@ export default function SourcesList({
       try {
         data = await response.json();
       } catch (parseErr) {
-        throw new Error("تلقى التطبيق استجابة غير صالحة من خادم التحليل. يرجى التحقق من اتصال الإنترنت.");
+        throw new Error("تلقى التطبيق استجابة غير صالحة من خادم التحليل.");
       }
       
-      onAddSource(data.title, data.originalText, data.language, data.summary, undefined, data.terms);
+      onAddSource(data.title, data.originalText || content, data.language || "ar", data.summary, undefined, data.terms);
       setNewContent("");
       setErrorMsg("");
       setShowAddForm(false);
     } catch (err: any) {
-      console.error("Error analyzing document:", err);
-      const errMsg = err.message || "تعذر استخراج النص — يرجى إعادة المحاولة";
-      setErrorMsg(errMsg);
-      
-      // Add the failed document as a card with an error state
-      const fallbackTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
-      onAddSource(fallbackTitle, "", "ar", "", errMsg);
-      setShowAddForm(false);
+      console.warn("Server analysis unavailable or failed, using client-side fallback:", err);
+      // If client has extracted text, add source gracefully without error state!
+      if (content && content.trim()) {
+        const fallbackTitle = fileName || `مستند مضاف ${sources.length + 1}`;
+        const autoSummary = content.substring(0, 300) + "...";
+        onAddSource(fallbackTitle, content, "ar", autoSummary, undefined, []);
+        setNewContent("");
+        setErrorMsg("");
+        setShowAddForm(false);
+      } else {
+        const errMsg = err.message || "تعذر استخراج النص — يرجى إعادة المحاولة";
+        setErrorMsg(errMsg);
+        const fallbackTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
+        onAddSource(fallbackTitle, "", "ar", "", errMsg);
+        setShowAddForm(false);
+      }
     } finally {
       setIsAnalyzing(false);
       setAnalysisStep("");

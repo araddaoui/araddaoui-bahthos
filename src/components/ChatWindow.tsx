@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Message, Source } from "../types";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView";
+import { parseDocumentFile } from "../utils/documentParser";
 
 // Helper function to calculate the agreement score based on academic keyword matches
 const calculateAgreementMeter = (text: string) => {
@@ -102,60 +103,45 @@ export default function ChatWindow({
     if (!onAddSource) return;
     setIsUploading(true);
     setUploadError("");
-    setUploadStep("جاري قراءة محتوى المستند...");
+    setUploadStep("جاري قراءة واستخراج النص من المستند...");
 
     try {
-      setTimeout(() => setUploadStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 600);
-      setTimeout(() => setUploadStep("جاري صياغة الملخص الأكاديمي وتفكيك المصطلحات..."), 1300);
+      setTimeout(() => setUploadStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 400);
+      setTimeout(() => setUploadStep("جاري صياغة الملخص الأكاديمي وتفكيك المصطلحات..."), 800);
 
-      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-      const isDoc = file.name.toLowerCase().endsWith(".docx") || file.name.toLowerCase().endsWith(".doc") || file.type.includes("word");
+      const parsed = await parseDocumentFile(file);
+      let reqBody: any = { 
+        fileName: parsed.fileName,
+        content: parsed.text,
+        base64: parsed.base64,
+        mimeType: parsed.mimeType
+      };
 
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const result = e.target?.result;
-        if (typeof result === "string" && result.trim()) {
-          let reqBody: any = { fileName: file.name };
-          if (isPdf) {
-            reqBody.base64 = result.split(",")[1];
-            reqBody.mimeType = "application/pdf";
-          } else if (isDoc) {
-            reqBody.base64 = result.split(",")[1];
-            reqBody.mimeType = file.type || "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-          } else {
-            reqBody.content = result;
-          }
+      try {
+        const response = await fetch("/api/analyze-document", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reqBody),
+        });
 
-          const response = await fetch("/api/analyze-document", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(reqBody),
-          });
-
-          if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error || errData.details || "فشلت عملية معالجة الوثيقة.");
-          }
-
+        if (response.ok) {
           const data = await response.json();
-          onAddSource(data.title, data.originalText, data.language, data.summary, undefined, data.terms);
-          setIsUploading(false);
-          setUploadStep("");
+          onAddSource(data.title, data.originalText || parsed.text, data.language || "ar", data.summary, undefined, data.terms);
+        } else if (parsed.text && parsed.text.trim()) {
+          onAddSource(file.name, parsed.text, "ar", parsed.text.substring(0, 300) + "...", undefined, []);
         } else {
-          throw new Error("تعذر قراءة محتوى هذا الملف.");
+          throw new Error("فشلت عملية تحليل الوثيقة على الخادم.");
         }
-      };
-
-      reader.onerror = () => {
-        setUploadError("حدث خطأ أثناء تحميل الملف.");
-        setIsUploading(false);
-      };
-
-      if (isPdf || isDoc) {
-        reader.readAsDataURL(file);
-      } else {
-        reader.readAsText(file);
+      } catch (netErr: any) {
+        if (parsed.text && parsed.text.trim()) {
+          onAddSource(file.name, parsed.text, "ar", parsed.text.substring(0, 300) + "...", undefined, []);
+        } else {
+          throw netErr;
+        }
       }
+
+      setIsUploading(false);
+      setUploadStep("");
     } catch (err: any) {
       console.error("Direct upload error:", err);
       setUploadError(err.message || "فشلت معالجة الملف.");
