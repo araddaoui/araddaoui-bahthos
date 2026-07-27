@@ -6,6 +6,9 @@ import {
   Scale, 
   BookOpen 
 } from "lucide-react";
+import { parseMarkdownToReact, stripEvidenceTags } from "../utils/reportFormatter";
+
+export { stripEvidenceTags };
 
 export interface EvidenceNode {
   strength: string; // "قوية" | "جيدة" | "محدودة"
@@ -113,7 +116,7 @@ export function parseReportText(text: string): ContentItem[] {
         supporting,
         supportingSources,
         opposingSources: opposingSources.length > 0 ? opposingSources : undefined,
-        explanation: explanation || "تم التوصل إلى الاستنتاج بناءً على توافق الأدلة في وثائق المجموعة البحثية.",
+        explanation: explanation || "تم التوصل إلى الاستنتاج بناءً على توافق الأدلة في وثائق المجموعة الأكاديمية.",
       }
     });
 
@@ -129,15 +132,6 @@ export function parseReportText(text: string): ContentItem[] {
   }
 
   return items;
-}
-
-/**
- * Utility to strip out <evidence> tags completely for clean copy or export.
- */
-export function stripEvidenceTags(text: string): string {
-  if (!text) return "";
-  // Removes <evidence ...> ... </evidence> blocks completely
-  return text.replace(/<evidence([\s\S]*?)>([\s\S]*?)<\/evidence>/gi, "").trim();
 }
 
 /**
@@ -265,16 +259,12 @@ export default function SynthesisReportView({ text }: SynthesisReportViewProps) 
   const parsedItems = parseReportText(text);
 
   return (
-    <div className="w-full text-right" dir="rtl">
+    <div className="w-full text-right font-sans" dir="rtl">
       {parsedItems.map((item, index) => {
         if (item.type === "text") {
           return (
-            <div 
-              key={index} 
-              className="text-xs md:text-sm leading-loose text-gray-800 whitespace-pre-wrap tracking-wide font-sans mb-3"
-              style={{ lineHeight: "1.9" }}
-            >
-              {item.content}
+            <div key={index} className="mb-3">
+              {parseMarkdownToReact(item.content)}
             </div>
           );
         } else {

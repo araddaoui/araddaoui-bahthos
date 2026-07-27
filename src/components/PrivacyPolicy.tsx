@@ -45,7 +45,7 @@ export default function PrivacyPolicy({ navigateTo, onEnterApp }: PrivacyPolicyP
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(20,184,166,0.15),transparent)] pointer-events-none"></div>
         <div className="max-w-4xl mx-auto px-6 text-center relative z-10 space-y-4">
           <span className="px-3.5 py-1 bg-teal-500/20 text-teal-300 rounded-3xl text-xs font-semibold inline-block border border-teal-500/30">
-            الخصوصية والنزاهة العلمية
+            الخصوصية والنزاهة الأكاديمية
           </span>
           <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight leading-tight">
             سياسة الخصوصية وسرية البيانات
@@ -66,7 +66,7 @@ export default function PrivacyPolicy({ navigateTo, onEnterApp }: PrivacyPolicyP
           <div className="space-y-4">
             <h2 className="text-xl font-bold text-teal-900">1. سرية الوثائق والملفات المرفوعة</h2>
             <p className="text-sm text-slate-600 leading-relaxed">
-              جميع الوثائق البحثية أو التقنية أو التجارية (ملفات PDF، ملفات Word، أو النصوص) التي ترفعها إلى منصة بحث OS تُعالج بسرية تامة. نحن لا نقوم بحفظ ملفاتك في قواعد بيانات مكشوفة للعامة، بل نعتمد على الحفظ المؤقت والآمن على الخادم لغايات التحليل التوليفي، ولا نقوم بمشاركة هذه البيانات مع أي أطراف ثالثة لأغراض تجارية أو دعائية.
+              جميع الوثائق الأكاديمية أو التقنية أو التجارية (ملفات PDF، ملفات Word، أو النصوص) التي ترفعها إلى منصة بحث OS تُعالج بسرية تامة. نحن لا نقوم بحفظ ملفاتك في قواعد بيانات مكشوفة للعامة، بل نعتمد على الحفظ المؤقت والآمن على الخادم لغايات التحليل التوليفي، ولا نقوم بمشاركة هذه البيانات مع أي أطراف ثالثة لأغراض تجارية أو دعائية.
             </p>
           </div>
 
@@ -80,7 +80,7 @@ export default function PrivacyPolicy({ navigateTo, onEnterApp }: PrivacyPolicyP
           <div className="space-y-4 border-t border-slate-100 pt-8">
             <h2 className="text-xl font-bold text-teal-900">3. التخزين المحلي (Local Storage) للخصوصية الذاتية</h2>
             <p className="text-sm text-slate-600 leading-relaxed">
-              توظّف منصة بحث OS تقنيات التخزين المحلي على جهاز المستخدم (LocalStorage) للاحتفاظ بمصطلحات قاموس المصطلحات البحثية وسجل التقارير ومسودات المشاريع البحثية التي تعمل عليها. يتيح لك ذلك تحكماً مطلقاً ومباشراً ببياناتك؛ حيث يمكنك مسح هذه البيانات بالكامل وبكبسة زر واحدة من قائمة الإعدادات (Settings View)، لتختفي من متصفحك بشكل فوري ونهائي دون ترك أي أثر.
+              توظّف منصة بحث OS تقنيات التخزين المحلي على جهاز المستخدم (LocalStorage) للاحتفاظ بمصطلحات القاموس الأكاديمي وسجل التقارير ومسودات المشاريع البحثية التي تعمل عليها. يتيح لك ذلك تحكماً مطلقاً ومباشراً ببياناتك؛ حيث يمكنك مسح هذه البيانات بالكامل وبكبسة زر واحدة من قائمة الإعدادات (Settings View)، لتختفي من متصفحك بشكل فوري ونهائي دون ترك أي أثر.
             </p>
           </div>
 

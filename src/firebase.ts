@@ -65,15 +65,38 @@ export async function loadUserProjects(userId: string): Promise<Project[]> {
   return projects;
 }
 
+// Helper to recursively remove undefined properties from objects so Firestore setDoc won't throw invalid data error
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (typeof data !== "object") {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      cleaned[key] = sanitizeForFirestore(value);
+    }
+  }
+  return cleaned as T;
+}
+
 // Helper to save/update a single project to Firestore
 export async function saveUserProject(userId: string, project: Project): Promise<void> {
   const projectDocRef = doc(db, "users", userId, "projects", project.id);
-  await setDoc(projectDocRef, {
+  const dataToSave = sanitizeForFirestore({
     id: project.id,
     name: project.name,
     dateCreated: project.dateCreated,
     temperature: project.temperature ?? 0.2
-  }, { merge: true });
+  });
+  await setDoc(projectDocRef, dataToSave, { merge: true });
 }
 
 // Helper to delete a project from Firestore
@@ -93,7 +116,7 @@ export async function deleteUserProject(userId: string, projectId: string): Prom
   await deleteDoc(projectDocRef);
 }
 
-// Helper to save all documents of a project to Firestore with reconciliation (deleting removed items only on explicit reset or confirmed complete state)
+// Helper to save all documents of a project to Firestore
 export async function saveProjectData(
   userId: string,
   projectId: string,
@@ -102,136 +125,71 @@ export async function saveProjectData(
     messages?: Message[];
     syntheses?: Synthesis[];
     glossaryTerms?: GlossaryTerm[];
-    isExplicitReset?: boolean;
   }
 ): Promise<void> {
-  const { sources, messages, syntheses, glossaryTerms, isExplicitReset } = data;
+  const { sources, messages, syntheses, glossaryTerms } = data;
 
-  if (sources !== undefined && sources.length >= 0) {
-    // 1. Save all current sources first
+  if (sources !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "sources");
+    const snap = await getDocs(colRef);
+    const newIds = new Set(sources.map((s) => s.id));
+    const batch = writeBatch(db);
+    snap.forEach((d) => {
+      if (!newIds.has(d.id)) {
+        batch.delete(d.ref);
+      }
+    });
+    await batch.commit();
     for (const source of sources) {
-      try {
-        // Clone source object to ensure Firestore payload size stays under 1MB limit per doc
-        const cleanSource = { ...source };
-        if (cleanSource.content && cleanSource.content.length > 700000) {
-          cleanSource.content = cleanSource.content.substring(0, 700000) + "\n\n[المحتوى المتبقي محفوظ محلياً وعبر الخادم]";
-        }
-        await setDoc(doc(db, "users", userId, "projects", projectId, "sources", source.id), cleanSource, { merge: true });
-      } catch (err) {
-        console.error(`Failed to save source ${source.id} to Firestore:`, err);
-      }
-    }
-
-    // 2. Always delete non-existent sources from Firestore
-    try {
-      const colRef = collection(db, "users", userId, "projects", projectId, "sources");
-      const snapshot = await getDocs(colRef);
-      const existingIds = snapshot.docs.map(d => d.id);
-      const currentIds = new Set(sources.map(s => s.id));
-      const batch = writeBatch(db);
-      let hasDeletes = false;
-      for (const id of existingIds) {
-        if (!currentIds.has(id)) {
-          batch.delete(doc(db, "users", userId, "projects", projectId, "sources", id));
-          hasDeletes = true;
-        }
-      }
-      if (hasDeletes) {
-        await batch.commit();
-      }
-    } catch (err) {
-      console.error("Failed to perform source deletes in Firestore:", err);
+      await setDoc(doc(db, "users", userId, "projects", projectId, "sources", source.id), sanitizeForFirestore(source));
     }
   }
 
-  if (messages !== undefined && messages.length >= 0) {
+  if (messages !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "messages");
+    const snap = await getDocs(colRef);
+    const newIds = new Set(messages.map((m) => m.id));
+    const batch = writeBatch(db);
+    snap.forEach((d) => {
+      if (!newIds.has(d.id)) {
+        batch.delete(d.ref);
+      }
+    });
+    await batch.commit();
     for (const msg of messages) {
-      try {
-        await setDoc(doc(db, "users", userId, "projects", projectId, "messages", msg.id), msg, { merge: true });
-      } catch (err) {
-        console.error(`Failed to save message ${msg.id} to Firestore:`, err);
-      }
-    }
-
-    try {
-      const colRef = collection(db, "users", userId, "projects", projectId, "messages");
-      const snapshot = await getDocs(colRef);
-      const existingIds = snapshot.docs.map(d => d.id);
-      const currentIds = new Set(messages.map(m => m.id));
-      const batch = writeBatch(db);
-      let hasDeletes = false;
-      for (const id of existingIds) {
-        if (!currentIds.has(id)) {
-          batch.delete(doc(db, "users", userId, "projects", projectId, "messages", id));
-          hasDeletes = true;
-        }
-      }
-      if (hasDeletes) {
-        await batch.commit();
-      }
-    } catch (err) {
-      console.error("Failed to perform message deletes in Firestore:", err);
+      await setDoc(doc(db, "users", userId, "projects", projectId, "messages", msg.id), sanitizeForFirestore(msg));
     }
   }
 
-  if (syntheses !== undefined && syntheses.length >= 0) {
+  if (syntheses !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "syntheses");
+    const snap = await getDocs(colRef);
+    const newIds = new Set(syntheses.map((s) => s.id));
+    const batch = writeBatch(db);
+    snap.forEach((d) => {
+      if (!newIds.has(d.id)) {
+        batch.delete(d.ref);
+      }
+    });
+    await batch.commit();
     for (const syn of syntheses) {
-      try {
-        await setDoc(doc(db, "users", userId, "projects", projectId, "syntheses", syn.id), syn, { merge: true });
-      } catch (err) {
-        console.error(`Failed to save synthesis ${syn.id} to Firestore:`, err);
-      }
-    }
-
-    try {
-      const colRef = collection(db, "users", userId, "projects", projectId, "syntheses");
-      const snapshot = await getDocs(colRef);
-      const existingIds = snapshot.docs.map(d => d.id);
-      const currentIds = new Set(syntheses.map(s => s.id));
-      const batch = writeBatch(db);
-      let hasDeletes = false;
-      for (const id of existingIds) {
-        if (!currentIds.has(id)) {
-          batch.delete(doc(db, "users", userId, "projects", projectId, "syntheses", id));
-          hasDeletes = true;
-        }
-      }
-      if (hasDeletes) {
-        await batch.commit();
-      }
-    } catch (err) {
-      console.error("Failed to perform synthesis deletes in Firestore:", err);
+      await setDoc(doc(db, "users", userId, "projects", projectId, "syntheses", syn.id), sanitizeForFirestore(syn));
     }
   }
 
-  if (glossaryTerms !== undefined && glossaryTerms.length >= 0) {
+  if (glossaryTerms !== undefined) {
+    const colRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
+    const snap = await getDocs(colRef);
+    const newTerms = new Set(glossaryTerms.map((t) => t.term));
+    const batch = writeBatch(db);
+    snap.forEach((d) => {
+      if (!newTerms.has(d.id)) {
+        batch.delete(d.ref);
+      }
+    });
+    await batch.commit();
     for (const term of glossaryTerms) {
-      try {
-        const termDocId = (term.term || "term-" + Date.now()).replace(/[\/\#\?\[\]]/g, "_");
-        await setDoc(doc(db, "users", userId, "projects", projectId, "glossaryTerms", termDocId), term, { merge: true });
-      } catch (err) {
-        console.error(`Failed to save glossary term to Firestore:`, err);
-      }
-    }
-
-    try {
-      const colRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
-      const snapshot = await getDocs(colRef);
-      const existingIds = snapshot.docs.map(d => d.id);
-      const currentIds = new Set(glossaryTerms.map(t => (t.term || "").replace(/[\/\#\?\[\]]/g, "_")));
-      const batch = writeBatch(db);
-      let hasDeletes = false;
-      for (const id of existingIds) {
-        if (!currentIds.has(id)) {
-          batch.delete(doc(db, "users", userId, "projects", projectId, "glossaryTerms", id));
-          hasDeletes = true;
-        }
-      }
-      if (hasDeletes) {
-        await batch.commit();
-      }
-    } catch (err) {
-      console.error("Failed to perform glossary deletes in Firestore:", err);
+      await setDoc(doc(db, "users", userId, "projects", projectId, "glossaryTerms", term.term), sanitizeForFirestore(term));
     }
   }
 }

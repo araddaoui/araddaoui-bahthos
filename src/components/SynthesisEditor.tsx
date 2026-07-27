@@ -12,12 +12,12 @@ import {
   Grid,
   FileQuestion,
   GraduationCap,
-  HelpCircle
+  HelpCircle,
+  Download
 } from "lucide-react";
 import { Source, Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
-import { copyReportToClipboard } from "../utils/exportToWordClipboard";
-import { generateLocalSynthesisFallback } from "../utils/localSynthesisFallback";
+import { copyReportToClipboard, exportToWordDocument } from "../utils/reportFormatter";
 
 interface SynthesisEditorProps {
   sources: Source[];
@@ -25,7 +25,13 @@ interface SynthesisEditorProps {
 }
 
 export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisEditorProps) {
-  const [topic, setTopic] = useState("مقارنة شاملة حول التعليم عن بعد: الأداء الدراسي والحالة النفسية والمرونة");
+  const [topic, setTopic] = useState(() => {
+    const active = sources.filter((s) => s.enabled);
+    if (active.length > 0) {
+      return `مقارنة وتحليل شامل للمصادر المرفقة (${active.slice(0, 2).map((s) => s.title).join("، ")})`;
+    }
+    return "توليف وتقاطعات الأدلة الأكاديمية للمصادر المرفقة";
+  });
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(
     sources.map((s) => s.id)
   );
@@ -58,23 +64,12 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
     setIsFallbackMode(false);
     setViewMode("preview");
 
-    const activeSourcesData = sources.filter((s) => selectedSourceIds.includes(s.id));
-
-    let autoTitle = `توليف بحثي: ${topic}`;
-    if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic}`;
-    else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic}`;
-    else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic}`;
-    else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic}`;
-    setReportTitle(autoTitle);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
     try {
+      const activeSourcesData = sources.filter((s) => selectedSourceIds.includes(s.id));
+      
       const response = await fetch("/api/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
         body: JSON.stringify({
           sources: activeSourcesData,
           topic: topic,
@@ -82,28 +77,35 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         }),
       });
 
-      clearTimeout(timeoutId);
-      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errText = errorData.error || "فشلت عملية توليد التوليف.";
 
-      if (data && data.text) {
-        setGeneratedText(data.text);
-        setIsFallbackMode(false);
-        setErrorMsg("");
-      } else {
-        // API returned no text or error status - invoke guaranteed local synthesis fallback
-        console.warn("API synthesis returned empty or non-JSON response, using client-side fallback.");
-        const fallbackText = generateLocalSynthesisFallback(activeSourcesData, topic, toolType);
-        setGeneratedText(fallbackText);
-        setIsFallbackMode(false);
-        setErrorMsg("");
+        if (errorData.isFallback && errorData.text) {
+          setGeneratedText(errorData.text);
+          setIsFallbackMode(true);
+          
+          let autoTitle = `مسودة تقريبية أوفلاين: ${topic}`;
+          setReportTitle(autoTitle);
+        }
+        
+        throw new Error(errText);
       }
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      console.warn("API synthesis fetch failed/timed out, generating local synthesis fallback:", error);
-      const fallbackText = generateLocalSynthesisFallback(activeSourcesData, topic, toolType);
-      setGeneratedText(fallbackText);
+
+      const data = await response.json();
+      setGeneratedText(data.text);
       setIsFallbackMode(false);
-      setErrorMsg("");
+      
+      let autoTitle = `توليف بحثي: ${topic}`;
+      if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic}`;
+      else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic}`;
+      else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic}`;
+      else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic}`;
+      
+      setReportTitle(autoTitle);
+    } catch (error: any) {
+      console.error(error);
+      setErrorMsg(error.message || "حدث خطأ أثناء التوليف بالذكاء الاصطناعي. يرجى المحاولة لاحقاً.");
     } finally {
       setIsGenerating(false);
     }
@@ -111,9 +113,14 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
 
   const handleCopy = async () => {
     if (!generatedText) return;
-    await copyReportToClipboard(generatedText, reportTitle);
+    await copyReportToClipboard(reportTitle || "تقرير بحثي", generatedText);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleExportWord = () => {
+    if (!generatedText) return;
+    exportToWordDocument(reportTitle || "تقرير بحثي", generatedText);
   };
 
   const handleSave = () => {
@@ -152,7 +159,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         {/* Configuration Panel */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">
           <h2 className="text-xs font-black text-black border-b border-gray-100 pb-2">
-            1. إعداد التقرير البحثي
+            1. إعداد التقرير الأكاديمي
           </h2>
 
           {errorMsg && (
@@ -171,7 +178,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
               type="text"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="مثال: مقارنة وتحليل مدى نجاح درجات طلبة التعليم عن بعد..."
+              placeholder="مثال: مقارنة وتقاطع نتائج ومفاهيم الوثائق المرفقة..."
               className="w-full text-xs px-3 py-2.5 border border-[#e2e2dd] rounded-lg bg-white text-[#1f1f1f] focus:outline-none focus:border-[#094d4e]"
               id="synthesis-topic-input"
             />
@@ -180,7 +187,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
           {/* Tool Selector Grid */}
           <div className="space-y-2">
             <label className="block text-xs text-[#094d4e] font-extrabold">
-              اختر أداة التحليل المنهجية المطلوبة:
+              اختر أداة التحليل الأكاديمي المطلوبة:
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
               <button
@@ -304,7 +311,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
               id="start-synthesis-btn"
             >
               <Sparkles className="w-4 h-4" />
-              <span>{isGenerating ? "يجري تحليل وتوليف الدراسات الآن..." : "توليد التقرير البحثي"}</span>
+              <span>{isGenerating ? "يجري تحليل وتوليف الدراسات الآن..." : "توليد التقرير الأكاديمي"}</span>
             </button>
           </div>
         </div>
@@ -325,30 +332,54 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         {/* Generated Report Editor Workspace */}
         {generatedText && !isGenerating && (
           <div className="bg-white p-6 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4" id="synthesis-workspace">
+            {isFallbackMode && (
+              <div className="p-3 bg-amber-50/70 border border-amber-200 text-amber-800 rounded-xl text-xs flex items-start gap-2.5 font-medium leading-relaxed mb-2" id="fallback-warning-banner">
+                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-bold text-amber-900">⚠️ تنبيه: تم تفعيل المعاينة المحلية التقريبية (أوفلاين)</p>
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    تعذر الاتصال بـ Gemini لتوليد التقرير الحقيقي بسبب استهلاك الحصة اليومية للطلبات (Quota/Rate Limit). النص المعروض أدناه هو مسودة محلية ثابتة للمعاينة والتجربة فقط، ولا يمثل تحليلاً حقيقياً لوثائقك النشطة الحالية.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
-                <FileEdit className="w-5 h-5 text-[#094d4e]" />
+                <FileEdit className={`w-5 h-5 ${isFallbackMode ? "text-amber-600" : "text-[#094d4e]"}`} />
                 <span className="text-xs font-bold text-gray-800">
-                  2. تقرير التوليف البحثي الناتج (قابل للتعديل)
+                  {isFallbackMode 
+                    ? "2. مسودة تقرير توليف محلي تقريبي (أوفلاين - أداء تعويضي)" 
+                    : "2. تقرير التوليف البحثي الناتج (قابل للتعديل)"}
                 </span>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
+                  onClick={handleExportWord}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs rounded-lg transition-all border border-blue-200 font-bold"
+                  title="تصدير وتحميل كملف Word مخصص بكل التنسيقات"
+                  id="export-word-synthesis-btn"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-700" />
+                  <span>تصدير لـ MS Word</span>
+                </button>
+
+                <button
                   onClick={handleCopy}
                   className="flex items-center gap-1 px-3 py-1.5 bg-[#f4f3ee] hover:bg-[#eae9e2] text-gray-700 text-xs rounded-lg transition-all border border-[#e2e2dd]"
-                  title="نسخ التقرير بالكامل"
+                  title="نسخ التقرير بتنسيق غني جاهز للتقليص في MS Word"
                   id="copy-synthesis-btn"
                 >
                   {isCopied ? (
                     <>
                       <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="text-emerald-600 font-bold">تم النسخ!</span>
+                      <span className="text-emerald-600 font-bold">تم النسخ لـ Word!</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5" />
-                      <span>نسخ التقرير</span>
+                      <span>نسخ لـ Word</span>
                     </>
                   )}
                 </button>
@@ -417,7 +448,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
 
             {/* Editor Textarea vs SynthesisReportView */}
             <div className="space-y-1">
-              <label className="text-[10px] text-gray-400 font-bold">محتوى التقرير البحثي:</label>
+              <label className="text-[10px] text-gray-400 font-bold">محتوى التقرير الأكاديمي:</label>
               {viewMode === "preview" ? (
                 <div className="w-full text-sm p-5 border border-[#e2e2dd] rounded-xl bg-white leading-relaxed min-h-[400px]">
                   <SynthesisReportView text={generatedText} />

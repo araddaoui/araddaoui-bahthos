@@ -5,7 +5,13 @@ import {
   BookOpen, 
   AlertTriangle, 
   ArrowLeft,
-  HelpCircle
+  HelpCircle,
+  UploadCloud,
+  FileText,
+  Loader2,
+  AlertCircle,
+  Plus,
+  Paperclip
 } from "lucide-react";
 import { Message, Source } from "../types";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView";
@@ -55,6 +61,14 @@ interface ChatWindowProps {
   onSendMessage: (text: string) => void;
   isThinking: boolean;
   onSourceClick: (id: string) => void;
+  onAddSource?: (
+    title: string,
+    content: string,
+    language: "ar" | "en" | "fr",
+    summary?: string,
+    error?: string,
+    terms?: any[]
+  ) => void;
 }
 
 export default function ChatWindow({
@@ -63,8 +77,13 @@ export default function ChatWindow({
   onSendMessage,
   isThinking,
   onSourceClick,
+  onAddSource,
 }: ChatWindowProps) {
   const [inputText, setInputText] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStep, setUploadStep] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [dragActive, setDragActive] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom of chat
@@ -79,20 +98,124 @@ export default function ChatWindow({
     setInputText("");
   };
 
-  const starterQuestions = [
-    {
-      text: "ما هي أبرز نقاط الاتفاق والتلاقي بين المصادر المحددة؟",
-      label: "نقاط الاتفاق والتلاقي",
-    },
-    {
-      text: "قارن بين المصادر المرفقة لتحديد أوجه الاختلاف أو التعارض في النتائج.",
-      label: "أوجه الاختلاف والتعارض",
-    },
-    {
-      text: "استخلص المنهجية العامة المتبعة في هذه الدراسات وأبرز محدداتها.",
-      label: "تحليل المنهجية والمحددات",
-    },
-  ];
+  const handleDirectFileUpload = async (file: File) => {
+    if (!onAddSource) return;
+    setIsUploading(true);
+    setUploadError("");
+    setUploadStep("جاري قراءة محتوى المستند...");
+
+    try {
+      setTimeout(() => setUploadStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 600);
+      setTimeout(() => setUploadStep("جاري صياغة الملخص الأكاديمي وتفكيك المصطلحات..."), 1300);
+
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const isDoc = file.name.toLowerCase().endsWith(".docx") || file.name.toLowerCase().endsWith(".doc") || file.type.includes("word");
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const result = e.target?.result;
+        if (typeof result === "string" && result.trim()) {
+          let reqBody: any = { fileName: file.name };
+          if (isPdf) {
+            reqBody.base64 = result.split(",")[1];
+            reqBody.mimeType = "application/pdf";
+          } else if (isDoc) {
+            reqBody.base64 = result.split(",")[1];
+            reqBody.mimeType = file.type || "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          } else {
+            reqBody.content = result;
+          }
+
+          const response = await fetch("/api/analyze-document", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(reqBody),
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || errData.details || "فشلت عملية معالجة الوثيقة.");
+          }
+
+          const data = await response.json();
+          onAddSource(data.title, data.originalText, data.language, data.summary, undefined, data.terms);
+          setIsUploading(false);
+          setUploadStep("");
+        } else {
+          throw new Error("تعذر قراءة محتوى هذا الملف.");
+        }
+      };
+
+      reader.onerror = () => {
+        setUploadError("حدث خطأ أثناء تحميل الملف.");
+        setIsUploading(false);
+      };
+
+      if (isPdf || isDoc) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    } catch (err: any) {
+      console.error("Direct upload error:", err);
+      setUploadError(err.message || "فشلت معالجة الملف.");
+      setIsUploading(false);
+      setUploadStep("");
+    }
+  };
+
+  const activeSources = sources.filter((s) => s.enabled);
+  const starterQuestions = React.useMemo(() => {
+    if (activeSources.length === 0) {
+      return [
+        {
+          text: "كيف يمكنني البدء برفع وتحليل الوثائق والمستندات البحثية في المنصة؟",
+          label: "بدء رفع الوثائق والتحليل",
+        },
+        {
+          text: "ما هي أدوات التوليف المقارن واستخراج المصطلحات المتاحة؟",
+          label: "أدوات التوليف والمصطلحات",
+        },
+        {
+          text: "ما هي صيغ ونوعيات الملفات المدعومة للتحليل الأكاديمي؟",
+          label: "صيغ الملفات المدعومة",
+        },
+      ];
+    } else if (activeSources.length === 1) {
+      const title = activeSources[0].title || "الوثيقة الأولى";
+      return [
+        {
+          text: `استخلص الملخص الأكاديمي وأهم النتائج والتوصيات المذكورة في "${title}".`,
+          label: "أبرز النتائج والتوصيات",
+        },
+        {
+          text: `ما هي المفاهيم والفرضيات الرئيسية التي تعتمد عليها دراسة "${title}"؟`,
+          label: "الفرضيات والمنهجية",
+        },
+        {
+          text: `ما هي الفجوات المعرفية أو الحدود المذكورة في مستند "${title}"؟`,
+          label: "الفجوات والحدود البحثية",
+        },
+      ];
+    } else {
+      const src1 = activeSources[0].title || "الوثيقة الأولى";
+      const src2 = activeSources[1].title || "الوثيقة الثانية";
+      return [
+        {
+          text: `قارن بين الوثائق المتاحة (${src1} و ${src2}) وأبرز نقاط التوافق والتعارض الجوهري.`,
+          label: "مقارنة الأدلة والتعارض",
+        },
+        {
+          text: `استخلص الفجوات البحثية المشتركة والأدلة الواردة في المستندات المرفقة.`,
+          label: "الفجوات والأدلة المشتركة",
+        },
+        {
+          text: `ما هي التوصيات والتداعيات الاستراتيجية التي اتفقت عليها الوثائق؟`,
+          label: "التوصيات والاستنتاجات",
+        },
+      ];
+    }
+  }, [activeSources]);
 
   // Simple rendering of text with citation highlights
   const renderMessageTextWithCitations = (text: string) => {
@@ -144,8 +267,6 @@ export default function ChatWindow({
     );
   };
 
-  const activeSources = sources.filter((s) => s.enabled);
-
   return (
     <div className="w-full h-full flex flex-col bg-[#fafaf8]" id="chat-window-container">
       {/* Header Info */}
@@ -185,6 +306,62 @@ export default function ChatWindow({
                 أنا مساعدك المتخصص. قم بطرح أي تساؤل حول دراساتك، وسأقوم بالمقارنة بين المصادر بدقة متناهية، وإبراز الاختلافات والتناقضات المنهجية، مع الاستشهاد بكل فقرة مباشرة.
               </p>
             </div>
+
+            {/* Native Upload Box directly inside Chat Window if no sources uploaded yet */}
+            {sources.length === 0 && (
+              <div className="w-full bg-white p-5 rounded-2xl border-2 border-dashed border-[#094d4e]/40 shadow-sm text-right space-y-3" dir="rtl" id="chat-native-upload-card">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                  <span className="text-xs font-bold text-[#094d4e] flex items-center gap-1.5">
+                    <UploadCloud className="w-4 h-4" />
+                    <span>رفع وثيقة أو دراسة بحثية جديدة</span>
+                  </span>
+                  <span className="text-[10px] bg-teal-50 text-[#094d4e] border border-teal-100 px-2 py-0.5 rounded-full font-bold">
+                    PDF / Word / TXT
+                  </span>
+                </div>
+
+                {uploadError && (
+                  <div className="p-2.5 bg-red-50 text-red-600 rounded-lg text-[11px] font-bold flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{uploadError}</span>
+                  </div>
+                )}
+
+                {isUploading ? (
+                  <div className="py-6 flex flex-col items-center justify-center space-y-2">
+                    <Loader2 className="w-7 h-7 text-[#094d4e] animate-spin" />
+                    <p className="text-xs font-bold text-gray-800">جاري تحليل المستند واستخراج البيانات...</p>
+                    <p className="text-[10px] text-[#094d4e] font-semibold animate-pulse">{uploadStep}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-gray-600 leading-relaxed font-medium">
+                      قم برفع ملفات الدراسات الأكاديمية (PDF أو Word أو TXT) لتبدأ عملية المقارنة والتحليل التوليفي الذكي فوراً:
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.doc,.txt,application/pdf,text/plain"
+                        id="chat-onboarding-file-input"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleDirectFileUpload(e.target.files[0]);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="chat-onboarding-file-input"
+                        className="flex-1 py-2.5 px-4 bg-[#094d4e] hover:bg-[#07393a] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                      >
+                        <UploadCloud className="w-4 h-4" />
+                        <span>اختيار وثيقة من جهازك لرفعها فوراً</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Prompt Starters */}
             <div className="w-full space-y-2.5">
@@ -319,41 +496,64 @@ export default function ChatWindow({
       {/* Input area */}
       <div className="p-4 bg-white border-t border-[#e2e2dd]">
         <form onSubmit={handleSend} className="max-w-3xl mx-auto" id="chat-input-form">
-          <div className="relative flex items-center">
-            <textarea
-              rows={1}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder={
-                sources.length === 0
-                  ? "يرجى إضافة أو رفع مصدر بحثي أولاً للبدء..."
-                  : activeSources.length === 0
-                    ? "اطرح سؤالك هنا (سيتم تفعيل كافة المصادر تلقائياً للإجابة)..."
-                    : "اسأل بحث OS حول المصادر المحددة..."
-              }
-              disabled={sources.length === 0 || isThinking}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend(e);
+          <div className="flex items-center gap-2">
+            {/* Paperclip Direct Upload Button */}
+            <input
+              type="file"
+              accept=".pdf,.docx,.doc,.txt,application/pdf,text/plain"
+              id="chat-paperclip-file-input"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  handleDirectFileUpload(e.target.files[0]);
                 }
               }}
-              className="w-full text-xs pr-4 pl-12 py-3 border border-[#e2e2dd] rounded-xl bg-white text-[#1f1f1f] focus:outline-none focus:border-[#094d4e] resize-none"
-              id="chat-textarea-input"
+              className="hidden"
             />
-            <button
-              type="submit"
-              disabled={!inputText.trim() || sources.length === 0 || isThinking}
-              className={`absolute left-2 p-2 rounded-lg transition-all duration-200 ${
-                !inputText.trim() || sources.length === 0 || isThinking
-                  ? "text-gray-300 bg-gray-50 cursor-not-allowed"
-                  : "text-white bg-[#094d4e] hover:bg-[#07393a] shadow-xs font-semibold"
-              }`}
-              id="chat-send-btn"
-              title="إرسال"
+            <label
+              htmlFor="chat-paperclip-file-input"
+              className="p-3 text-gray-500 hover:text-[#094d4e] hover:bg-teal-50 rounded-xl border border-[#e2e2dd] bg-white cursor-pointer transition-all flex items-center justify-center shadow-2xs flex-shrink-0"
+              title="إرفاق ورفع وثيقة بحثية جديدة (PDF/Word/TXT)"
+              id="chat-paperclip-upload-btn"
             >
-              <Send className="w-4 h-4 transform -rotate-180" />
-            </button>
+              <Paperclip className="w-4 h-4 text-[#094d4e]" />
+            </label>
+
+            <div className="relative flex-1 flex items-center">
+              <textarea
+                rows={1}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder={
+                  sources.length === 0
+                    ? "يرجى إضافة أو رفع مصدر بحثي أولاً للبدء..."
+                    : activeSources.length === 0
+                      ? "اطرح سؤالك هنا (سيتم تفعيل كافة المصادر تلقائياً للإجابة)..."
+                      : "اسأل بحث OS حول المصادر (مثال: قارن بين المصادر في أثر التعليم الرقمي)..."
+                }
+                disabled={sources.length === 0 || isThinking}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend(e);
+                  }
+                }}
+                className="w-full text-xs pr-4 pl-12 py-3 border border-[#e2e2dd] rounded-xl bg-white text-[#1f1f1f] focus:outline-none focus:border-[#094d4e] resize-none"
+                id="chat-textarea-input"
+              />
+              <button
+                type="submit"
+                disabled={!inputText.trim() || sources.length === 0 || isThinking}
+                className={`absolute left-2 p-2 rounded-lg transition-all duration-200 ${
+                  !inputText.trim() || sources.length === 0 || isThinking
+                    ? "text-gray-300 bg-gray-50 cursor-not-allowed"
+                    : "text-white bg-[#094d4e] hover:bg-[#07393a] shadow-xs font-semibold"
+                }`}
+                id="chat-send-btn"
+                title="إرسال"
+              >
+                <Send className="w-4 h-4 transform -rotate-180" />
+              </button>
+            </div>
           </div>
           
           <div className="mt-2 flex items-center justify-between text-[10px] text-gray-400 font-medium">

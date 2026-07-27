@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Plus, 
   Search, 
@@ -6,7 +6,6 @@ import {
   Trash2, 
   Globe, 
   BookOpen, 
-  BookMarked,
   X,
   FileCheck,
   AlertCircle,
@@ -16,7 +15,6 @@ import {
   FileText
 } from "lucide-react";
 import { Source, GlossaryTerm } from "../types";
-import { isValidAcademicConcept, getConceptPair } from "../utils/termExtractor";
 
 interface SourcesListProps {
   sources: Source[];
@@ -25,6 +23,7 @@ interface SourcesListProps {
   onDisableAll: () => void;
   onAddSource: (title: string, content: string, language: "ar" | "en" | "fr", summary?: string, error?: string, terms?: any[]) => void;
   onDeleteSource: (id: string) => void;
+  onDeleteAllSources?: () => void;
   selectedSourceId: string | null;
   onSelectSource: (id: string) => void;
   onChatWithSingleSource?: (id: string) => void;
@@ -41,6 +40,7 @@ export default function SourcesList({
   onDisableAll,
   onAddSource,
   onDeleteSource,
+  onDeleteAllSources,
   selectedSourceId,
   onSelectSource,
   onChatWithSingleSource,
@@ -51,7 +51,13 @@ export default function SourcesList({
 }: SourcesListProps) {
   const [activeSubTab, setActiveSubTab] = useState<"sources" | "glossary">("sources");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(() => sources.length === 0);
+  
+  useEffect(() => {
+    if (sources.length === 0) {
+      setShowAddForm(true);
+    }
+  }, [sources.length]);
   
   // Add form fields
   const [newContent, setNewContent] = useState("");
@@ -63,6 +69,7 @@ export default function SourcesList({
   const [dragActive, setDragActive] = useState(false);
   const [uploadTab, setUploadTab] = useState<"upload" | "paste">("upload");
   const [sourceToDeleteId, setSourceToDeleteId] = useState<string | null>(null);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
 
   const activeCount = sources.filter((s) => s.enabled).length;
 
@@ -101,167 +108,36 @@ export default function SourcesList({
     }
   };
 
-  const readAndAnalyzeFile = async (file: File) => {
+  const readAndAnalyzeFile = (file: File) => {
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     const isDoc = file.name.toLowerCase().endsWith(".docx") || file.name.toLowerCase().endsWith(".doc") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.type === "application/msword";
+    const reader = new FileReader();
 
-    setIsAnalyzing(true);
-    setErrorMsg("");
-    setAnalysisStep("جاري تحضير واستخراج محتوى الملف محلياً في المتصفح...");
-
-    if (isPdf) {
-      try {
-        setAnalysisStep("جاري تحميل قارئ PDF في المتصفح لاستخراج النص...");
-        if (!(window as any).pdfjsLib) {
-          const cdns = [
-            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
-            "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js",
-            "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"
-          ];
-          let loaded = false;
-          for (const url of cdns) {
-            try {
-              console.log(`Trying to load PDF.js from: ${url}`);
-              await new Promise<void>((resolve, reject) => {
-                const script = document.createElement("script");
-                script.src = url;
-                script.onload = () => {
-                  loaded = true;
-                  resolve();
-                };
-                script.onerror = () => {
-                  script.remove();
-                  reject(new Error("Failed to load"));
-                };
-                document.head.appendChild(script);
-              });
-              if (loaded) break;
-            } catch (cdnErr) {
-              console.warn(`Failed to load PDF.js from ${url}, trying next CDN...`);
-            }
-          }
-          if (!(window as any).pdfjsLib) {
-            throw new Error("فشل تحميل مكتبة قارئ PDF من جميع شبكات التوزيع العالمية (CDNs). يرجى التحقق من اتصال الإنترنت.");
-          }
-        }
-        
-        const pdfjsLib = (window as any).pdfjsLib;
-        // Determine worker source matching the script that loaded, or use cdnjs as default
-        const scriptUsed = document.querySelector('script[src*="pdf.min.js"]')?.getAttribute("src") || "";
-        if (scriptUsed.includes("jsdelivr")) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-        } else if (scriptUsed.includes("unpkg")) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    reader.onload = async (event) => {
+      const result = event.target?.result;
+      if (typeof result === "string" && result.trim()) {
+        if (isPdf) {
+          const base64 = result.split(",")[1];
+          await runAutomaticAnalysis("", base64, "application/pdf", file.name);
+        } else if (isDoc) {
+          const base64 = result.split(",")[1];
+          const mimeType = file.type || (file.name.toLowerCase().endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/msword");
+          await runAutomaticAnalysis("", base64, mimeType, file.name);
         } else {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-        }
-
-        setAnalysisStep("جاري قراءة صفحات ملف PDF واستخراج النصوص...");
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        let text = "";
-        
-        const maxPages = Math.min(pdf.numPages, 35);
-        for (let i = 1; i <= maxPages; i++) {
-          try {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            const pageText = content.items.map((item: any) => item.str).join(" ");
-            text += pageText + "\n\n";
-          } catch (pageErr) {
-            console.warn(`Failed to parse page ${i}:`, pageErr);
-          }
-        }
-
-        if (!text.trim()) {
-          throw new Error("لم يتم العثور على أي نصوص قابلة للاستخراج في ملف PDF. قد يكون ملفاً ممسوحاً ضوئياً (صورة).");
-        }
-
-        setAnalysisStep("تم استخراج النص بنجاح! جاري إرساله للتحليل والتلخيص...");
-        await runAutomaticAnalysis(text, undefined, undefined, file.name);
-      } catch (err: any) {
-        console.warn("Client-side PDF extraction failed, falling back to server-side...", err);
-        setAnalysisStep("فشل الاستخراج المحلي. جاري المحاولة عبر خادم التحليل كخيار بديل...");
-        
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const result = event.target?.result;
-          if (typeof result === "string" && result.trim()) {
-            const base64 = result.split(",")[1];
-            await runAutomaticAnalysis("", base64, "application/pdf", file.name);
-          } else {
-            setErrorMsg("عذراً، تعذر قراءة محتوى الملف.");
-            setIsAnalyzing(false);
-          }
-        };
-        reader.onerror = () => {
-          setErrorMsg("حدث خطأ أثناء قراءة الملف.");
-          setIsAnalyzing(false);
-        };
-        reader.readAsDataURL(file);
-      }
-    } else if (isDoc) {
-      try {
-        setAnalysisStep("جاري تحميل مكتبة قراءة مستندات Word في المتصفح...");
-        if (!(window as any).mammoth) {
-          await new Promise<void>((resolve, reject) => {
-            const script = document.createElement("script");
-            script.src = "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js";
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error("Failed to load Mammoth Word library."));
-            document.head.appendChild(script);
-          });
-        }
-
-        const mammothLib = (window as any).mammoth;
-        setAnalysisStep("جاري استخراج النصوص من مستند Word محلياً...");
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammothLib.extractRawText({ arrayBuffer });
-        const text = result.value || "";
-
-        if (!text.trim()) {
-          throw new Error("مستند Word فارغ أو لا يحتوي على نصوص قابلة للاستخراج.");
-        }
-
-        setAnalysisStep("تم استخراج النص بنجاح! جاري إرساله للتحليل والتلخيص...");
-        await runAutomaticAnalysis(text, undefined, undefined, file.name);
-      } catch (err: any) {
-        console.warn("Client-side DOCX extraction failed, falling back to server-side...", err);
-        setAnalysisStep("فشل الاستخراج المحلي. جاري المحاولة عبر خادم التحليل كخيار بديل...");
-        
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const result = event.target?.result;
-          if (typeof result === "string" && result.trim()) {
-            const base64 = result.split(",")[1];
-            const mimeType = file.type || (file.name.toLowerCase().endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/msword");
-            await runAutomaticAnalysis("", base64, mimeType, file.name);
-          } else {
-            setErrorMsg("عذراً، تعذر قراءة محتوى الملف.");
-            setIsAnalyzing(false);
-          }
-        };
-        reader.onerror = () => {
-          setErrorMsg("حدث خطأ أثناء قراءة الملف.");
-          setIsAnalyzing(false);
-        };
-        reader.readAsDataURL(file);
-      }
-    } else {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const result = event.target?.result;
-        if (typeof result === "string" && result.trim()) {
           await runAutomaticAnalysis(result, undefined, undefined, file.name);
-        } else {
-          setErrorMsg("عذراً، لا يمكن قراءة محتوى هذا الملف أو أنه فارغ.");
-          setIsAnalyzing(false);
         }
-      };
-      reader.onerror = () => {
-        setErrorMsg("حدث خطأ أثناء قراءة الملف.");
-        setIsAnalyzing(false);
-      };
+      } else {
+        setErrorMsg("عذراً، لا يمكن قراءة محتوى هذا الملف أو أنه فارغ.");
+      }
+    };
+
+    reader.onerror = () => {
+      setErrorMsg("حدث خطأ أثناء قراءة الملف.");
+    };
+
+    if (isPdf || isDoc) {
+      reader.readAsDataURL(file);
+    } else {
       reader.readAsText(file);
     }
   };
@@ -276,8 +152,8 @@ export default function SourcesList({
     setAnalysisStep("جاري قراءة محتوى الملف والمستند...");
     
     try {
-      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند والترميز البحثي..."), 600);
-      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بحثي بليغ..."), 1300);
+      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 600);
+      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص أكاديمي بليغ..."), 1300);
 
       const response = await fetch("/api/analyze-document", {
         method: "POST",
@@ -321,30 +197,13 @@ export default function SourcesList({
       setShowAddForm(false);
     } catch (err: any) {
       console.error("Error analyzing document:", err);
+      const errMsg = err.message || "تعذر استخراج النص — يرجى إعادة المحاولة";
+      setErrorMsg(errMsg);
       
-      // CRITICAL GRACEFUL FALLBACK:
-      // If we already have the extracted text locally, we should add the document successfully
-      // instead of showing a permanently failed/empty card! This ensures the app is extremely
-      // resilient even if the AI backend or serverless function times out or fails.
-      if (content && content.trim()) {
-        console.log("Gracefully falling back to client-side document creation using extracted text.");
-        const detectedLanguage = /[\u0600-\u06FF]/.test(content) ? "ar" : "en";
-        const cleanTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
-        const autoSummary = content.substring(0, 300) + "... (تم استخلاص النص محلياً بنجاح)";
-        
-        onAddSource(cleanTitle, content, detectedLanguage, autoSummary, undefined, []);
-        setNewContent("");
-        setErrorMsg("");
-        setShowAddForm(false);
-      } else {
-        const errMsg = err.message || "تعذر استخراج النص — يرجى إعادة المحاولة";
-        setErrorMsg(errMsg);
-        
-        // Add the failed document as a card with an error state
-        const fallbackTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
-        onAddSource(fallbackTitle, "", "ar", "", errMsg);
-        setShowAddForm(false);
-      }
+      // Add the failed document as a card with an error state
+      const fallbackTitle = fileName || `مقتطف مضاف ${sources.length + 1}`;
+      onAddSource(fallbackTitle, "", "ar", "", errMsg);
+      setShowAddForm(false);
     } finally {
       setIsAnalyzing(false);
       setAnalysisStep("");
@@ -360,20 +219,9 @@ export default function SourcesList({
             <BookOpen className="w-5 h-5 text-[#094d4e]" />
             <span>المصادر البحثية</span>
           </h2>
-          <div className="flex items-center gap-2">
-            <span className="text-xs bg-teal-50 text-[#094d4e] border border-teal-100/80 px-2.5 py-1 rounded-full font-semibold">
-              {activeCount} من {sources.length} نشطة
-            </span>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="px-2.5 py-1 bg-[#094d4e] hover:bg-[#07393a] text-white text-[11px] font-extrabold rounded-lg transition-all shadow-xs flex items-center gap-1"
-              id="header-upload-source-btn"
-              title="رفع واستخراج مستند بحثي جديد فوراً"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>رفع مصدر</span>
-            </button>
-          </div>
+          <span className="text-xs bg-teal-50 text-[#094d4e] border border-teal-100/80 px-2.5 py-1 rounded-full font-semibold">
+            {activeCount} من {sources.length} نشطة
+          </span>
         </div>
         <p className="text-[11px] text-gray-600 leading-relaxed font-semibold">
           الوثائق المفعّلة يتم تضمينها تلقائياً في سياق التحليل والمقارنة بواسطة الذكاء الاصطناعي.
@@ -467,38 +315,23 @@ export default function SourcesList({
             <span className="text-[8px] opacity-60 font-sans font-normal">Disable All</span>
           </button>
         </div>
+
+        {sources.length > 0 && (
+          <button
+            onClick={() => setShowDeleteAllModal(true)}
+            className="w-full py-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+            id="btn-delete-all-sources"
+            title="حذف جميع المصادر وتفريغ التوليفات والمصطلحات"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+            <span>حذف وتفريغ جميع المصادر ({sources.length})</span>
+          </button>
+        )}
       </div>
 
       {/* Sources List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-        {sources.length === 0 ? (
-          <div className="space-y-3" id="zero-sources-upload-container">
-            <div 
-              onClick={() => setShowAddForm(true)}
-              className="bg-white border-2 border-dashed border-[#094d4e]/40 rounded-2xl p-5 text-center flex flex-col items-center justify-center space-y-3 bg-[#f0f7f7]/30 hover:bg-[#f0f7f7]/60 shadow-xs cursor-pointer transition-all" 
-              dir="rtl"
-            >
-              <UploadCloud className="w-10 h-10 text-[#094d4e] bg-teal-50 p-2 rounded-full border border-teal-100/80 animate-bounce" />
-              <div className="space-y-1">
-                <h3 className="text-xs font-extrabold text-[#1f1f1f]">مركز رفع وتحليل المستندات البحثية</h3>
-                <p className="text-[10px] text-gray-500 font-medium max-w-xs leading-relaxed">
-                  قم برفع أو اسقاط مستنداتك العلمية (PDF، Word، Text) للبدء المباشر في الاستخراج والتحليل الأكاديمي الشامل.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                setShowAddForm(true);
-                setUploadTab("paste");
-              }}
-              className="w-full py-2 bg-white border border-[#e2e2dd] hover:border-gray-300 text-gray-700 text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs"
-            >
-              <FileText className="w-3.5 h-3.5 text-[#094d4e]" />
-              <span>أو لصق نص مقتبس مستخرج يدوياً</span>
-            </button>
-          </div>
-        ) : filteredSources.length === 0 ? (
+        {filteredSources.length === 0 ? (
           <div className="text-center py-6 px-4 text-gray-400 space-y-3 bg-white rounded-xl border border-[#e2e2dd] my-2 shadow-2xs" id="no-sources-fallback-container">
             <div className="text-xs font-medium">
               لا توجد مصادر تطابق بحثك.
@@ -644,7 +477,7 @@ export default function SourcesList({
                     e.stopPropagation();
                     setSourceToDeleteId(src.id);
                   }}
-                  className="absolute left-2 top-2 p-1 text-gray-400 hover:text-red-600 rounded transition-colors md:opacity-0 md:group-hover:opacity-100"
+                  className="absolute left-2 top-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all z-10"
                   title="حذف هذا المصدر"
                   id={`source-delete-btn-${src.id}`}
                 >
@@ -789,22 +622,11 @@ export default function SourcesList({
         </>
       ) : (
         /* Glossary Tab View */
-        <div className="flex-1 overflow-y-auto p-3 space-y-3" id="glossary-list-container">
-          {/* Definition Banner for المصطلحات والمفاهيم */}
-          <div className="bg-[#f0f7f7] border border-[#a2d2d2]/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-[#094d4e] leading-relaxed shadow-3xs" id="glossary-concept-definition-card" dir="rtl">
-            <div className="flex items-center gap-1.5 font-extrabold text-xs text-[#07393a] mb-1">
-              <BookMarked className="w-4 h-4 text-[#094d4e] flex-shrink-0" />
-              <span>تعريف المصطلحات والمفاهيم الأكاديمية:</span>
-            </div>
-            <p className="text-[11px] text-gray-700 leading-relaxed font-normal">
-              المصطلحات والمفاهيم هي <span className="font-bold text-[#094d4e]">النظريات المعرفية</span>، و<span className="font-bold text-[#094d4e]">المناهج العلمية</span>، و<span className="font-bold text-[#094d4e]">الأطر المفاهيمية</span>، و<span className="font-bold text-[#094d4e]">المؤشرات الإحصائية</span> المحورية المقتبسة من الأدبيات المرفوعة (مثل: <span className="font-bold text-[#094d4e]">الإطار المفاهيمي</span>، <span className="font-bold text-[#094d4e]">المنهجية البحثية</span>، <span className="font-bold text-[#094d4e]">البنائية</span>، <span className="font-bold text-[#094d4e]">الارتباط الإحصائي</span>). تُستخرج وتُعرَّف صراحة لبيان الركائز المعرفية للدراسة، مع الاستبعاد التام والتحقق الصارم ضد أسماء الأعلام، والمؤسسات، ودور النشر، وعناوين الكتب العابرة.
-            </p>
-          </div>
-
+        <div className="flex-1 overflow-y-auto p-3 space-y-2.5" id="glossary-list-container">
           {isSweeping && (
             <div className="bg-[#fcfbf7] border border-[#eae9e2] rounded-xl p-3 flex items-center gap-2.5 text-gray-700 text-[11px] font-medium animate-pulse" id="glossary-sweeping-banner" dir="rtl">
               <Loader2 className="w-4 h-4 animate-spin text-gray-500 flex-shrink-0" />
-              <span>جاري مراجعة وتدقيق المصطلحات عبر مصفوفة التحقق ثنائية الحقول للعمق المعرفي والبحثي...</span>
+              <span>جاري مراجعة وتدقيق المصطلحات عبر مصفوفة التحقق ثنائية الحقول للعمق الأكاديمي...</span>
             </div>
           )}
           {sweepCorrectionCount !== null && sweepCorrectionCount > 0 && (
@@ -816,54 +638,40 @@ export default function SourcesList({
               </div>
             </div>
           )}
-          {(() => {
-            const validTerms = glossaryTerms.filter(isValidAcademicConcept);
-            if (validTerms.length === 0) {
-              return (
-                <div className="space-y-4">
-                  <div className="text-center py-8 px-4 text-gray-400 text-xs font-medium bg-white rounded-xl border border-[#e2e2dd]">
-                    لا توجد مصطلحات في المعجم حتى الآن.
-                    <p className="text-[10px] text-gray-400 mt-1">المصطلحات تظهر تلقائياً عند رفع المستندات أو تفعيل المصادر.</p>
-                  </div>
-                  
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-slate-700 leading-relaxed" dir="rtl">
-                    <span className="font-bold text-slate-900 block mb-1">دليل معجم المصطلحات الأكاديمية:</span>
-                    يتم بناء المعجم تلقائياً عند تحليل الوثائق المرفوعة في الجلسة، لتوليد استخراج دقيق للمصطلحات والترجمات المعتمدة.
-                  </div>
+          {glossaryTerms.length === 0 ? (
+            <div className="space-y-4">
+              <div className="text-center py-8 px-4 text-gray-400 text-xs font-medium bg-white rounded-xl border border-[#e2e2dd]">
+                لا توجد مصطلحات في المعجم حتى الآن.
+                <p className="text-[10px] text-gray-400 mt-1">المصطلحات تظهر تلقائياً عند رفع المستندات أو تفعيل المصادر.</p>
+              </div>
+              
+              <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-amber-850 leading-relaxed" dir="rtl">
+                <span className="font-bold text-amber-950 block mb-1">توضيح هام حول حصة الاستخدام (API Quotas):</span>
+                إذا قمت برفع مستندات متعددة (مثل 5-6 مستندات في جلسة واحدة)، فقد يتم تجاوز الحد اليومي المسموح به مجاناً من طلبات الذكاء الاصطناعي (<span className="font-bold font-mono text-amber-950">20 طلباً/يومياً</span> لنموذج Gemini 3.5 Flash).
+                عند حدوث ذلك، يتوقف خادم المعجم والتحليل تلقائياً لحين تجديد الحصة اليومية أو تهيئة مفتاح API مدفوع لتفادي التوقف الممتد.
+              </div>
+            </div>
+          ) : (
+            glossaryTerms.map((termItem, idx) => (
+              <div
+                key={idx}
+                className="bg-white border border-[#e2e2dd] hover:border-gray-300 transition-all p-3.5 rounded-xl text-right shadow-3xs hover:shadow-2xs"
+                id={`glossary-item-${idx}`}
+              >
+                <div className="flex flex-wrap items-center gap-2 justify-between mb-2 pb-1.5 border-b border-gray-100/50">
+                  <span className="text-xs font-bold text-gray-950 text-right">
+                    {termItem.transliteration}
+                  </span>
+                  <span className="font-mono text-[10px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200" dir="ltr">
+                    {termItem.term}
+                  </span>
                 </div>
-              );
-            }
-
-            return validTerms.map((termItem, idx) => {
-              const { arabicTerm, englishTerm } = getConceptPair(termItem);
-              const displayEnglish = englishTerm && englishTerm.toLowerCase() !== arabicTerm.toLowerCase() ? englishTerm : null;
-
-              return (
-                <div
-                  key={idx}
-                  className="bg-white border border-[#e2e2dd] hover:border-gray-300 transition-all p-3.5 rounded-xl text-right shadow-3xs hover:shadow-2xs space-y-2"
-                  id={`glossary-item-${idx}`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-gray-100/80" dir="rtl">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="text-xs font-bold text-gray-950 text-right">
-                        {arabicTerm}
-                      </span>
-                    </div>
-                    {displayEnglish && (
-                      <span className="font-mono text-[10px] font-semibold text-slate-700 bg-slate-50 px-2.5 py-0.5 rounded-md border border-slate-200/80 tracking-wide" dir="ltr">
-                        {displayEnglish}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-gray-600 leading-relaxed font-normal text-right pt-0.5" dir="rtl">
-                    {termItem.definition}
-                  </p>
-                </div>
-              );
-            });
-          })()}
+                <p className="text-[11px] text-gray-600 leading-relaxed font-medium">
+                  {termItem.definition}
+                </p>
+              </div>
+            ))
+          )}
         </div>
       )}
 
@@ -924,6 +732,65 @@ export default function SourcesList({
                 id="btn-confirm-delete-source"
               >
                 حذف
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Confirmation Modal */}
+      {showDeleteAllModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-[2px] transition-all"
+          id="delete-all-sources-modal-backdrop"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowDeleteAllModal(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-sm w-full p-5 border border-[#e2e2dd] shadow-lg space-y-4 text-right animate-in fade-in zoom-in-95 duration-150"
+            dir="rtl"
+            id="delete-all-sources-modal-container"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 text-red-600 pb-1 border-b border-gray-100">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <h4 className="text-sm font-bold text-gray-900">حذف وتفريغ جميع المصادر</h4>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs text-gray-700 font-medium leading-relaxed">
+                هل أنت متأكد من رغبتك في حذف جميع المصادر المرفوعة وتفريغ المستودع بالكامل؟ سيتم مسح كافة المصطلحات والتوليفات المرتبطة بهذه المصادر.
+              </p>
+              <div className="bg-red-50 p-2.5 rounded-lg border border-red-100 text-[11px] text-red-700 font-bold">
+                عدد المصادر التي سيتم حذفها: {sources.length} مصدر
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllModal(false)}
+                className="px-3.5 py-1.5 bg-[#eae9e2] hover:bg-[#e2e2dd] text-gray-700 text-[11px] font-bold rounded-lg transition-all"
+                id="btn-cancel-delete-all"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteAllSources) {
+                    onDeleteAllSources();
+                  } else {
+                    sources.forEach((s) => onDeleteSource(s.id));
+                  }
+                  setShowDeleteAllModal(false);
+                }}
+                className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded-lg transition-all shadow-xs"
+                id="btn-confirm-delete-all"
+              >
+                حذف الكل وتفريغ المستودع
               </button>
             </div>
           </div>

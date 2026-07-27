@@ -11,7 +11,9 @@ import {
   FolderOpen,
   ChevronDown,
   Trash2,
-  FolderGit2
+  FolderGit2,
+  AlertCircle,
+  Home
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { ActiveTab, Project } from "../types";
@@ -85,18 +87,15 @@ export default function Sidebar({
         {/* Logo and Brand */}
         <div 
           onClick={onShowLandingPage}
-          className="flex items-center gap-3 px-2 py-3 border-b border-[#e2e2dd] justify-center md:justify-start cursor-pointer group hover:bg-[#eae8e1] rounded-xl transition-all"
-          title="عرض الصفحة التعريفية الرئيسية"
-          id="sidebar-brand-logo-btn"
+          className={`flex items-center gap-3 px-2 py-3 border-b border-[#e2e2dd] justify-center md:justify-start ${onShowLandingPage ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+          title="الصفحة التعريفية الرئيسية"
+          id="sidebar-brand-logo"
         >
-          <div className="bg-[#094d4e] group-hover:bg-[#07393a] text-[#fafaf8] p-2 rounded-lg flex items-center justify-center shadow-sm transition-colors">
+          <div className="bg-[#094d4e] text-[#fafaf8] p-2 rounded-lg flex items-center justify-center shadow-sm">
             <BookOpen className="w-6 h-6" />
           </div>
           <div className="hidden md:flex flex-col select-none">
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-[25px] text-[#094d4e] tracking-tight leading-none">بحث OS</span>
-              <span className="text-[9px] bg-teal-100 text-teal-800 font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">الرئيسية</span>
-            </div>
+            <span className="font-extrabold text-[25px] text-[#094d4e] tracking-tight leading-none">بحث OS</span>
             <span className="text-xs font-semibold text-gray-500 tracking-wide mt-1">bahthOS</span>
             <span className="text-[9px] text-gray-400 font-medium mt-1">مساعد البحث المنهجي</span>
           </div>
@@ -107,31 +106,17 @@ export default function Sidebar({
           {/* Desktop Selector */}
           <div className="hidden md:flex flex-col gap-1.5">
             <span className="text-[10px] font-bold text-gray-400 tracking-wider uppercase select-none">المشروع البحثي الحالي</span>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="flex-1 flex items-center justify-between px-3 py-2.5 bg-[#eae9e2] hover:bg-[#dfded7] text-gray-800 rounded-xl border border-[#e2e2dd] transition-all duration-200 text-xs font-semibold shadow-sm group"
-                id="sidebar-project-dropdown-trigger"
-              >
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <FolderOpen className="w-4 h-4 text-[#094d4e] flex-shrink-0" />
-                  <span className="truncate text-right">{activeProject.name}</span>
-                </div>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setProjectToDelete(activeProject);
-                }}
-                className="p-2.5 bg-[#eae9e2] hover:bg-red-100 text-gray-500 hover:text-red-600 rounded-xl border border-[#e2e2dd] transition-all flex-shrink-0 cursor-pointer"
-                title={projects.length <= 1 ? "تصفير المشروع الحالي والبدء من جديد" : `حذف مشروع "${activeProject.name}"`}
-                id={`delete-active-project-btn-${activeProject.id}`}
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              onClick={() => setIsOpen(!isOpen)}
+              className="w-full flex items-center justify-between px-3 py-2.5 bg-[#eae9e2] hover:bg-[#dfded7] text-gray-800 rounded-xl border border-[#e2e2dd] transition-all duration-200 text-xs font-semibold shadow-sm group"
+              id="sidebar-project-dropdown-trigger"
+            >
+              <div className="flex items-center gap-2 overflow-hidden">
+                <FolderOpen className="w-4 h-4 text-[#094d4e] flex-shrink-0" />
+                <span className="truncate text-right">{activeProject.name}</span>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+            </button>
           </div>
 
           {/* Mobile Selector Icon */}
@@ -254,15 +239,14 @@ export default function Sidebar({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setIsOpen(false);
                               setProjectToDelete(proj);
                             }}
                             className={`p-1 rounded-md transition-colors ${
                               isSelected
-                                ? "text-teal-300 hover:bg-[#073c3d]"
+                                ? "text-teal-300 hover:bg-[#073c3d] hover:text-red-300"
                                 : "text-gray-400 hover:text-red-500 hover:bg-red-50"
                             }`}
-                            title={projects.length <= 1 ? "تصفير المشروع والبدء من جديد" : `حذف مشروع "${proj.name}"`}
+                            title="حذف المشروع وتفريغ بياناته"
                             id={`delete-project-btn-${proj.id}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -321,8 +305,20 @@ export default function Sidebar({
       </div>
 
       {/* User / Footer status */}
-      <div className="pt-4 border-t border-[#e2e2dd] flex flex-col items-center md:items-start gap-2 px-2">
-        <div className="hidden md:flex items-center gap-2.5 text-xs text-gray-600 font-semibold">
+      <div className="pt-4 border-t border-[#e2e2dd] flex flex-col items-center md:items-start gap-2.5 px-2">
+        {onShowLandingPage && (
+          <button
+            type="button"
+            onClick={onShowLandingPage}
+            id="sidebar-home-landing-btn"
+            className="w-full flex items-center justify-center md:justify-start gap-2.5 px-3 py-2 text-xs font-bold text-[#094d4e] bg-white hover:bg-[#eae9e2] rounded-xl transition-all border border-[#e2e2dd] shadow-2xs"
+            title="العودة للصفحة التعريفية الرئيسية"
+          >
+            <Home className="w-4 h-4 text-[#094d4e]" />
+            <span className="hidden md:inline">الصفحة الرئيسية</span>
+          </button>
+        )}
+        <div className="hidden md:flex items-center gap-2.5 text-xs text-gray-600 font-semibold pt-1">
           <div className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></div>
           <span>المصادر متصلة بالكامل</span>
         </div>
@@ -331,57 +327,64 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Custom Delete Project Modal */}
-      <AnimatePresence>
-        {projectToDelete && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="delete-project-modal">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl border border-[#e2e2dd] shadow-xl max-w-md w-full p-6 text-right space-y-4"
-            >
-              <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
-                <div className="bg-red-50 text-red-600 p-2 rounded-xl">
-                  <Trash2 className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-red-800">تأكيد حذف المشروع: {projectToDelete.name}</h3>
-                  <p className="text-[10px] text-gray-400 font-medium mt-0.5">تصفير أو إزالة ملف المشروع نهائياً</p>
-                </div>
-              </div>
-              
-              <p className="text-xs text-gray-600 leading-relaxed font-semibold">
-                {projects.length <= 1
-                  ? `هل أنت متأكد من رغبتك في تصفير مشروع "${projectToDelete.name}"؟ سيؤدي ذلك إلى حذف جميع المصادر والدردشات والمصطلحات والبدء من جديد بصفحة فارغة تماماً.`
-                  : `هل أنت متأكد من رغبتك في حذف مشروع "${projectToDelete.name}"؟ سيتم حذف جميع المصادر والدردشات والمصطلحات التابعة له بشكل نهائي.`}
-              </p>
+      {/* Delete Project Confirmation Modal */}
+      {projectToDelete && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-[2px] transition-all"
+          id="delete-project-modal-backdrop"
+          onClick={(e) => {
+            e.stopPropagation();
+            setProjectToDelete(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-sm w-full p-5 border border-[#e2e2dd] shadow-lg space-y-4 text-right animate-in fade-in zoom-in-95 duration-150"
+            dir="rtl"
+            id="delete-project-modal-container"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 text-red-600 pb-1 border-b border-gray-100">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <h4 className="text-sm font-bold text-gray-900">حذف المشروع البحثي</h4>
+            </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setProjectToDelete(null)}
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                >
-                  إلغاء
-                </button>
-                <button
-                  onClick={() => {
-                    const idToDelete = projectToDelete.id;
-                    setProjectToDelete(null);
-                    setIsOpen(false);
-                    onDeleteProject(idToDelete);
-                  }}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
-                  id="confirm-delete-project-modal-btn"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>نعم، حذف المشروع نهائياً</span>
-                </button>
+            <div className="space-y-2">
+              <p className="text-xs text-gray-700 font-medium leading-relaxed">
+                {projects.length === 1
+                  ? `هل أنت متأكد من رغبتك في حذف مشروع "${projectToDelete.name}" وتفريغ جميع مصادره وبياناته بالكامل؟`
+                  : `هل أنت متأكد من رغبتك في حذف مشروع "${projectToDelete.name}"؟ سيتم حذف جميع المصادر والدردشات الخاصة به.`}
+              </p>
+              <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 text-[11px] text-gray-600 font-bold truncate">
+                {projectToDelete.name}
               </div>
-            </motion.div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setProjectToDelete(null)}
+                className="px-3.5 py-1.5 bg-[#eae9e2] hover:bg-[#e2e2dd] text-gray-700 text-[11px] font-bold rounded-lg transition-all"
+                id="btn-cancel-delete-project"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (projectToDelete) {
+                    onDeleteProject(projectToDelete.id);
+                    setProjectToDelete(null);
+                  }
+                }}
+                className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded-lg transition-all shadow-xs"
+                id="btn-confirm-delete-project"
+              >
+                حذف المشروع
+              </button>
+            </div>
           </div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
     </div>
   );
 }

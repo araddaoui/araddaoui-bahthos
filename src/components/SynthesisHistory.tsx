@@ -7,11 +7,12 @@ import {
   Check, 
   FileText,
   Calendar,
-  Sparkles
+  Sparkles,
+  Download
 } from "lucide-react";
 import { Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
-import { copyReportToClipboard } from "../utils/exportToWordClipboard";
+import { copyReportToClipboard, exportToWordDocument } from "../utils/reportFormatter";
 
 interface SynthesisHistoryProps {
   syntheses: Synthesis[];
@@ -26,10 +27,15 @@ export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: Synth
 
   const activeSyn = syntheses.find((s) => s.id === selectedSynId);
 
-  const handleCopy = async (text: string, title?: string) => {
-    await copyReportToClipboard(text, title);
+  const handleCopy = async (text: string) => {
+    await copyReportToClipboard(activeSyn?.title || "تقرير بحثي", text);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleExportWord = () => {
+    if (!activeSyn) return;
+    exportToWordDocument(activeSyn.title || "تقرير بحثي", activeSyn.text);
   };
 
   return (
@@ -85,7 +91,7 @@ export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: Synth
                         setSelectedSynId(syntheses.find((s) => s.id !== syn.id)?.id || null);
                       }
                     }}
-                    className="absolute left-2.5 top-2.5 p-1 text-gray-400 hover:text-red-600 rounded transition-colors md:opacity-0 md:group-hover:opacity-100"
+                    className="absolute left-2.5 top-2.5 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all z-10"
                     title="حذف هذا التقرير"
                     id={`delete-history-${syn.id}`}
                   >
@@ -106,7 +112,7 @@ export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: Synth
             <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4">
               <div>
                 <span className="text-[10px] bg-teal-50 text-[#0d6264] px-2 py-0.5 rounded font-bold border border-teal-100">
-                  تقرير توليف بحثي محفوظ
+                  تقرير توليف أكاديمي محفوظ
                 </span>
                 <h1 className="text-base font-bold text-[#1f1f1f] mt-1">
                   {activeSyn.title}
@@ -118,19 +124,30 @@ export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: Synth
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleCopy(activeSyn.text, activeSyn.title)}
+                  onClick={handleExportWord}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-bold rounded-lg border border-blue-200 transition-all"
+                  title="تصدير التقرير وتحميله كملف MS Word"
+                  id="history-export-word-btn"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-700" />
+                  <span>تصدير لـ MS Word</span>
+                </button>
+
+                <button
+                  onClick={() => handleCopy(activeSyn.text)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f4f3ee] hover:bg-[#eae9e2] text-gray-700 text-xs font-semibold rounded-lg border border-[#e2e2dd] transition-all"
                   id="history-copy-btn"
+                  title="نسخ بتنسيق غني مهيأ لـ Word"
                 >
                   {isCopied ? (
                     <>
                       <Check className="w-4 h-4 text-emerald-600" />
-                      <span className="text-emerald-600">تم النسخ!</span>
+                      <span className="text-emerald-600 font-bold">تم النسخ لـ Word!</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-4 h-4" />
-                      <span>نسخ التقرير</span>
+                      <span>نسخ لـ Word</span>
                     </>
                   )}
                 </button>
