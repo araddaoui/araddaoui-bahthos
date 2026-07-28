@@ -44,6 +44,7 @@ async function generateContentWithRetry(
     model: string;
     contents: any;
     config?: any;
+    systemInstruction?: any;   // <-- ADD THIS LINE
   }
 ) {
   let attempt = 1;
@@ -53,8 +54,10 @@ async function generateContentWithRetry(
   while (true) {
     try {
       return await ai.models.generateContent({
-        ...params,
         model: currentModel,
+        contents: params.contents,
+        config: params.config,
+        systemInstruction: params.systemInstruction,   // <-- ADD THIS EXPLICITLY
       });
     } catch (error: any) {
       const status = error.status;
@@ -848,9 +851,20 @@ ${sourcesContext}`;
 
 // Endpoint to passively extract academic/technical terms from a text snippet
 app.post("/api/extract-glossary", async (req, res) => {
-  const { text } = req.body;
+  const { text, systemPrompt } = req.body;   // <-- ADD systemPrompt
+
+  console.log("📝 System Prompt length:", systemPrompt?.length || 0);
+  console.log("📝 Document text length:", text?.length || 0);
+
+  // Validate text
   if (!text || typeof text !== "string" || text.trim().length < 10) {
     return res.json({ terms: [] });
+  }
+
+  // Validate systemPrompt
+  if (!systemPrompt || typeof systemPrompt !== "string" || systemPrompt.trim().length < 10) {
+    console.error("❌ System prompt is missing or too short!");
+    return res.status(400).json({ terms: [], error: "System prompt is required" });
   }
 
   try {
