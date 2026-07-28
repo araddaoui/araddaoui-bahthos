@@ -358,42 +358,35 @@ app.post("/api/analyze-document", async (req, res) => {
       const buffer = Buffer.from(base64, "base64");
       console.log(`📄 PDF size: ${buffer.length} bytes (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
 
-      // Vercel free plan has ~4.5MB limit – warn if larger
       if (buffer.length > 4_500_000) {
-        console.warn(`⚠️ PDF exceeds 4.5MB – may fail on Vercel free plan`);
+        console.warn(`⚠️ PDF exceeds 4.5MB – fallback to direct Gemini multimodal parsing`);
       }
 
-      // PDF parsing with a race against a timeout (8 seconds)
-      const parser = new PDFParse({ data: buffer });
+      // Try local PDF parsing with a 6-second timeout
+      const parser = new PDFParse({ data: new Uint8Array(buffer) });
       const textResult = await Promise.race([
         parser.getText(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("PDF parsing timeout after 8 seconds")), 8000)
+          setTimeout(() => reject(new Error("PDF local parsing timeout")), 6000)
         ),
       ]);
       
       parsedContent = (textResult as any)?.text || "";
-      console.log(`✅ PDF parsed: ${parsedContent.length} chars, ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words`);
+      console.log(`✅ PDF parsed locally: ${parsedContent.length} chars, ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words`);
       
     } catch (err: any) {
-      console.error("❌ PDF parsing error:", err.message);
-      console.error("❌ Stack:", err.stack);
-      
-      // Return a clear error to the frontend – no silent failure
-      return res.status(500).json({
-        error: "فشل استخراج النص من ملف PDF. يرجى محاولة استخدام ملف نصي (TXT) بدلاً من ذلك، أو التأكد من صحة الملف.",
-        details: err.message,
-        fallback: true,
-      });
+      console.warn("⚠️ Local PDF text extraction failed or timed out:", err.message);
+      console.warn("🔄 Will rely on direct Gemini multimodal PDF processing via base64...");
+      // DO NOT throw or return 500! Gemini will process base64 directly.
     }
   }
 
-  // If we still have no content, return a helpful error
-  if (!parsedContent || parsedContent.trim().length < 10) {
-    console.warn(`⚠️ No text extracted from ${fileName || "document"}`);
+  // If no content AND no base64, return a helpful validation error
+  if (!parsedContent && !base64) {
+    console.warn(`⚠️ No content or base64 available for ${fileName || "document"}`);
     return res.status(400).json({
-      error: "لم نتمكن من استخراج النص من هذا الملف. يرجى استخدام صيغة أخرى (TXT, DOCX, PDF قابل للقراءة).",
-      details: "No text content",
+      error: "لم نتمكن من قراءة النص أو الملف. يرجى التأكد من صحة المستند وتجربة رفعه مجدداً.",
+      details: "No text content or base64",
       fallback: true,
     });
   }
@@ -402,8 +395,8 @@ app.post("/api/analyze-document", async (req, res) => {
   let result: any = {
     title: fileName || "مستند مرفق",
     language: "ar",
-    summary: parsedContent.substring(0, 350) + "...",
-    extractedText: parsedContent,
+    summary: parsedContent ? (parsedContent.substring(0, 350) + "...") : "تم إدراج المستند المرفق للتحليل والتوليف الأكاديمي بواسطة الذكاء الاصطناعي.",
+    extractedText: parsedContent || "",
     terms: [],
   };
 
@@ -465,6 +458,10 @@ app.post("/api/analyze-document", async (req, res) => {
               type: Type.STRING,
               description: "ملخص أكاديمي بليغ ومكثف لمحتوى المستند."
             },
+            extractedText: {
+              type: Type.STRING,
+              description: "أبرز أجزاء نص المستند أو تفكيك محتواه الأساسي."
+            },
             terms: {
               type: Type.ARRAY,
               items: {
@@ -502,6 +499,10 @@ app.post("/api/analyze-document", async (req, res) => {
     result.title = data.title || fileName || "مستند بدون عنوان";
     result.language = data.language || "ar";
     result.summary = data.summary || result.summary;
+    if (!parsedContent && data.extractedText) {
+      parsedContent = data.extractedText;
+      result.extractedText = data.extractedText;
+    }
     
     if (data.terms && Array.isArray(data.terms)) {
       result.terms = data.terms
