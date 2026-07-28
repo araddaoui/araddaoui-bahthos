@@ -33,7 +33,7 @@ const getAiClient = () => {
   });
 };
 
-// Helper function to call generateContent with automatic retry specifically for 503 and network timeouts
+// Helper function to call generateContent with automatic retry and model fallback for 503, timeouts, and 429 rate limit/quota errors
 async function generateContentWithRetry(
   ai: any,
   params: {
@@ -44,7 +44,7 @@ async function generateContentWithRetry(
 ) {
   let attempt = 1;
   const maxAttempts = 3;
-  let currentModel = params.model;
+  let currentModel = params.model === "gemini-3.5-flash" ? "gemini-3.6-flash" : params.model;
 
   while (true) {
     try {
@@ -73,16 +73,16 @@ async function generateContentWithRetry(
         errorStr.includes("limit") || 
         errorStr.includes("exhausted");
 
-      if (isRetryable && !isQuota && attempt < maxAttempts) {
+      if ((isRetryable || isQuota) && attempt < maxAttempts) {
         attempt++;
-        const delay = attempt === 2 ? 1500 : 3000;
+        const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1500 : 3000);
         
-        // On third attempt, if original model was gemini-3.5-flash, fall back to gemini-3.1-flash-lite
-        if (attempt === 3 && params.model === "gemini-3.5-flash") {
+        // On quota error or on 2nd retry, switch to gemini-3.1-flash-lite for higher throughput limits
+        if (isQuota || currentModel === "gemini-3.6-flash") {
           currentModel = "gemini-3.1-flash-lite";
-          console.warn(`Attempt ${attempt}: Falling back to gemini-3.1-flash-lite due to high demand/503 on gemini-3.5-flash.`);
+          console.warn(`Attempt ${attempt}: Switching model to gemini-3.1-flash-lite due to ${isQuota ? "429 quota/rate limit" : "503/timeout"}. Retrying in ${delay}ms...`);
         } else {
-          console.warn(`Attempt ${attempt}: Retrying ${currentModel} after a delay of ${delay}ms due to 503/timeout...`);
+          console.warn(`Attempt ${attempt}: Retrying ${currentModel} after delay of ${delay}ms...`);
         }
         
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -241,7 +241,7 @@ app.post("/api/chat", async (req, res) => {
     console.log(`Sending chat request to Gemini with ${messages.length} messages and ${sources?.length || 0} sources.`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: contents,
       config: {
         systemInstruction: mergedSystemInstruction,
@@ -402,7 +402,7 @@ app.post("/api/analyze-document", async (req, res) => {
     }
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: contentsParam,
       config: {
         responseMimeType: "application/json",
@@ -637,7 +637,7 @@ ${sourcesContext}`;
     console.log(`Sending synthesis request to Gemini for ${sources.length} sources (type: ${toolType}).`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTIONS,
@@ -876,7 +876,7 @@ app.post("/api/extract-glossary", async (req, res) => {
 ${text.substring(0, 3500)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -993,7 +993,7 @@ app.post("/api/sweep-glossary", async (req, res) => {
 ${JSON.stringify(terms, null, 2)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
