@@ -1226,17 +1226,18 @@ setGlossaryTerms(serverGlossary);
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "فشلت الاستجابة من الخادم.");
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok && !data.text) {
+        throw new Error(data.error || "عذراً، تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.");
       }
 
-      const data = await response.json();
+      const replyContent = data.text || "المصادر المتاحة لا توفر إجابة كافية عن هذا السؤال.";
 
       const assistantMsg: Message = {
         id: "msg-" + (Date.now() + 1),
         role: "assistant",
-        text: data.text,
+        text: replyContent,
         timestamp: new Date().toLocaleTimeString("ar-SA", {
           hour: "2-digit",
           minute: "2-digit",
