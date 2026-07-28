@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+import pdfParse from "pdf-parse";  // ✅ FIXED: default import, not named
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./src/utils/termExtractor";
 
 // Load environment variables BEFORE anything else
@@ -41,7 +41,7 @@ async function generateContentWithRetry(
     model: string;
     contents: any;
     config?: any;
-    systemInstruction?: any;   // <-- ADD THIS LINE
+    systemInstruction?: any;   // ✅ already correct
   }
 ) {
   let attempt = 1;
@@ -321,12 +321,15 @@ app.post("/api/chat", async (req, res) => {
 // Endpoint for automatic single-document analysis (title, language, summary extraction)
 app.post("/api/analyze-document", async (req, res) => {
   const { content, base64, mimeType, fileName } = req.body;
+  
+  console.log(`📄 Document upload: ${fileName || "unnamed"}, mimeType: ${mimeType}`);
+  console.log(`📄 content length: ${content?.length || 0}, base64 length: ${base64?.length || 0}`);
+
   if (!content && !base64) {
     return res.status(400).json({ error: "محتوى المستند فارغ أو غير صالح." });
   }
 
   const isPdf = mimeType === "application/pdf" || fileName?.toLowerCase().endsWith(".pdf");
-
   const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || 
                  fileName?.toLowerCase().endsWith(".docx") || 
                  mimeType === "application/msword" ||
@@ -334,38 +337,77 @@ app.post("/api/analyze-document", async (req, res) => {
 
   let parsedContent = content || "";
 
+  // ----- WORD PARSING -----
   if (!parsedContent && isDocx && base64) {
     try {
-      console.log(`Parsing Word document: ${fileName || "document.docx"} using mammoth...`);
+      console.log(`📄 Parsing Word: ${fileName || "document.docx"} using mammoth...`);
       const buffer = Buffer.from(base64, "base64");
       const mammothResult = await mammoth.extractRawText({ buffer });
       parsedContent = mammothResult.value || "";
+      console.log(`✅ Word parsed: ${parsedContent.length} chars`);
     } catch (err: any) {
-      console.error("Failed to parse Word document with mammoth:", err);
+      console.error("❌ Word parsing error:", err.message);
     }
   }
 
+  // ----- PDF PARSING WITH TIMEOUT & FALLBACK -----
   if (!parsedContent && isPdf && base64) {
     try {
-      console.log(`Parsing PDF document: ${fileName || "document.pdf"} using modern pdf-parse class...`);
+      console.log(`📄 Parsing PDF: ${fileName || "document.pdf"}`);
+      
       const buffer = Buffer.from(base64, "base64");
-      const parser = new PDFParse({ data: buffer });
-      const textResult = await parser.getText();
-      parsedContent = textResult.text || "";
-      console.log(`Successfully parsed PDF. Extracted ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words.`);
+      console.log(`📄 PDF size: ${buffer.length} bytes (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+
+      // Vercel free plan has ~4.5MB limit – warn if larger
+      if (buffer.length > 4_500_000) {
+        console.warn(`⚠️ PDF exceeds 4.5MB – may fail on Vercel free plan`);
+      }
+
+      // PDF parsing with a race against a timeout (8 seconds)
+      const parser = new pdfParse({ data: buffer });
+      const textResult = await Promise.race([
+        parser.getText(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("PDF parsing timeout after 8 seconds")), 8000)
+        ),
+      ]);
+      
+      parsedContent = (textResult as any)?.text || "";
+      console.log(`✅ PDF parsed: ${parsedContent.length} chars, ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words`);
+      
     } catch (err: any) {
-      console.error("Failed to parse PDF document with pdf-parse:", err);
+      console.error("❌ PDF parsing error:", err.message);
+      console.error("❌ Stack:", err.stack);
+      
+      // Return a clear error to the frontend – no silent failure
+      return res.status(500).json({
+        error: "فشل استخراج النص من ملف PDF. يرجى محاولة استخدام ملف نصي (TXT) بدلاً من ذلك، أو التأكد من صحة الملف.",
+        details: err.message,
+        fallback: true,
+      });
     }
   }
 
+  // If we still have no content, return a helpful error
+  if (!parsedContent || parsedContent.trim().length < 10) {
+    console.warn(`⚠️ No text extracted from ${fileName || "document"}`);
+    return res.status(400).json({
+      error: "لم نتمكن من استخراج النص من هذا الملف. يرجى استخدام صيغة أخرى (TXT, DOCX, PDF قابل للقراءة).",
+      details: "No text content",
+      fallback: true,
+    });
+  }
+
+  // ----- BUILD RESPONSE OBJECT -----
   let result: any = {
     title: fileName || "مستند مرفق",
     language: "ar",
-    summary: parsedContent ? parsedContent.substring(0, 350) + "..." : "تم إدراج المستند المرفق بنجاح للتحليل والتوليف الأكاديمي.",
-    extractedText: parsedContent || `محتوى المستند المرفق (${fileName || "مستند"}): جاهز للتوليف والتحليل الأكاديمي.`,
+    summary: parsedContent.substring(0, 350) + "...",
+    extractedText: parsedContent,
     terms: [],
   };
 
+  // ----- AI ANALYSIS & TERM EXTRACTION -----
   try {
     const ai = getAiClient();
     const promptText = `أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام "بحث OS".

@@ -1,5 +1,6 @@
 import { fileURLToPath } from "url";
 import path from "path";
+import express from "express";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +24,6 @@ try {
     } catch {
       console.error("Could not find server module. Using fallback app.");
       // Fallback: create a minimal app
-      import express from "express";
       const fallbackApp = express();
       fallbackApp.get("/api/health", (req, res) => res.json({ status: "ok" }));
       app = fallbackApp;
