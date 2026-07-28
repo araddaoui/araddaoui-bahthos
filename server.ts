@@ -2,17 +2,17 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse";  // <-- Fixed: use default import (not named)
+import { PDFParse } from "pdf-parse";
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./src/utils/termExtractor";
 
 // Load environment variables BEFORE anything else
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;  // <-- Use env PORT or fallback
+const PORT = Number(process.env.PORT) || 3000;
 
 // Middleware
 app.use(express.json({ limit: "50mb" }));
@@ -23,10 +23,9 @@ const getAiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn("⚠️ GEMINI_API_KEY environment variable is not set. AI calls will fail.");
-    // Optionally throw an error or return a mock client for development
   }
   return new GoogleGenAI({
-    apiKey: apiKey || "MOCK_KEY",  // Fallback only for development
+    apiKey: apiKey || "MOCK_KEY",
     httpOptions: {
       headers: {
         "User-Agent": "bahthos-app",
@@ -35,8 +34,6 @@ const getAiClient = () => {
   });
 };
 
-// Export app for Vercel serverless functions (index.ts uses this)
-export default app;
 // Helper function to call generateContent with automatic retry and model fallback for 503, timeouts, and 429 rate limit/quota errors
 async function generateContentWithRetry(
   ai: any,
@@ -245,15 +242,14 @@ app.post("/api/chat", async (req, res) => {
 
     console.log(`Sending chat request to Gemini with ${messages.length} messages and ${sources?.length || 0} sources.`);
 
-const response = await generateContentWithRetry(ai, {
-  model: "gemini-1.5-pro",
-  contents: text,
-  config: {
-    temperature: 0.0,
-    maxOutputTokens: 1024,
-    systemInstruction: systemPrompt,   // ✅ HERE – inside config
-  },
-});
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.6-flash",
+      contents: contents,
+      config: {
+        systemInstruction: mergedSystemInstruction,
+        temperature: 0.2, // Low temperature for factual consistency with documents
+      },
+    });
 
     const replyText = response.text || "المصادر المتاحة لا توفر إجابة كافية.";
     res.json({ text: replyText });
@@ -852,73 +848,48 @@ ${sourcesContext}`;
 app.post("/api/extract-glossary", async (req, res) => {
   const { text, systemPrompt } = req.body;
 
-  console.log("📝 System Prompt length:", systemPrompt?.length || 0);
-  console.log("📝 Document text length:", text?.length || 0);
-
-  // Validate text
   if (!text || typeof text !== "string" || text.trim().length < 10) {
     return res.json({ terms: [] });
   }
 
-  // Validate systemPrompt
-  if (!systemPrompt || typeof systemPrompt !== "string" || systemPrompt.trim().length < 10) {
-    console.error("❌ System prompt is missing or too short!");
-    return res.status(400).json({ terms: [], error: "System prompt is required" });
-  }
-
   try {
     const ai = getAiClient();
-    console.log("🤖 Calling Google AI with system prompt...");
 
-    const response = await generateContentWithRetry(ai, {
-      model: "gemini-1.5-pro",
-      contents: text,
-      config: {
-        temperature: 0.0,
-        maxOutputTokens: 1024,
-        systemInstruction: systemPrompt,   // ✅ inside config
-      },
-    });
+    if (systemPrompt && typeof systemPrompt === "string" && systemPrompt.trim().length >= 10) {
+      console.log("🤖 Calling Google AI with custom system prompt...");
+      const response = await generateContentWithRetry(ai, {
+        model: "gemini-3.6-flash",
+        contents: text,
+        config: {
+          temperature: 0.1,
+          maxOutputTokens: 1024,
+          systemInstruction: systemPrompt,
+        },
+      });
 
-    const responseText = response?.text || "";
-    console.log("📝 AI Response (first 500 chars):", responseText.substring(0, 500));
+      const responseText = response?.text || "";
+      let terms: any[] = [];
+      try {
+        let cleanJson = responseText
+          .replace(/```json\s*/g, "")
+          .replace(/```\s*/g, "")
+          .trim();
 
-    let terms: any[] = [];
-    try {
-      let cleanJson = responseText
-        .replace(/```json\s*/g, "")
-        .replace(/```\s*/g, "")
-        .trim();
-
-      const start = cleanJson.indexOf("[");
-      const end = cleanJson.lastIndexOf("]") + 1;
-      if (start !== -1 && end > start) {
-        const jsonStr = cleanJson.substring(start, end);
-        const parsed = JSON.parse(jsonStr);
-        if (Array.isArray(parsed)) {
-          terms = parsed;
-          console.log(`✅ Successfully parsed ${terms.length} terms from AI`);
+        const start = cleanJson.indexOf("[");
+        const end = cleanJson.lastIndexOf("]") + 1;
+        if (start !== -1 && end > start) {
+          const jsonStr = cleanJson.substring(start, end);
+          const parsed = JSON.parse(jsonStr);
+          if (Array.isArray(parsed)) {
+            terms = parsed;
+          }
         }
-      } else {
-        console.warn("⚠️ No JSON array found in response:", responseText);
+      } catch (parseError) {
+        console.error("❌ Failed to parse AI response as JSON:", parseError);
       }
-    } catch (parseError) {
-      console.error("❌ Failed to parse AI response as JSON:", parseError);
-      console.error("Raw response:", responseText);
-      terms = [];
+      return res.json({ terms });
     }
 
-    return res.json({ terms });
-  } catch (error: any) {
-    console.error("❌ Error extracting glossary:", error);
-    return res.status(500).json({
-      terms: [],
-      error: error.message || "AI extraction failed",
-    });
-  }
-});
-  try {
-    const ai = getAiClient();
     const prompt = `أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام "بحث OS".
 مهتك تحليل النص واستخراج قائمة موجزة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعتمدة فقط.
 
@@ -1008,7 +979,7 @@ ${text.substring(0, 3500)}`;
       }));
     }
 
-    res.json({ terms: normalizedTerms });
+    return res.json({ terms: normalizedTerms });
   } catch (error: any) {
     console.warn("Passive glossary extraction backend failed, using local extraction fallback:", error);
     const fallbacks = extractFallbackTermsFromText(text).map((t) => ({
@@ -1018,7 +989,7 @@ ${text.substring(0, 3500)}`;
       transliteration: t.transliteration,
       definition: t.definition,
     }));
-    res.json({ terms: fallbacks });
+    return res.json({ terms: fallbacks });
   }
 });
 
