@@ -553,9 +553,15 @@ app.post("/api/synthesize", async (req, res) => {
 
   let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
   sources.forEach((src: any, idx: number) => {
+    const title = src.title || `الوثيقة ${idx + 1}`;
+    const rawContent = src.content || src.summary || src.extractedText || "";
+    const safeContent = rawContent.length > 25000 
+      ? rawContent.substring(0, 25000) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
+      : rawContent;
+
     sourcesContext += `\n---\n`;
-    sourcesContext += `اسم الوثيقة: الوثيقة ${idx + 1}: ${src.title}\n`;
-    sourcesContext += `المحتوى:\n${src.content}\n`;
+    sourcesContext += `اسم الوثيقة: الوثيقة ${idx + 1}: ${title}\n`;
+    sourcesContext += `المحتوى:\n${safeContent}\n`;
   });
 
   try {
@@ -871,8 +877,7 @@ ${sourcesContext}`;
       reportText += `يظهر التوليف الشامل للمصادر أن معالجة موضوع "${topic}" تتطلب منظوراً متعدد الأبعاد يدمج بين الجوانب النظرية والتطبيقات العملية الميدانية. يُنصح الباحثون بالبناء على هذه المقارنات لتصميم دراسات مستقبلية تسد الفجوات المعرفية المحددة في هذه الأوراق.\n`;
     }
 
-    res.status(statusCode).json({ 
-      error: errorMessage, 
+    res.json({ 
       text: reportText, 
       isFallback: true 
     });

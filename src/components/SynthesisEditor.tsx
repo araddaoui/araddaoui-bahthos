@@ -77,32 +77,28 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errText = errorData.error || "فشلت عملية توليد التوليف.";
+      const data = await response.json().catch(() => ({}));
 
-        if (errorData.isFallback && errorData.text) {
-          setGeneratedText(errorData.text);
-          setIsFallbackMode(true);
-          
-          let autoTitle = `مسودة تقريبية أوفلاين: ${topic}`;
-          setReportTitle(autoTitle);
+      if (data.text) {
+        setGeneratedText(data.text);
+        setIsFallbackMode(Boolean(data.isFallback));
+        
+        let autoTitle = `توليف بحثي: ${topic || "عام"}`;
+        if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic || "شاملة"}`;
+        else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic || "شامل"}`;
+        else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic || "موجز"}`;
+        else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic || "دليل"}`;
+        
+        if (data.isFallback) {
+          autoTitle = `توليف الأدلة: ${topic || "مستندات"}`;
         }
         
-        throw new Error(errText);
+        setReportTitle(autoTitle);
+      } else if (!response.ok) {
+        throw new Error(data.error || "فشلت عملية توليد التوليف.");
+      } else {
+        throw new Error("لم يتنقل أي نص من خادم التوليف.");
       }
-
-      const data = await response.json();
-      setGeneratedText(data.text);
-      setIsFallbackMode(false);
-      
-      let autoTitle = `توليف بحثي: ${topic}`;
-      if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic}`;
-      else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic}`;
-      else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic}`;
-      else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic}`;
-      
-      setReportTitle(autoTitle);
     } catch (error: any) {
       console.error(error);
       setErrorMsg(error.message || "حدث خطأ أثناء التوليف بالذكاء الاصطناعي. يرجى المحاولة لاحقاً.");
