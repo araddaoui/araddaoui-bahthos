@@ -53,12 +53,10 @@ async function generateContentWithRetry(
 
   while (true) {
     try {
-      return await ai.models.generateContent({
-        model: currentModel,
-        contents: params.contents,
-        config: params.config,
-        systemInstruction: params.systemInstruction,   // <-- ADD THIS EXPLICITLY
-      });
+return await ai.models.generateContent({
+  ...params,
+  model: currentModel,
+});
     } catch (error: any) {
       const status = error.status;
       const errorStr = (error.message || "").toLowerCase();
@@ -247,14 +245,15 @@ app.post("/api/chat", async (req, res) => {
 
     console.log(`Sending chat request to Gemini with ${messages.length} messages and ${sources?.length || 0} sources.`);
 
-    const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
-      contents: contents,
-      config: {
-        systemInstruction: mergedSystemInstruction,
-        temperature: 0.2, // Low temperature for factual consistency with documents
-      },
-    });
+const response = await generateContentWithRetry(ai, {
+  model: "gemini-1.5-pro",
+  contents: text,
+  config: {
+    temperature: 0.0,
+    maxOutputTokens: 1024,
+    systemInstruction: systemPrompt,   // ✅ HERE – inside config
+  },
+});
 
     const replyText = response.text || "المصادر المتاحة لا توفر إجابة كافية.";
     res.json({ text: replyText });
@@ -851,7 +850,7 @@ ${sourcesContext}`;
 
 // Endpoint to passively extract academic/technical terms from a text snippet
 app.post("/api/extract-glossary", async (req, res) => {
-  const { text, systemPrompt } = req.body;   // <-- ADD systemPrompt
+  const { text, systemPrompt } = req.body;
 
   console.log("📝 System Prompt length:", systemPrompt?.length || 0);
   console.log("📝 Document text length:", text?.length || 0);
@@ -867,6 +866,57 @@ app.post("/api/extract-glossary", async (req, res) => {
     return res.status(400).json({ terms: [], error: "System prompt is required" });
   }
 
+  try {
+    const ai = getAiClient();
+    console.log("🤖 Calling Google AI with system prompt...");
+
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-1.5-pro",
+      contents: text,
+      config: {
+        temperature: 0.0,
+        maxOutputTokens: 1024,
+        systemInstruction: systemPrompt,   // ✅ inside config
+      },
+    });
+
+    const responseText = response?.text || "";
+    console.log("📝 AI Response (first 500 chars):", responseText.substring(0, 500));
+
+    let terms: any[] = [];
+    try {
+      let cleanJson = responseText
+        .replace(/```json\s*/g, "")
+        .replace(/```\s*/g, "")
+        .trim();
+
+      const start = cleanJson.indexOf("[");
+      const end = cleanJson.lastIndexOf("]") + 1;
+      if (start !== -1 && end > start) {
+        const jsonStr = cleanJson.substring(start, end);
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed)) {
+          terms = parsed;
+          console.log(`✅ Successfully parsed ${terms.length} terms from AI`);
+        }
+      } else {
+        console.warn("⚠️ No JSON array found in response:", responseText);
+      }
+    } catch (parseError) {
+      console.error("❌ Failed to parse AI response as JSON:", parseError);
+      console.error("Raw response:", responseText);
+      terms = [];
+    }
+
+    return res.json({ terms });
+  } catch (error: any) {
+    console.error("❌ Error extracting glossary:", error);
+    return res.status(500).json({
+      terms: [],
+      error: error.message || "AI extraction failed",
+    });
+  }
+});
   try {
     const ai = getAiClient();
     const prompt = `أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام "بحث OS".
