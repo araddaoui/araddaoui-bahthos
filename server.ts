@@ -2,37 +2,41 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+import pdfParse from "pdf-parse";  // <-- Fixed: use default import (not named)
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./src/utils/termExtractor";
 
-// Load environment variables
+// Load environment variables BEFORE anything else
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;  // <-- Use env PORT or fallback
 
+// Middleware
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Initialize GoogleGenAI client lazy-loaded or at startup
+// AI Client factory (lazy-loaded)
 const getAiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.warn("WARNING: GEMINI_API_KEY environment variable is not set. API calls will fail.");
+    console.warn("⚠️ GEMINI_API_KEY environment variable is not set. AI calls will fail.");
+    // Optionally throw an error or return a mock client for development
   }
   return new GoogleGenAI({
-    apiKey: apiKey || "MOCK_KEY",
+    apiKey: apiKey || "MOCK_KEY",  // Fallback only for development
     httpOptions: {
       headers: {
-        "User-Agent": "aistudio-build",
+        "User-Agent": "bahthos-app",
       },
     },
   });
 };
 
+// Export app for Vercel serverless functions (index.ts uses this)
+export default app;
 // Helper function to call generateContent with automatic retry and model fallback for 503, timeouts, and 429 rate limit/quota errors
 async function generateContentWithRetry(
   ai: any,
