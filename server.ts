@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse";  // ✅ FIXED: default import, not named
+import { PDFParse } from "pdf-parse";
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./src/utils/termExtractor";
 
 // Load environment variables BEFORE anything else
@@ -364,7 +364,7 @@ app.post("/api/analyze-document", async (req, res) => {
       }
 
       // PDF parsing with a race against a timeout (8 seconds)
-      const parser = new pdfParse({ data: buffer });
+      const parser = new PDFParse({ data: buffer });
       const textResult = await Promise.race([
         parser.getText(),
         new Promise((_, reject) =>
