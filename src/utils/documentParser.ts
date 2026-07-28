@@ -1,8 +1,10 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 
-// Set up worker for pdfjs in Vite / browser
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+// Set up worker for pdfjs in browser using jsdelivr CDN with unpkg fallback
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+}
 
 export interface ParsedDocumentResult {
   text: string;
@@ -20,42 +22,52 @@ export async function parseDocumentFile(file: File): Promise<ParsedDocumentResul
                  file.type.includes("office");
 
   if (isPdf) {
+    let extractedText = "";
+    
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-      const pdf = await loadingTask.promise;
-      let fullText = "";
+      const loadingTask = pdfjsLib.getDocument({ 
+        data: arrayBuffer,
+        cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
+        cMapPacked: true,
+        standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
+      });
+      
+      const pdf = await Promise.race([
+        loadingTask.promise,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("pdfjs load timeout")), 8000))
+      ]);
 
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .map((item: any) => item.str || "")
-          .join(" ");
-        if (pageText.trim()) {
-          fullText += pageText + "\n\n";
+      let fullText = "";
+      const totalPages = Math.min(pdf.numPages, 100); // Process up to 100 pages
+
+      for (let i = 1; i <= totalPages; i++) {
+        try {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items
+            .map((item: any) => item.str || "")
+            .join(" ");
+          if (pageText.trim()) {
+            fullText += pageText + "\n\n";
+          }
+        } catch (pageErr) {
+          console.warn(`Error reading page ${i} of PDF:`, pageErr);
         }
       }
 
-      const extractedText = fullText.trim();
-      
-      // If client-side pdfjs extracted meaningful text, return it directly
-      if (extractedText.length > 20) {
-        return {
-          text: extractedText,
-          mimeType: "application/pdf",
-          fileName
-        };
-      }
+      extractedText = fullText.trim();
+      console.log(`✅ Client PDF extracted: ${extractedText.length} characters from ${fileName}`);
     } catch (err) {
-      console.warn("Client-side pdfjs text extraction failed, falling back to base64:", err);
+      console.warn("Client-side pdfjs text extraction failed or timed out:", err);
     }
 
-    // Fallback if pdfjs failed or PDF is scanned image: read base64
     const base64 = await fileToBase64(file);
+
+    // If client extracted text, return it along with lightweight base64 fallback
     return {
-      text: "",
-      base64,
+      text: extractedText,
+      base64: base64.length < 4_000_000 ? base64 : undefined, // omit huge base64 if > 4MB to prevent network 413
       mimeType: "application/pdf",
       fileName
     };
