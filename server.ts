@@ -6,6 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./src/utils/termExtractor";
 
 // Load environment variables
 dotenv.config();
@@ -371,7 +372,14 @@ app.post("/api/analyze-document", async (req, res) => {
 1. العنوان الأكاديمي الرصين للمستند (title): اختر عنواناً أكاديمياً رصيناً ومعبراً بدقة عن جوهر المستند المرفق.
 2. لغة المستند (language): حدد لغة المستند كـ "ar" للعربية، أو "en" للإنجليزية، أو "fr" للفرنسية.
 3. ملخص أكاديمي بليغ (summary): صغ ملخصاً أكاديمياً بليغاً ومكثفاً يلخص الأهداف والنتائج والمنهجية في فقرة واحدة أو فقرتين.
-4. مصطلحات أكاديمية أو تقنية (terms): استخرج حتى 5 من أبرز المصطلحات التقنية أو الأكاديمية أو العلمية الهامة الواردة في النص وطبق عليها عملية التحقق ثنائية الحقول (Two-Field Verification Process) والاختبار المستقل عن التخصص لضمان دقة التعريب وتصحيح أي تعريب صوتي.`;
+4. مصطلحات ومفاهيم أكاديمية جوهرية (terms): استخرج من 2 إلى 3 مفاهيم ونظريات ومصطلحات تحليلية وأكاديمية متفق عليها ذات وزن علمي حقيقي ومباشر في موضوع الدراسة (مثل: السيادة الويستفالية، العلاقات الدولية، البنائية، توازن القوى، القوة الناعمة).
+تنبيه حازم وصارم جداً بالنسبة للمصطلحات (terms):
+- يُمنع منعاً باتاً استخراج أي مما يلي كمصطلحات:
+  1) أسماء الأعلام أو المفكرين أو العلماء (مثل: Joseph Nye, David Roberts) ما لم تكن جزءاً من نظرية علمية مقرة.
+  2) أسماء الدول والمدن والأقاليم الجغرافية أو القواعد العسكرية المردة (مثل: Middle East, Qatar, Doha, As Sayliyah).
+  3) أجزاء الجمل المقتطعة أو الكلمات الربطية (مثل: Yet Qatar, Roberts To, However).
+  4) أسماء المجلات أو دور النشر أو الجامعات والمؤسسات أو التوثيقات المرجعية (مثل: Comillas Journal, College London, Oxford Press, ISSN, DOI, Vol, Issue, pp.).
+  5) العبارات الإدارية والعامة (مثل: أسلوب العمل, طريقة العمل, Executive summary, Full terms).`;
 
     let contentsParam: any;
     if (parsedContent && parsedContent.trim()) {
@@ -447,13 +455,32 @@ app.post("/api/analyze-document", async (req, res) => {
     result.title = data.title || fileName || "مستند بدون عنوان";
     result.language = data.language || "ar";
     result.summary = data.summary || result.summary;
-    result.terms = data.terms || [];
+    
+    if (data.terms && Array.isArray(data.terms)) {
+      result.terms = data.terms
+        .filter((t: any) => 
+          !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition)
+        )
+        .slice(0, 3);
+    }
   } catch (error) {
     console.warn("AI analysis failed, falling back to simple extraction:", error);
     result.title = fileName || "مستند مقتبس";
     if (parsedContent) {
       result.summary = parsedContent.substring(0, 300) + "...";
     }
+  }
+
+  // Ensure terms and concepts are ALWAYS generated and returned for every document
+  if (!result.terms || !Array.isArray(result.terms) || result.terms.length === 0) {
+    const textToExtract = parsedContent || result.summary || result.title || "";
+    const fallbackTerms = extractFallbackTermsFromText(textToExtract);
+    result.terms = fallbackTerms.slice(0, 3).map((t) => ({
+      term: t.term,
+      draft_term: t.draft_term,
+      definition: t.definition,
+      verified_term: t.verified_term
+    }));
   }
 
   const finalOriginalText = parsedContent && parsedContent.trim() 
@@ -821,8 +848,15 @@ app.post("/api/extract-glossary", async (req, res) => {
 
   try {
     const ai = getAiClient();
-    const prompt = `أنت خبير في استخراج المصطلحات والمفاهيم الأكاديمية والتقنية في نظام "بحث OS" المخصص لمساعدة الباحثين.
-قم بتحليل النص التالي واستخرج أي مصطلحات تقنية أو أكاديمية أو علمية ذات أهمية بحثية.
+    const prompt = `أنت خبير في استخراج المفاهيم والنظريات والمصطلحات الأكاديمية العلمية في نظام "بحث OS" المخصص لمساعدة الباحثين.
+قم بتحليل النص واستخرج من 2 إلى 4 مصطلحات أو مفاهيم أكاديمية جوهرية ونظرية فقط ذات وزن علمي حقيقي في الموضوع.
+
+تنبيه حازم وصارم جداً:
+- يُمنع منعاً باتاً استخراج أي من التالي كمصطلحات:
+  1) أسماء القواعد العسكرية، أو المدن، أو الأماكن (مثل: As Sayliyah, Doha, Qatar).
+  2) أسماء الأشخاص، الحكام، أو المؤلفين المجرّدة (مثل: Emir Tamim, Brotherhood David).
+  3) عناوين الهياكل والتذييلات (مثل: Executive summary, Full Terms, Abstract, Table of contents).
+  4) المجلات، المؤسسات، أو التوثيقات المرجعية (مثل: Comillas Journal, Oxford Press, ISSN, DOI, Vol).
 
 لكل مصطلح مستخرج، يجب عليك تعبئة وإنتاج الحقول التالية بالترتيب الدقيق التالي لتطبيق عملية التحقق ثنائية الحقول (Two-Field Verification Process):
 1. term: المصطلح الأصلي بالإنجليزية (مثل Standard Deviation أو Hybrid Learning).
@@ -895,17 +929,38 @@ ${text.substring(0, 3500)}`;
     const replyText = response.text || "";
     const jsonText = replyText.trim();
     const data = JSON.parse(jsonText);
-    const normalizedTerms = (data.terms || []).map((t: any) => ({
+    let normalizedTerms = (data.terms || [])
+      .filter((t: any) => !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition))
+      .slice(0, 3)
+      .map((t: any) => ({
+        term: t.term,
+        draft_term: t.draft_term,
+        verified_term: t.verified_term,
+        transliteration: t.verified_term || t.draft_term,
+        definition: t.definition,
+      }));
+
+    if (!normalizedTerms || normalizedTerms.length === 0) {
+      normalizedTerms = extractFallbackTermsFromText(text).slice(0, 3).map((t) => ({
+        term: t.term,
+        draft_term: t.draft_term,
+        verified_term: t.verified_term,
+        transliteration: t.transliteration,
+        definition: t.definition,
+      }));
+    }
+
+    res.json({ terms: normalizedTerms });
+  } catch (error: any) {
+    console.warn("Passive glossary extraction backend failed, using local extraction fallback:", error);
+    const fallbacks = extractFallbackTermsFromText(text).map((t) => ({
       term: t.term,
       draft_term: t.draft_term,
       verified_term: t.verified_term,
-      transliteration: t.verified_term || t.draft_term,
+      transliteration: t.transliteration,
       definition: t.definition,
     }));
-    res.json({ terms: normalizedTerms });
-  } catch (error: any) {
-    console.warn("Passive glossary extraction backend failed:", error);
-    res.json({ terms: [] });
+    res.json({ terms: fallbacks });
   }
 });
 

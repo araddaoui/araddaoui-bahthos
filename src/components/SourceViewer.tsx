@@ -10,10 +10,12 @@ import {
   MessageSquare,
   Sparkles
 } from "lucide-react";
-import { Source } from "../types";
+import { Source, GlossaryTerm } from "../types";
+import { BookOpen } from "lucide-react";
 
 interface SourceViewerProps {
   source: Source;
+  glossaryTerms?: GlossaryTerm[];
   onToggleSource: (id: string) => void;
   onClose: () => void;
   onBackToChat: () => void;
@@ -22,11 +24,17 @@ interface SourceViewerProps {
 
 export default function SourceViewer({
   source,
+  glossaryTerms = [],
   onToggleSource,
   onClose,
   onBackToChat,
   onChatWithSingleSource,
 }: SourceViewerProps) {
+  const sourceTerms = glossaryTerms.filter((gt) => 
+    gt.sourceId === source.id || 
+    (gt.term && source.content.toLowerCase().includes(gt.term.toLowerCase())) ||
+    (gt.transliteration && source.content.includes(gt.transliteration))
+  );
   return (
     <div className="w-full h-full flex flex-col bg-[#fafaf8]" id="source-viewer-container">
       {/* Header Controls */}
@@ -140,6 +148,42 @@ export default function SourceViewer({
               <p className="text-xs text-gray-700 leading-relaxed font-medium whitespace-pre-wrap">
                 {source.summary}
               </p>
+            </div>
+          )}
+
+          {/* Extracted Concepts and Terms Section */}
+          {sourceTerms.length > 0 && (
+            <div className="mb-8 p-5 bg-teal-50/50 border border-teal-200 rounded-xl space-y-3" id="source-extracted-terms">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#094d4e]">
+                  <BookOpen className="w-4 h-4 text-[#094d4e]" />
+                  <span>المفاهيم والمصطلحات الأكاديمية المستخرجة من الوثيقة ({sourceTerms.length})</span>
+                </div>
+                <span className="text-[10px] bg-teal-100 text-[#094d4e] px-2 py-0.5 rounded font-bold">
+                  مستخرجة ومدققة تلقائياً
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                {sourceTerms.map((t, idx) => (
+                  <div key={idx} className="bg-white p-3 rounded-lg border border-teal-100 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-[#1f1f1f]">
+                        {t.transliteration || t.verified_term || t.draft_term || t.term}
+                      </span>
+                      {t.term && t.term !== t.transliteration && (
+                        <span className="text-[10px] text-teal-700 font-sans font-semibold bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">
+                          {t.term}
+                        </span>
+                      )}
+                    </div>
+                    {t.definition && (
+                      <p className="text-[11px] text-gray-600 leading-relaxed">
+                        {t.definition}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

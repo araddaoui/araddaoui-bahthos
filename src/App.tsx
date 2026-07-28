@@ -11,6 +11,7 @@ import SettingsView from "./components/SettingsView";
 import LandingPage from "./components/LandingPage";
 import TermsOfService from "./components/TermsOfService";
 import PrivacyPolicy from "./components/PrivacyPolicy";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./utils/termExtractor";
 import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { 
   auth, 
@@ -31,158 +32,36 @@ const initialSyntheses: Synthesis[] = [];
 
 // Helper to clean phonetic transliterations of academic/technical terms to real Arabic equivalents
 export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
-  const dictionary: Record<string, string> = {
-    "blended learning": "التعلم المدمج",
-    "academic self-regulation": "التنظيم الذاتي الأكاديمي",
-    "quality assurance": "ضمان الجودة",
-    "e-learning": "التعلم الإلكتروني",
-    "elearning": "التعلم الإلكتروني",
-    "ict": "تقنية المعلومات والاتصالات",
-    "digital education": "التعليم الرقمي",
-    "online learning": "التعلم عبر الإنترنت",
-    "distance learning": "التعلم عن بعد",
-    "hybrid learning": "التعلم الهجين",
-    "mobile learning": "التعلم المتنقل",
-    "flipped classroom": "الفصل الدراسي المقلوب",
-    "virtual reality": "الواقع الافتراضي",
-    "augmented reality": "الواقع المعزز",
-    "artificial intelligence": "الذكاء الاصطناعي",
-    "machine learning": "تعلم الآلة",
-    "deep learning": "التعلم العميق",
-    "data science": "علم البيانات",
-    "big data": "البيانات الضخمة",
-    "cloud computing": "الحوسبة السحابية",
-    "software engineering": "هندسة البرمجيات",
-    "information technology": "تقنية المعلومات",
-    "computer science": "علوم الحاسب",
-    "cybersecurity": "الأمن السيبراني",
-    "internet of things": "إنترنت الأشياء",
-    "blockchain": "سلسلة الكتل",
-    "data mining": "تنقيب البيانات",
-    "virtual classroom": "الفصل الدراسي الافتراضي",
-    "microlearning": "التعلم المصغر",
-    "gamification": "التلعيب",
-    "learning management system": "نظام إدارة التعلم",
-    "lms": "نظام إدارة التعلم",
-    "synchronous learning": "التعلم المتزامن",
-    "asynchronous learning": "التعلم غير المتزامن",
-    "pedagogy": "علم التربية",
-    "standard deviation": "الانحراف المعياري",
-    "arithmetic mean": "المتوسط الحسابي",
-    "self-learning": "التعلم الذاتي",
-    "self learning": "التعلم الذاتي",
-    "web-based learning": "التعلم القائم على الويب",
-    "web based learning": "التعلم القائم على الويب",
-    "virtual learning environment": "بيئة التعلم الافتراضية",
-    "virtual learning environment (vle)": "بيئة التعلم الافتراضية",
-    "vle": "بيئة التعلم الافتراضية",
-    "managed learning environment": "بيئة التعلم المُدارة",
-    "managed learning environment (mle)": "بيئة التعلم المُدارة",
-    "mle": "بيئة التعلم المُدارة"
-  };
+  if (!terms || !Array.isArray(terms)) return [];
 
-  const arabicTransliterationDictionary: Record<string, string> = {
-    "إي ليرنينغ": "التعلم الإلكتروني",
-    "إي ليرنينج": "التعلم الإلكتروني",
-    "الإي ليرنينغ": "التعلم الإلكتروني",
-    "الإي ليرنينج": "التعلم الإلكتروني",
-    "البلندد ليرنينغ": "التعلم المدمج",
-    "البلندد ليرنينج": "التعلم المدمج",
-    "الأونلاين ليرنينغ": "التعلم عبر الإنترنت",
-    "الأونلاين ليرنينج": "التعلم عبر الإنترنت",
-    "أونلاين ليرنينغ": "التعلم عبر الإنترنت",
-    "أونلاين ليرنينج": "التعلم عبر الإنترنت",
-    "الديجيتال إديوكيشن": "التعليم الرقمي",
-    "ديجيتال إديوكيشن": "التعليم الرقمي",
-    "التعليم الديجيتال": "التعليم الرقمي",
-    "آي سي تي": "تقنية المعلومات والاتصالات",
-    "الآي سي تي": "تقنية المعلومات والاتصالات",
-    "الهايبريد ليرنينغ": "التعلم الهجين",
-    "الهايبريد ليرنينج": "التعلم الهجين",
-    "الدستانس ليرنينغ": "التعلم عن بعد",
-    "الدستانس ليرنينج": "التعلم عن بعد",
-    "موبايل ليرنينغ": "التعلم المتنقل",
-    "الموبايل ليرنينغ": "التعلم المتنقل",
-    "فليبد كلاس روم": "الفصل الدراسي المقلوب",
-    "الفليبد كلاس روم": "الفصل الدراسي المقلوب",
-    "الفيشوال رياليتي": "الواقع الافتراضي",
-    "الأوجمنتد رياليتي": "الواقع المعزز",
-    "الآرتيفيشال إنتليجنس": "الذكاء الاصطناعي",
-    "المشين ليرنينغ": "تعلم الآلة",
-    "المشين ليرنينج": "تعلم الآلة",
-    "الديب ليرنينغ": "التعلم العميق",
-    "الديب ليرنينج": "التعلم العميق",
-    "الديتا ساينس": "علم البيانات",
-    "البيغ ديتا": "البيانات الضخمة",
-    "السايبر سيكيوريتي": "الأمن السيبراني",
-    "الإنترنت أوف ثينغز": "إنترنت الأشياء",
-    "الإنترنت أوف ثينجز": "إنترنت الأشياء",
-    "ال سنكرونوس": "التعلم المتزامن",
-    "ال سنكرونوس ليرنينغ": "التعلم المتزامن",
-    "الأسينكرونوس ليرنينغ": "التعلم غير المتزامن",
-    "ال بيداغوجيا": "علم التربية",
-    "الأريثميتيك مين": "المتوسط الحسابي",
-    "الأريثميتك مين": "المتوسط الحسابي",
-    "ستاندارد ديفييشن": "الانحراف المعياري",
-    "ستاندرد ديفييشن": "الانحراف المعياري",
-    "الستاندرد ديفييشن": "الانحراف المعياري",
-    "سيلف ليرنينغ": "التعلم الذاتي",
-    "سيلف ليرنينج": "التعلم الذاتي",
-    "السيلف ليرنينغ": "التعلم الذاتي",
-    "السيلف ليرنينج": "التعلم الذاتي",
-    "ويب بيست ليرنينغ": "التعلم القائم على الويب",
-    "الويب بيست ليرنينغ": "التعلم القائم على الويب",
-    "ويب بيزد ليرنينغ": "التعلم القائم على الويب",
-    "الويب بيزد ليرنينغ": "التعلم القائم على الويب",
-    "ويب بيزد ليرنينج": "التعلم القائم على الويب",
-    "الويب بيزد ليرنينج": "التعلم القائم على الويب",
-    "فيرتشوال ليرنينغ إنفايرومنت": "بيئة التعلم الافتراضية",
-    "الفيرتشوال ليرنينغ إنفايرومنت": "بيئة التعلم الافتراضية",
-    "فيرتشوال ليرنينج إنفايرومنت": "بيئة التعلم الافتراضية",
-    "الفيرتشوال ليرنينج إنفايرومنت": "بيئة التعلم الافتراضية",
-    "بيئة التعلم الفيرتشوال": "بيئة التعلم الافتراضية",
-    "مانيجد ليرنينغ إنفايرومنت": "بيئة التعلم المُدارة",
-    "المانيجد ليرنينغ إنفايرومنت": "بيئة التعلم المُدارة",
-    "مانيجد ليرنينج إنفايرومنت": "بيئة التعلم المُدارة",
-    "المانيجد ليرنينج إنفايرومنت": "بيئة التعلم المُدارة",
-    "بيئة التعلم المانيجد": "بيئة التعلم المُدارة"
-  };
+  const validTerms = terms.filter((t) => {
+    if (!t) return false;
+    const eng = t.term || "";
+    const arabic = t.transliteration || t.verified_term || t.draft_term || "";
+    if (isTrivialOrCitationTerm(eng, t.definition)) return false;
+    if (isTrivialOrCitationTerm(arabic, t.definition)) return false;
+    return true;
+  });
 
-  return terms.map((t) => {
-    const englishKey = t.term.trim().toLowerCase();
+  // Cap terms to max 3 items per source
+  const sourceCounts: Record<string, number> = {};
+  const cappedTerms: GlossaryTerm[] = [];
+  for (const t of validTerms) {
+    const sId = t.sourceId || "default";
+    sourceCounts[sId] = (sourceCounts[sId] || 0) + 1;
+    if (sourceCounts[sId] <= 3) {
+      cappedTerms.push(t);
+    }
+  }
+
+  return cappedTerms.map((t) => {
     const currentTransliteration = t.transliteration || t.verified_term || t.draft_term || "";
-
-    if (dictionary[englishKey]) {
-      return {
-        ...t,
-        transliteration: dictionary[englishKey],
-        draft_term: t.draft_term || dictionary[englishKey],
-        verified_term: t.verified_term || dictionary[englishKey],
-      };
-    }
-
-    const translitVal = currentTransliteration.trim();
-    if (arabicTransliterationDictionary[translitVal]) {
-      return {
-        ...t,
-        transliteration: arabicTransliterationDictionary[translitVal],
-        draft_term: t.draft_term || arabicTransliterationDictionary[translitVal],
-        verified_term: t.verified_term || arabicTransliterationDictionary[translitVal],
-      };
-    }
-
-    let updatedTransliteration = currentTransliteration;
-    Object.entries(arabicTransliterationDictionary).forEach(([bad, good]) => {
-      if (currentTransliteration.includes(bad)) {
-        updatedTransliteration = updatedTransliteration.replace(new RegExp(bad, "g"), good);
-      }
-    });
-
     return {
       ...t,
-      transliteration: updatedTransliteration || t.term,
-      draft_term: t.draft_term || updatedTransliteration || t.term,
-      verified_term: t.verified_term || updatedTransliteration || t.term,
+      term: t.term || currentTransliteration,
+      transliteration: currentTransliteration || t.term,
+      draft_term: t.draft_term || currentTransliteration || t.term,
+      verified_term: t.verified_term || currentTransliteration || t.term,
     };
   });
 }
@@ -281,11 +160,12 @@ export default function App() {
         // If cloud sources is empty but local storage has uploaded sources, preserve local sources
         const effectiveSources = (cloudSources && cloudSources.length > 0) ? cloudSources : localSourcesParsed;
 
-        // If effectiveSources is empty, glossary and syntheses MUST be empty
-        const effectiveGlossary = effectiveSources.length > 0
-          ? (cloudSources.length > 0 ? cloudGlossary : (localStorage.getItem(`bahthos_glossary_${activeId}`) ? cleanAndMigrateGlossary(JSON.parse(localStorage.getItem(`bahthos_glossary_${activeId}`)!)) : []))
-          : [];
-        const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
+// If effectiveSources is empty, glossary and syntheses MUST be empty
+const rawGlossary = cloudSources.length > 0 
+  ? cloudGlossary 
+  : (localStorage.getItem(`bahthos_glossary_${activeId}`) ? JSON.parse(localStorage.getItem(`bahthos_glossary_${activeId}`)!) : []);
+const effectiveGlossary = effectiveSources.length > 0 ? rawGlossary : [];
+const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
 
         if (cloudSources.length === 0 && localSourcesParsed.length > 0) {
           saveProjectData(currentUser.uid, activeId, {
@@ -493,7 +373,7 @@ export default function App() {
       const saved = localStorage.getItem(`bahthos_glossary_${activeId}`) || localStorage.getItem(`tawlif_glossary_${activeId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return cleanAndMigrateGlossary(parsed);
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (e) {
       console.error(e);
@@ -505,8 +385,6 @@ export default function App() {
   const [sweepCorrectionCount, setSweepCorrectionCount] = useState<number | null>(null);
 
   const [stateLoadedFromServer, setStateLoadedFromServer] = useState(false);
-
-  // Absolute Rule: When repository (sources) is empty, glossary terms and syntheses MUST be empty!
   useEffect(() => {
     if (sources.length === 0) {
       if (glossaryTerms.length > 0) setGlossaryTerms([]);
@@ -534,7 +412,7 @@ export default function App() {
             if (serverSources.length > 0) {
               setSources(serverSources);
               if (serverGlossary.length > 0) {
-                setGlossaryTerms(cleanAndMigrateGlossary(serverGlossary));
+setGlossaryTerms(serverGlossary);
               }
             } else {
               // Server has no sources. Ensure local state also reflects empty glossary if sources is empty
@@ -993,6 +871,7 @@ export default function App() {
   // Passive background extraction of technical/academic terms
   const extractGlossaryTerms = async (text: string, sourceId?: string) => {
     if (!text || text.trim().length < 10) return;
+    let extractedCount = 0;
     try {
       const response = await fetch("/api/extract-glossary", {
         method: "POST",
@@ -1001,12 +880,21 @@ export default function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.terms && Array.isArray(data.terms)) {
+        if (data.terms && Array.isArray(data.terms) && data.terms.length > 0) {
           addGlossaryTermsDirectly(data.terms, sourceId);
+          extractedCount = data.terms.length;
         }
       }
     } catch (e) {
-      console.warn("Passive glossary extraction failed:", e);
+      console.warn("Passive glossary extraction API failed:", e);
+    }
+
+    // Always run local fallback extractor if server API returned 0 terms
+    if (extractedCount === 0) {
+      const fallbackTerms = extractFallbackTermsFromText(text, sourceId);
+      if (fallbackTerms.length > 0) {
+        addGlossaryTermsDirectly(fallbackTerms, sourceId);
+      }
     }
   };
 
@@ -1014,17 +902,19 @@ export default function App() {
   const addGlossaryTermsDirectly = (terms: any[], sourceId?: string) => {
     if (!terms || !Array.isArray(terms) || terms.length === 0) return;
     setGlossaryTerms((prev) => {
-      const normalizedNewTerms = cleanAndMigrateGlossary(
-        terms.filter((t: any) => t.term && (t.transliteration || t.verified_term || t.draft_term) && t.definition)
-          .map((t: any) => ({
-            term: t.term,
-            transliteration: t.transliteration || t.verified_term || t.draft_term,
-            definition: t.definition,
-            draft_term: t.draft_term || t.transliteration || t.term,
-            verified_term: t.verified_term || t.transliteration || t.draft_term || t.term,
-            sourceId: sourceId
-          }))
-      );
+      const normalizedNewTerms = terms
+        .filter((t: any) => 
+          t && (t.term || t.transliteration || t.verified_term || t.draft_term) &&
+          !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition)
+        )
+        .map((t: any) => ({
+          term: t.term || t.transliteration || t.verified_term || t.draft_term,
+          transliteration: t.transliteration || t.verified_term || t.draft_term || t.term,
+          definition: t.definition,
+          draft_term: t.draft_term || t.transliteration || t.term,
+          verified_term: t.verified_term || t.transliteration || t.draft_term || t.term,
+          sourceId: sourceId
+        }));
 
       const existingTermsLower = prev.map((t) => t.term.toLowerCase());
       const existingTransLower = prev.map((t) => t.transliteration.toLowerCase());
@@ -1041,6 +931,25 @@ export default function App() {
       return prev;
     });
   };
+
+  // Guarantee that every uploaded source automatically has concepts and terms generated immediately upon upload
+  useEffect(() => {
+    if (!stateLoadedFromServer || sources.length === 0) return;
+
+    sources.forEach((source) => {
+      const sourceHasTerms = glossaryTerms.some(
+        (gt) =>
+          gt.sourceId === source.id ||
+          (gt.term && source.content.toLowerCase().includes(gt.term.toLowerCase())) ||
+          (gt.transliteration && source.content.includes(gt.transliteration))
+      );
+
+      if (!sourceHasTerms && source.content && source.content.trim().length > 10) {
+        console.log(`Auto-extracting concepts and terms for source: ${source.title}`);
+        extractGlossaryTerms(source.content, source.id);
+      }
+    });
+  }, [sources, stateLoadedFromServer, glossaryTerms]);
 
   // Auto-populate glossary for uploaded Westphalian/Eurocentrism sources if not already present
   useEffect(() => {
@@ -1510,6 +1419,7 @@ export default function App() {
             ) : (
               <SourceViewer
                 source={activeSelectedSource}
+                glossaryTerms={glossaryTerms}
                 onToggleSource={handleToggleSource}
                 onClose={() => setActiveMainView("chat")}
                 onBackToChat={() => setActiveMainView("chat")}
@@ -1522,6 +1432,7 @@ export default function App() {
             activeSelectedSource ? (
               <SourceViewer
                 source={activeSelectedSource}
+                glossaryTerms={glossaryTerms}
                 onToggleSource={handleToggleSource}
                 onClose={() => setSelectedSourceId(null)}
                 onBackToChat={() => {
