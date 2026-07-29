@@ -31,15 +31,23 @@ const initialGlossary: GlossaryTerm[] = [];
 const initialSyntheses: Synthesis[] = [];
 
 // Helper to clean phonetic transliterations of academic/technical terms to real Arabic equivalents
-export function cleanAndMigrateGlossary(terms: GlossaryTerm[]): GlossaryTerm[] {
-  if (!terms || !Array.isArray(terms)) return [];
+export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[]): GlossaryTerm[] {
+  if (!terms || !Array.isArray(terms) || terms.length === 0) return [];
+  if (sources && (!Array.isArray(sources) || sources.length === 0)) return [];
+
+  const validSourceIds = sources && sources.length > 0 ? new Set(sources.map((s) => s.id)) : null;
 
   const validTerms = terms.filter((t) => {
     if (!t) return false;
+    // Must belong to a valid active source in the current project
+    if (validSourceIds && (!t.sourceId || !validSourceIds.has(t.sourceId))) {
+      return false;
+    }
     const eng = t.term || "";
     const arabic = t.transliteration || t.verified_term || t.draft_term || "";
     if (isTrivialOrCitationTerm(eng, t.definition)) return false;
     if (isTrivialOrCitationTerm(arabic, t.definition)) return false;
+    if (/^[a-zA-Z\s\-]+$/.test(arabic) && /^[a-zA-Z\s\-]+$/.test(eng)) return false;
     return true;
   });
 
@@ -373,7 +381,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       const saved = localStorage.getItem(`bahthos_glossary_${activeId}`) || localStorage.getItem(`tawlif_glossary_${activeId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return cleanAndMigrateGlossary(parsed, parsedSources);
       }
     } catch (e) {
       console.error(e);
@@ -391,9 +399,8 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       if (syntheses.length > 0) setSyntheses([]);
     } else {
       setGlossaryTerms((prev) => {
-        const validSourceIds = new Set(sources.map((s) => s.id));
-        const filtered = prev.filter((t) => !t.sourceId || validSourceIds.has(t.sourceId));
-        return filtered.length !== prev.length ? filtered : prev;
+        const cleaned = cleanAndMigrateGlossary(prev, sources);
+        return cleaned.length !== prev.length ? cleaned : prev;
       });
     }
   }, [sources]);
@@ -411,9 +418,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
 
             if (serverSources.length > 0) {
               setSources(serverSources);
-              if (serverGlossary.length > 0) {
-setGlossaryTerms(serverGlossary);
-              }
+              setGlossaryTerms(cleanAndMigrateGlossary(serverGlossary, serverSources));
             } else {
               // Server has no sources. Ensure local state also reflects empty glossary if sources is empty
               setSources((currSources) => {
@@ -520,7 +525,7 @@ setGlossaryTerms(serverGlossary);
         setSources(cloudSources);
         setMessages(cloudMessages);
         setSyntheses(cloudSyntheses);
-        setGlossaryTerms(cloudGlossary);
+        setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary, cloudSources));
         setTemperature(cloudTemp);
         setCurrentProjectId(newProjectId);
 
@@ -568,7 +573,7 @@ setGlossaryTerms(serverGlossary);
       setSources(loadedSources);
       setMessages(loadedMessages);
       setSyntheses(loadedSyntheses);
-      setGlossaryTerms(loadedGlossary);
+      setGlossaryTerms(cleanAndMigrateGlossary(loadedGlossary, loadedSources));
       setTemperature(loadedTemp);
       
       // 5. Update current project ID
@@ -688,7 +693,7 @@ setGlossaryTerms(serverGlossary);
             setSources(cloudSources);
             setMessages(cloudMessages);
             setSyntheses(cloudSyntheses);
-            setGlossaryTerms(cloudGlossary);
+            setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary, cloudSources));
             setTemperature(nextActiveProject.temperature ?? 0.2);
             setCurrentProjectId(nextActiveProject.id);
             setSelectedSourceId(null);
@@ -721,7 +726,7 @@ setGlossaryTerms(serverGlossary);
           setSources(nextSources);
           setMessages(nextMessages);
           setSyntheses(nextSyntheses);
-          setGlossaryTerms(nextGlossary);
+          setGlossaryTerms(cleanAndMigrateGlossary(nextGlossary, nextSources));
           setTemperature(savedTemp ? parseFloat(savedTemp) : 0.2);
           setCurrentProjectId(nextActiveProject.id);
           setSelectedSourceId(null);
@@ -974,21 +979,32 @@ setGlossaryTerms(serverGlossary);
   };
 
   // Add pre-extracted terms directly to the glossary
-  const addGlossaryTermsDirectly = (terms: any[], sourceId?: string) => {
+  const addGlossaryTermsDirectly = (terms: any[], targetSourceId?: string) => {
     if (!terms || !Array.isArray(terms) || terms.length === 0) return;
+    if (!sources || sources.length === 0) return;
+
+    const resolvedSourceId = targetSourceId || sources[0]?.id;
+    if (!resolvedSourceId) return;
+
     setGlossaryTerms((prev) => {
       const normalizedNewTerms = terms
-        .filter((t: any) => 
-          t && (t.term || t.transliteration || t.verified_term || t.draft_term) &&
-          !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition)
-        )
+        .filter((t: any) => {
+          if (!t) return false;
+          const mainTerm = t.term || t.transliteration || t.verified_term || t.draft_term || "";
+          const verified = t.verified_term || t.draft_term || t.transliteration || "";
+          if (!mainTerm) return false;
+          if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
+          if (isTrivialOrCitationTerm(verified, t.definition)) return false;
+          if (/^[a-zA-Z\s\-]+$/.test(verified) && /^[a-zA-Z\s\-]+$/.test(mainTerm)) return false;
+          return true;
+        })
         .map((t: any) => ({
           term: t.term || t.transliteration || t.verified_term || t.draft_term,
           transliteration: t.transliteration || t.verified_term || t.draft_term || t.term,
           definition: t.definition,
           draft_term: t.draft_term || t.transliteration || t.term,
           verified_term: t.verified_term || t.transliteration || t.draft_term || t.term,
-          sourceId: sourceId
+          sourceId: resolvedSourceId
         }));
 
       const existingTermsLower = prev.map((t) => t.term.toLowerCase());
@@ -1001,9 +1017,9 @@ setGlossaryTerms(serverGlossary);
       );
 
       if (filteredNew.length > 0) {
-        return [...prev, ...filteredNew];
+        return cleanAndMigrateGlossary([...prev, ...filteredNew], sources);
       }
-      return prev;
+      return cleanAndMigrateGlossary(prev, sources);
     });
   };
 
@@ -1174,8 +1190,8 @@ setGlossaryTerms(serverGlossary);
       setActiveMainView("chat");
     }
 
-    // Filter out terms derived from this source
-    const nextTerms = glossaryTerms.filter((t) => t.sourceId !== id);
+    // Filter out terms derived from this source and sanitize against nextSources
+    const nextTerms = cleanAndMigrateGlossary(glossaryTerms.filter((t) => t.sourceId !== id), nextSources);
 
     if (nextSources.length === 0) {
       setGlossaryTerms([]);

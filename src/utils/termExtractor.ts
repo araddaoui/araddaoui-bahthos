@@ -33,6 +33,11 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
+  // Reject non-concept verbs, auxiliaries, pronouns, demonstratives, and sentence fragments (e.g. "both have translatability")
+  if (/\b(both|have|has|had|was|were|been|being|is|are|does|do|did|doing|would|could|should|will|can|may|might|shall|which|that|this|these|those|some|many|each|every|such|also|only|very|more|most|than|then|when|where|how|why|what|who|whom|from|into|onto|upon|with|within|without|about|above|below|translatability)\b/i.test(cleanTerm)) {
+    return true;
+  }
+
   // Reject sentence fragments / conjunctions / adverbs starting English phrases (e.g., "Yet Qatar", "Roberts To", "To cite", "However...")
   if (/^(yet|and|or|so|but|however|thus|therefore|also|nonetheless|nevertheless|moreover|furthermore|regarding|concerning|according|since|while|although|to|by|from|with|about|via|in|on|at|as)\b/i.test(cleanTerm)) {
     return true;
@@ -348,7 +353,12 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string): G
     while ((match = parenRegex.exec(text)) !== null && extracted.length < 3) {
       const inside = match[1].trim();
       const def = buildContextDefinition(inside, text);
-      if (inside.length >= 5 && inside.length <= 40 && !isTrivialOrCitationTerm(inside, def)) {
+      if (
+        inside.length >= 5 && 
+        inside.length <= 40 && 
+        /^[A-Z][a-zA-Z\s\-]{3,35}$|^[\u0600-\u06FF\s\-]{4,35}$/.test(inside) &&
+        !isTrivialOrCitationTerm(inside, def)
+      ) {
         const termKey = inside.toLowerCase();
         if (!addedKeys.has(termKey)) {
           addedKeys.add(termKey);

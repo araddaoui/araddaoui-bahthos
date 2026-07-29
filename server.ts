@@ -401,21 +401,22 @@ app.post("/api/analyze-document", async (req, res) => {
   // ----- AI ANALYSIS & TERM EXTRACTION -----
   try {
     const ai = getAiClient();
-    const promptText = `أنت خبير ومحلل مصطلحي رفيع في نظام "بحث OS".
-مهمتك استخراج قائمة نظيفة وموجزة للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعتمدة (Established Phenomenal Labels)، وصياغة ملخص شامل ودقيق للمستند باللغة العربية حصراً.
+    const promptText = `أنت خبير ومحلل مصطلحي رفيع (Chief Terminologist) في نظام "بحث OS".
+مهمتك استخراج قائمة دقيقة ونقية جداً (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين، وصياغة ملخص شامل ودقيق للمستند باللغة العربية حصراً.
 
-طبق القواعد الصارمة التالية:
+طبق القواعد الحاسمة التالية:
 1. الملخص (summary) باللغة العربية الفصحى حصراً وشرطاً قاطعاً:
-   يجب كتابة وصياغة الملخص (summary) باللغة العربية الفصحى حصراً وبأسلوب سلس وواضح، بغض النظر عن لغة المستند الأصلية (حتى لو كان المستند المرفق مكتوباً باللغة الإنجليزية أو الفرنسية أو غيرها، يُحظر تماماً كتابة الملخص بالإنجليزية أو بأي لغة غير العربية).
-2. استبعاد التخصصات والمجالات العامة:
-   يُمنع منعاً باتاً استخراج أسماء العلوم العامة والتخصصات الفضفاضة كمصطلحات (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...). هذه ليست مفاهيم أو بناءات تحليلية.
-3. اقتصار الاستخراج على البناءات النظرية والمفاهيم المركبة:
-   استخرج فقط البناءات النظرية والأطر المنهجية المحددة التي تمتلك تعريفاً جوهرياً متعارفاً عليه في الأدبيات (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Moral Hazard, Machine Learning, Asymmetric Information).
-4. استبعاد التسميات غير المفاهيمية:
-   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات، التوثيقات المرجعية، وعبارات الربط ورؤوس الفقرات.
-5. الجودة الصارمة للتعريف:
-   لكل مصطلح، صغ تعريفاً إجرائياً حقيقياً (من جملة إلى جملتين) يوضح جوهر المفهوم العلمي ومعناه الدقيق.
-   يُحظر تماماً استخدام عبارات قالبية تكرارية أو خالية من المعنى. يجب تقديم تعريف موضوعي رصين كما في المعاجم المتخصصة.`;
+   يجب كتابة الملخص باللغة العربية الفصحى حصراً وبأسلوب سلس وواضح، بغض النظر عن لغة المستند الأصلية (حتى لو كان المستند مكتوباً بالإنجليزية أو الفرنسية).
+2. الاقتصار على المفاهيم النظرية والأطر المنهجية المعتمدة:
+   استخرج فقط المفاهيم البنيوية المركبة والأطر المعتمدة في الأدبيات العلمية (مثل: Soft Power, Westphalian Sovereignty, Machine Learning, Path Dependence, Constructivism, Quality Assurance, Realism).
+3. الحظر التام لاستخراج الجمل والعبارات اللغوية الشائعة (Linguistic Fragments):
+   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة (مثل: "both have translatability", "results show", "in this study", "data collected", "future research"). أي أجزاء جمل تحتوي أفعالاً أو أدوات ربط تُستبعد فوراً.
+4. استبعاد التخصصات والمجالات العامة:
+   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة كمصطلحات (مثل: Computer Science, Economics, History, Marketing...).
+5. الترجمة والتعريب الدقيق (verified_term):
+   يجب تقديم مصطلح عربي فصيح ومعتمد ومكافئ للمصطلح الأصلي في حقل verified_term (يُحظر ترك verified_term باللغة الإنجليزية).
+6. الجودة الصارمة للتعريف:
+   لكل مصطلح، صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم العلمي ومعناه الدقيق بأسلوب رصين دون عبارات قالبية.`;
 
     let contentsParam: any;
     if (parsedContent && parsedContent.trim()) {
@@ -521,9 +522,14 @@ app.post("/api/analyze-document", async (req, res) => {
     
     if (data.terms && Array.isArray(data.terms)) {
       result.terms = data.terms
-        .filter((t: any) => 
-          !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition)
-        )
+        .filter((t: any) => {
+          const mainTerm = t.term || "";
+          const verified = t.verified_term || t.draft_term || "";
+          if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
+          if (isTrivialOrCitationTerm(verified, t.definition)) return false;
+          if (/^[a-zA-Z\s\-]+$/.test(verified) && /^[a-zA-Z\s\-]+$/.test(mainTerm)) return false;
+          return true;
+        })
         .slice(0, 3);
     }
   } catch (error) {
@@ -960,18 +966,20 @@ app.post("/api/extract-glossary", async (req, res) => {
     }
 
     const prompt = `أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام "بحث OS".
-مهمتك تحليل النص واستخراج قائمة موجزة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعتمدة فقط.
+مهمتك تحليل النص واستخراج قائمة دقيقة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين فقط.
 
-طبق الشروط والقواعد الصارمة التالية:
-1. استبعاد التخصصات والمجالات العامة:
-   يُمنع منعاً باتاً استخراج أسماء العلوم العامة أو المجالات الفضفاضة (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...) كمصطلحات. هذه ليست مفاهيم أو بناءات تحليلية.
-2. النطاق المسموح للاستخراج:
+طبق القواعد الصارمة التالية:
+1. الاقتصار على البناءات النظرية والمفاهيم العلمية المركبة:
    استخرج فقط البناءات النظرية ذات العمق العلمي والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Machine Learning).
-3. قواعد الاستبعاد العامة:
-   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات ودور النشر، وأجزاء الجمل والعبارات الربطية.
-4. الجودة الصارمة للتعريف الأكاديمي:
-   لكل مصطلح، صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة إلى جملتين) يوضح جوهر المفهوم العلمي ومعناه الدقيق باللغة العربية الفصحى.
-   يُحظر تماماً استخدام عبارات قالبية تكرارية أو خالية من المعنى مثل (مفهوم وأداة تحليلية أكاديمية وردت في السياق حول...) أو (مصطلح محوري تمت مناقشته في...). يجب تقديم تعريف موضوعي رصين كما في المعاجم الأكاديمية المتخصصة.
+2. الحظر الصارم للجمل والعبارات اللغوية الشائعة (Linguistic Fragments):
+   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: "both have translatability", "results show", "in this section", "data collected", "future studies"). أية تراكيب تحتوي أفعالاً أو أدوات ربط أو ضمائر يُحظر استخراجها إطلاقاً.
+3. استبعاد التخصصات والمجالات العامة:
+   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...).
+4. قواعد الاستبعاد العامة:
+   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات ودور النشر، التوثيقات المرجعية، والتواريخ.
+5. الجودة الصارمة للتعريب والتعريف الأكاديمي:
+   لكل مصطلح، يجب تقديم المصطلح العربي المعيار المعتمد والمكافئ بدقة في حقل verified_term (يُمنع ترك verified_term باللغة الإنجليزية).
+   صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم بأسلوب رصين وبدون أي عبارات قالبية فارغة.
 
 لكل مصطلح مستخرج، عبئ الحقول التالية بالترتيب الدقيق:
 1. term: المصطلح الأصلي بالإنجليزية.
@@ -1027,7 +1035,14 @@ ${text.substring(0, 3500)}`;
     const jsonText = replyText.trim();
     const data = JSON.parse(jsonText);
     let normalizedTerms = (data.terms || [])
-      .filter((t: any) => !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition))
+      .filter((t: any) => {
+        const mainTerm = t.term || "";
+        const verified = t.verified_term || t.draft_term || "";
+        if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
+        if (isTrivialOrCitationTerm(verified, t.definition)) return false;
+        if (/^[a-zA-Z\s\-]+$/.test(verified) && /^[a-zA-Z\s\-]+$/.test(mainTerm)) return false;
+        return true;
+      })
       .slice(0, 3)
       .map((t: any) => ({
         term: t.term,
