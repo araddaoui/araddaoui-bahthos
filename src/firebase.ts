@@ -101,16 +101,18 @@ export async function saveUserProject(userId: string, project: Project): Promise
 
 // Helper to delete a project from Firestore
 export async function deleteUserProject(userId: string, projectId: string): Promise<void> {
-  // Delete subcollection documents first, then the project document itself
+  // Delete subcollection documents first in chunks, then the project document itself
   const subcollections = ["sources", "messages", "syntheses", "glossaryTerms"];
   for (const sub of subcollections) {
     const colRef = collection(db, "users", userId, "projects", projectId, sub);
     const snap = await getDocs(colRef);
-    const batch = writeBatch(db);
-    snap.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    await batch.commit();
+    const docs = snap.docs;
+    for (let i = 0; i < docs.length; i += 400) {
+      const batch = writeBatch(db);
+      const chunk = docs.slice(i, i + 400);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
   }
   const projectDocRef = doc(db, "users", userId, "projects", projectId);
   await deleteDoc(projectDocRef);

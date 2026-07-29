@@ -350,12 +350,10 @@ export default function Sidebar({
 
             <div className="space-y-2">
               <p className="text-xs text-gray-700 font-medium leading-relaxed">
-                {projects.length === 1
-                  ? `هل أنت متأكد من رغبتك في حذف مشروع "${projectToDelete.name}" وتفريغ جميع مصادره وبياناته بالكامل؟`
-                  : `هل أنت متأكد من رغبتك في حذف مشروع "${projectToDelete.name}"؟ سيتم حذف جميع المصادر والدردشات الخاصة به.`}
+                هل أنت متأكد من موافقتك على حذف مشروع <strong className="text-red-700 font-bold">"{projectToDelete.name}"</strong> وكافة مكوناته نهائياً؟ سيتم مسح جميع المصادر والمستندات والدردشات والتوليفات وسجلات البيانات التابعة له بالكامل.
               </p>
-              <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 text-[11px] text-gray-600 font-bold truncate">
-                {projectToDelete.name}
+              <div className="bg-red-50/50 p-2.5 rounded-lg border border-red-100 text-[11px] text-red-700 font-bold truncate">
+                المشروع المحدد للحذف: {projectToDelete.name}
               </div>
             </div>
 

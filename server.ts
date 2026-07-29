@@ -205,8 +205,10 @@ Respond entirely in clear Modern Standard Arabic, regardless of the language of 
 
 // API routes FIRST
 app.post("/api/chat", async (req, res) => {
-  const { messages, sources } = req.body;
   try {
+    const { messages, sources } = req.body || {};
+    const validSources = Array.isArray(sources) ? sources : [];
+    
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: "Invalid messages format" });
     }
@@ -215,18 +217,18 @@ app.post("/api/chat", async (req, res) => {
 
     // Build the list of active documents to include in the system instruction / context
     let sourcesContext = "";
-    if (sources && Array.isArray(sources) && sources.length > 0) {
+    if (validSources.length > 0) {
       sourcesContext = "\n\nالمصادر المتاحة للتحليل حالياً:\n";
-      sources.forEach((src: any, idx: number) => {
-        const title = src.title || `الوثيقة ${idx + 1}`;
-        const rawContent = src.content || src.summary || src.extractedText || "";
+      validSources.forEach((src: any, idx: number) => {
+        const title = src?.title || `الوثيقة ${idx + 1}`;
+        const rawContent = src?.content || src?.summary || src?.extractedText || "";
         const safeContent = rawContent.length > 30000 
           ? rawContent.substring(0, 30000) + "\n...[تم اختصار باقي النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
           : rawContent;
 
         sourcesContext += `\n---\n`;
         sourcesContext += `اسم الوثيقة: الوثيقة ${idx + 1}: ${title}\n`;
-        sourcesContext += `اللغة: ${src.language === "en" ? "الإنجليزية" : "العربية"}\n`;
+        sourcesContext += `اللغة: ${src?.language === "en" ? "الإنجليزية" : "العربية"}\n`;
         sourcesContext += `المحتوى:\n${safeContent}\n`;
       });
       sourcesContext += `\n---\nتذكر: التزم حصرياً بهذه المصادر المتاحة أعلاه للإجابة والمقارنة، وقم بالإشارة إليها بوضوح في النص مثل "تشير الوثيقة 1 إلى..." أو "توضح الوثيقة 2...". إذا كانت هناك تناقضات، أبرزها بوضوح وعلق عليها بشكل منهجي.`;
@@ -251,7 +253,7 @@ app.post("/api/chat", async (req, res) => {
       return res.json({ text: "يرجى كتابة سؤال أو استفسار للتحليل." });
     }
 
-    console.log(`Sending chat request to Gemini with ${contents.length} messages and ${sources?.length || 0} sources.`);
+    console.log(`Sending chat request to Gemini with ${contents.length} messages and ${validSources.length} sources.`);
 
     const response = await generateContentWithRetry(ai, {
       model: "gemini-3.6-flash",
@@ -262,15 +264,19 @@ app.post("/api/chat", async (req, res) => {
       },
     });
 
-    const replyText = response.text || "المصادر المتاحة لا توفر إجابة كافية حيال هذا السؤال المباشر.";
-    res.json({ text: replyText });
+    const replyText = response?.text || "المصادر المتاحة لا توفر إجابة كافية حيال هذا السؤال المباشر.";
+    return res.json({ text: replyText });
   } catch (error: any) {
     console.error("Gemini chat API call failed, generating synthesis fallback:", error);
 
-    const userMessages = (messages || []).filter((m: any) => m && m.role === "user" && m.text);
+    const reqBody = req.body || {};
+    const messages = Array.isArray(reqBody.messages) ? reqBody.messages : [];
+    const sources = Array.isArray(reqBody.sources) ? reqBody.sources : [];
+
+    const userMessages = messages.filter((m: any) => m && m.role === "user" && m.text);
     const lastUserMessage = userMessages[userMessages.length - 1]?.text || "السؤال المطروح";
 
-    const activeSources = (sources && Array.isArray(sources) && sources.length > 0) ? sources : [];
+    const activeSources = sources;
     
     if (activeSources.length === 0) {
       return res.json({
@@ -281,8 +287,8 @@ app.post("/api/chat", async (req, res) => {
     // Dynamic context-aware analysis based on actual active sources
     const docSentences: { index: number; title: string; text: string }[] = [];
     activeSources.forEach((src: any, idx: number) => {
-      const title = src.title || `وثيقة ${idx + 1}`;
-      const content = src.summary || src.content || src.extractedText || "";
+      const title = src?.title || `وثيقة ${idx + 1}`;
+      const content = src?.summary || src?.content || src?.extractedText || "";
       const sentences = content.split(/[.!?\n]+/).map((s: string) => s.trim()).filter(Boolean);
       const text = sentences.length > 0 ? sentences.slice(0, 3).join(". ") : "تم تزويد الخادم بنص هذه الوثيقة للتحليل والتنسيق.";
       docSentences.push({
@@ -293,7 +299,7 @@ app.post("/api/chat", async (req, res) => {
     });
 
     let responseText = `### التوليف والمقارنة المباشرة للمصادر المرفقة حول: "${lastUserMessage}"\n\n`;
-    responseText += `بناءً على قراءة وتقاطع البيانات الواردة في المستندات المرفقة (${activeSources.map((s: any) => s.title || "وثيقة").join("، ")}):\n\n`;
+    responseText += `بناءً على قراءة وتقاطع البيانات الواردة في المستندات المرفقة (${activeSources.map((s: any) => s?.title || "وثيقة").join("، ")}):\n\n`;
 
     docSentences.forEach((doc) => {
       responseText += `1. **الوثيقة ${doc.index} ("${doc.title}")**:\n   ${doc.text}\n\n`;
@@ -303,7 +309,7 @@ app.post("/api/chat", async (req, res) => {
     responseText += `تتطرق الوثائق المرفقة بشكل مباشر للتوصيات والاستراتيجيات والأبعاد المرتبطة بسؤالك. تم توليف هذا الرد استناداً للمصادر المرفقة.`;
 
     // Always return 200 so the UI displays the response text seamlessly
-    res.json({ 
+    return res.json({ 
       text: responseText, 
       isFallback: true 
     });
@@ -387,7 +393,7 @@ app.post("/api/analyze-document", async (req, res) => {
   let result: any = {
     title: fileName || "مستند مرفق",
     language: "ar",
-    summary: parsedContent ? (parsedContent.substring(0, 350) + "...") : "تم إدراج المستند المرفق للتحليل والتوليف الأكاديمي بواسطة الذكاء الاصطناعي.",
+    summary: parsedContent ? (parsedContent.substring(0, 350) + "...") : "تم إدراج المستند المرفق للتحليل والتوليف بواسطة الذكاء الاصطناعي.",
     extractedText: parsedContent || "",
     terms: [],
   };
@@ -395,23 +401,21 @@ app.post("/api/analyze-document", async (req, res) => {
   // ----- AI ANALYSIS & TERM EXTRACTION -----
   try {
     const ai = getAiClient();
-    const promptText = `أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام "بحث OS".
-مهتك استخراج قائمة نظيفة وموجزة للمفاهيم النظرية (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعتمدة (Established Phenomenal Labels) فقط من المستند.
+    const promptText = `أنت خبير ومحلل مصطلحي رفيع في نظام "بحث OS".
+مهمتك استخراج قائمة نظيفة وموجزة للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعتمدة (Established Phenomenal Labels)، وصياغة ملخص شامل ودقيق للمستند باللغة العربية حصراً.
 
-طبق اختبار البوابتين (Two-Gate Test):
-1. البوابة الأولى (Textual Salience): هل عرف النص المفهوم أو صاغه كأداة تحليليّة محورية؟
-2. البوابة الثانية (External Recognition): هل المصطلح أداة تحليليّة معترف بها في التخصص (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Moral Hazard)؟
-
-قواعد الاستخراج الصارمة (Inclusions & Exclusions):
-- استخرج فقط: البناءات النظرية، المصطلحات المنهجية، الأحداث التاريخية/السياسية المؤطرة كمفاهيم، والمصطلحات المتخصصة ذات الوزن العلمي.
-- يُمنع منعاً باتاً استخراج:
-  1) أجزاء الجمل والعبارات الربطية (مثل: Yet Qatar, Roberts To, However, To cite).
-  2) أسماء الأشخاص أو الحكام أو المفكرين المجرّدة (مثل: Joseph Nye, David Roberts, Emir Tamim).
-  3) أسماء الدول والمدن والأقاليم والقواعد العسكرية الوصفية (مثل: Qatar, Doha, Middle East, As Sayliyah).
-  4) الكلمات العامة والإنشائية الفضفاضة (مثل: أسلوب العمل, طريقة العمل, strategy, analysis).
-  5) أسماء المجلات والجامعات ودور النشر والتوثيقات المرجعية (مثل: Comillas Journal, Oxford Press, ISSN, DOI, Vol, Issue, pp.).
-
-لكل مصطلح، صغ تعريفاً إجرائياً مركزاً ومفيداً (من جملة إلى جملتين) يربط المصطلح بسياق المستند والدراسة.`;
+طبق القواعد الصارمة التالية:
+1. الملخص (summary) باللغة العربية الفصحى حصراً وشرطاً قاطعاً:
+   يجب كتابة وصياغة الملخص (summary) باللغة العربية الفصحى حصراً وبأسلوب سلس وواضح، بغض النظر عن لغة المستند الأصلية (حتى لو كان المستند المرفق مكتوباً باللغة الإنجليزية أو الفرنسية أو غيرها، يُحظر تماماً كتابة الملخص بالإنجليزية أو بأي لغة غير العربية).
+2. استبعاد التخصصات والمجالات العامة:
+   يُمنع منعاً باتاً استخراج أسماء العلوم العامة والتخصصات الفضفاضة كمصطلحات (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...). هذه ليست مفاهيم أو بناءات تحليلية.
+3. اقتصار الاستخراج على البناءات النظرية والمفاهيم المركبة:
+   استخرج فقط البناءات النظرية والأطر المنهجية المحددة التي تمتلك تعريفاً جوهرياً متعارفاً عليه في الأدبيات (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Moral Hazard, Machine Learning, Asymmetric Information).
+4. استبعاد التسميات غير المفاهيمية:
+   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات، التوثيقات المرجعية، وعبارات الربط ورؤوس الفقرات.
+5. الجودة الصارمة للتعريف:
+   لكل مصطلح، صغ تعريفاً إجرائياً حقيقياً (من جملة إلى جملتين) يوضح جوهر المفهوم العلمي ومعناه الدقيق.
+   يُحظر تماماً استخدام عبارات قالبية تكرارية أو خالية من المعنى. يجب تقديم تعريف موضوعي رصين كما في المعاجم المتخصصة.`;
 
     let contentsParam: any;
     if (parsedContent && parsedContent.trim()) {
@@ -440,7 +444,7 @@ app.post("/api/analyze-document", async (req, res) => {
           properties: {
             title: {
               type: Type.STRING,
-              description: "العنوان الأكاديمي الرصين للمستند."
+              description: "عنوان المستند الرصين."
             },
             language: {
               type: Type.STRING,
@@ -448,7 +452,7 @@ app.post("/api/analyze-document", async (req, res) => {
             },
             summary: {
               type: Type.STRING,
-              description: "ملخص أكاديمي بليغ ومكثف لمحتوى المستند."
+              description: "ملخص بليغ ومكثف لمحتوى المستند باللغة العربية الفصحى حصراً وشرطاً قاطعاً (يُمنع كتابة الملخص بالإنجليزية أو بأي لغة غير العربية)."
             },
             extractedText: {
               type: Type.STRING,
@@ -465,7 +469,7 @@ app.post("/api/analyze-document", async (req, res) => {
                   },
                   draft_term: {
                     type: Type.STRING,
-                    description: "المصطلح العربي المقترح في المسودة الأولى (قد يحتوي على تعريب لفظي أو غير دقيق)."
+                    description: "المصطلح العربي المقترح في المسودة الأولى."
                   },
                   definition: {
                     type: Type.STRING,
@@ -473,12 +477,12 @@ app.post("/api/analyze-document", async (req, res) => {
                   },
                   verified_term: {
                     type: Type.STRING,
-                    description: "المصطلح العربي النهائي المدقق والمصحح بالكامل بعد تطبيق اختبار القبول الذاتي."
+                    description: "المصطلح العربي النهائي المدقق والمصحح بالكامل."
                   }
                 },
                 required: ["term", "draft_term", "definition", "verified_term"]
               },
-              description: "قائمة بأبرز المصطلحات الأكاديمية والتقنية المستخرجة من المستند مع الترجمة والتعريف."
+              description: "قائمة بأبرز المصطلحات والتقنيات المستخرجة من المستند مع الترجمة والتعريف."
             }
           },
           required: ["title", "language", "summary", "terms"]
@@ -494,6 +498,25 @@ app.post("/api/analyze-document", async (req, res) => {
     if (!parsedContent && data.extractedText) {
       parsedContent = data.extractedText;
       result.extractedText = data.extractedText;
+    }
+
+    // Ensure the summary is strictly in Arabic (translate if Gemini generated an English summary)
+    if (result.summary && /[a-zA-Z]{6,}/.test(result.summary)) {
+      console.log("🌐 Detected English/foreign characters in generated summary, translating strictly to Arabic...");
+      try {
+        const translationRes = await generateContentWithRetry(ai, {
+          model: "gemini-3.6-flash",
+          contents: `قم بتلخيص وترجمة هذا النص بالكامل إلى اللغة العربية الفصحى الواضحة والبليغة حصراً وبدون أي كلمات إنجليزية أو مقدمات:\n\n${result.summary}`,
+          config: {
+            temperature: 0.1,
+          }
+        });
+        if (translationRes?.text && translationRes.text.trim()) {
+          result.summary = translationRes.text.trim();
+        }
+      } catch (trErr) {
+        console.warn("Summary Arabic translation failed:", trErr);
+      }
     }
     
     if (data.terms && Array.isArray(data.terms)) {
@@ -544,27 +567,29 @@ const isDefaultSources = (sources: any[]) => {
 };
 
 app.post("/api/synthesize", async (req, res) => {
-  const { sources, topic, toolType } = req.body;
-  if (!sources || !Array.isArray(sources) || sources.length === 0) {
-    return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
-  }
-
-  console.log(`Starting synthesis for topic: "${topic}", toolType: "${toolType}", sources: ${sources.length}`);
-
-  let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
-  sources.forEach((src: any, idx: number) => {
-    const title = src.title || `الوثيقة ${idx + 1}`;
-    const rawContent = src.content || src.summary || src.extractedText || "";
-    const safeContent = rawContent.length > 25000 
-      ? rawContent.substring(0, 25000) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
-      : rawContent;
-
-    sourcesContext += `\n---\n`;
-    sourcesContext += `اسم الوثيقة: الوثيقة ${idx + 1}: ${title}\n`;
-    sourcesContext += `المحتوى:\n${safeContent}\n`;
-  });
-
   try {
+    const { sources, topic, toolType } = req.body || {};
+    const activeSources = Array.isArray(sources) ? sources : [];
+    
+    if (activeSources.length === 0) {
+      return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
+    }
+
+    console.log(`Starting synthesis for topic: "${topic}", toolType: "${toolType}", sources: ${activeSources.length}`);
+
+    let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
+    activeSources.forEach((src: any, idx: number) => {
+      const title = src?.title || `الوثيقة ${idx + 1}`;
+      const rawContent = src?.content || src?.summary || src?.extractedText || "";
+      const safeContent = rawContent.length > 25000 
+        ? rawContent.substring(0, 25000) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
+        : rawContent;
+
+      sourcesContext += `\n---\n`;
+      sourcesContext += `اسم الوثيقة: الوثيقة ${idx + 1}: ${title}\n`;
+      sourcesContext += `المحتوى:\n${safeContent}\n`;
+    });
+
     const ai = getAiClient();
     let prompt = "";
     if (toolType === "matrix") {
@@ -677,7 +702,7 @@ ${sourcesContext}`;
 ${sourcesContext}`;
     }
 
-    console.log(`Sending synthesis request to Gemini for ${sources.length} sources (type: ${toolType}).`);
+    console.log(`Sending synthesis request to Gemini for ${activeSources.length} sources (type: ${toolType}).`);
 
     const response = await generateContentWithRetry(ai, {
       model: "gemini-3.6-flash",
@@ -688,17 +713,21 @@ ${sourcesContext}`;
       },
     });
 
-    const replyText = response.text || "فشل توليد التوليف.";
-    res.json({ text: replyText });
+    const replyText = response?.text || "فشل توليد التوليف.";
+    return res.json({ text: replyText });
 
   } catch (error: any) {
     console.error("Gemini synthesis API call failed, preparing local fallback report:", error);
 
-    let errorMessage = "تعذر توليد التقرير المباشر عبر الذكاء الاصطناعي — تم تفعيل نظام النسخ الاحتياطي للأدلة والمصادر المحلية بنجاح.";
-    let statusCode = 200; // Return 200 for graceful fallback response so user is not blocked
+    const reqBody = req.body || {};
+    const sources = Array.isArray(reqBody.sources) ? reqBody.sources : [];
+    const topic = reqBody.topic || "تحليل المقارنة الشامل";
+    const toolType = reqBody.toolType || "synthesis";
 
-    const errorStr = (error.message || "").toLowerCase();
-    const isQuotaError = error.status === 429 || 
+    let errorMessage = "تعذر توليد التقرير المباشر عبر الذكاء الاصطناعي — تم تفعيل نظام النسخ الاحتياطي للأدلة والمصادر المحلية بنجاح.";
+
+    const errorStr = (error?.message || "").toLowerCase();
+    const isQuotaError = error?.status === 429 || 
                          errorStr.includes("429") || 
                          errorStr.includes("quota") || 
                          errorStr.includes("limit") || 
@@ -931,25 +960,24 @@ app.post("/api/extract-glossary", async (req, res) => {
     }
 
     const prompt = `أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام "بحث OS".
-مهتك تحليل النص واستخراج قائمة موجزة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعتمدة فقط.
+مهمتك تحليل النص واستخراج قائمة موجزة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعتمدة فقط.
 
-طبق اختبار البوابتين (Two-Gate Test):
-1. البوابة الأولى (Textual Salience): هل عرف النص المفهوم أو صاغه كأداة تحليليّة محورية في البحث؟
-2. البوابة الثانية (External Recognition): هل المصطلح أداة تحليليّة معترف بها أكاديمياً (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing)؟
+طبق الشروط والقواعد الصارمة التالية:
+1. استبعاد التخصصات والمجالات العامة:
+   يُمنع منعاً باتاً استخراج أسماء العلوم العامة أو المجالات الفضفاضة (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...) كمصطلحات. هذه ليست مفاهيم أو بناءات تحليلية.
+2. النطاق المسموح للاستخراج:
+   استخرج فقط البناءات النظرية ذات العمق العلمي والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Machine Learning).
+3. قواعد الاستبعاد العامة:
+   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات ودور النشر، وأجزاء الجمل والعبارات الربطية.
+4. الجودة الصارمة للتعريف الأكاديمي:
+   لكل مصطلح، صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة إلى جملتين) يوضح جوهر المفهوم العلمي ومعناه الدقيق باللغة العربية الفصحى.
+   يُحظر تماماً استخدام عبارات قالبية تكرارية أو خالية من المعنى مثل (مفهوم وأداة تحليلية أكاديمية وردت في السياق حول...) أو (مصطلح محوري تمت مناقشته في...). يجب تقديم تعريف موضوعي رصين كما في المعاجم الأكاديمية المتخصصة.
 
-قواعد الاستخراج الحازمة (Inclusions & Exclusions):
-- يُمنع منعاً باتاً استخراج أي مما يلي كمصطلحات:
-  1) أجزاء الجمل والعبارات الربطية (مثل: Yet Qatar, Roberts To, However, To cite).
-  2) أسماء الأشخاص والمفكرين والرؤساء (مثل: Joseph Nye, David Roberts, Emir Tamim).
-  3) أسماء الدول والمدن والأقاليم والقواعد العسكرية (مثل: Qatar, Doha, Middle East, As Sayliyah).
-  4) العبارات العامة والإنشائية الإدارية (مثل: أسلوب العمل, طريقة العمل, strategy, analysis).
-  5) أسماء المجلات ودور النشر والتوثيقات المرجعية (مثل: Comillas Journal, Oxford Press, ISSN, DOI, Vol, pp.).
-
-لكل مصطلح مستخرج، يجب عليك تعبئة وإنتاج الحقول التالية بالترتيب الدقيق التالي لتطبيق عملية التحقق ثنائية الحقول:
+لكل مصطلح مستخرج، عبئ الحقول التالية بالترتيب الدقيق:
 1. term: المصطلح الأصلي بالإنجليزية.
-2. draft_term: المصطلح العربي في مسودتك الأولى المقترحة كترجمة أو تعريب صوتي أولي.
-3. definition: تعريف إجرائي أكاديمي واضح ونافع مرتبط بالسياق (في جملة أو جملتين).
-4. verified_term: المصطلح العربي النهائي المدقق والمصوب بالكامل بعد استبدال أي تعريب صوتي فاشل بمكافئ عربي رصين.
+2. draft_term: المصطلح العربي المقترح أولياً.
+3. definition: تعريف أكاديمي علمي حقيقي ونافع يشرح المفهوم وجوهره في جملة واحدة رصينة.
+4. verified_term: المصطلح العربي النهائي المدقق والمصوب بعد استبدال أي تعريب صوتي بمكافئ عربي فصيح.
 
 النص المراد تحليله:
 ${text.substring(0, 3500)}`;
@@ -1043,30 +1071,20 @@ app.post("/api/sweep-glossary", async (req, res) => {
   try {
     const ai = getAiClient();
     const prompt = `أنت خبير في مراجعة وتدقيق المصطلحات الأكاديمية والتقنية في نظام "بحث OS" المخصص لمساعدة الباحثين.
-لقد تم تزويدك بقائمة من المصطلحات المستخرجة مسبقاً. مهمتك هي تطبيق عملية التحقق ثنائية الحقول (Two-Field Verification Process) والاختبار المستقل عن التخصص (Domain-Independent Test) على كل مصطلح لتصحيح أي تعريب صوتي أو لفظي خاطئ.
+لقد تم تزويدك بقائمة من المصطلحات المستخرجة مسبقاً. مهمتك هي تطبيق عملية التدقيق الشاملة وتصحيح أي قصور في الترجمة أو التعريفات:
 
-لكل مصطلح في القائمة أدناه، أعد تعبئة وتوليد الحقول التالية بدقة وبنفس الترتيب:
-1. term: المصطلح الأصلي بالإنجليزية كما هو في المدخلات.
-2. draft_term: المصطلح العربي المقترح حالياً في المدخلات (الذي قد يكون تعريباً صوتياً أو غير دقيق).
-3. definition: التعريف الأكاديمي الحالي المذكور في المدخلات (أو صياغة محسنة ومبسطة له إن كان ركيكاً).
-4. verified_term: أجب بعد مراجعة التعريف والاختبار: هل draft_term كلمة أو عبارة عربية حقيقية يفهمها القارئ دون الحاجة لمعرفة المصطلح الإنجليزي الأصلي؟ أم تعريب صوتي؟ إذا كانت تعريباً صوتياً أو غير مفهوم بمفرده، اكتب هنا التعريب العربي الرصين والمكافئ الحقيقي للمصطلح. وإلا كرر draft_term دون تغيير.
+1. تصحيح واستبدال التعريفات القالبية والتكرارية:
+   إذا كان تعريف أي مصطلح يحتوي على عبارات قالبية فارغة من قبيل "مفهوم وأداة تحليلية أكاديمية وردت في السياق حول..." أو "مصطلح محوري تمت مناقشته..."، فيجب عليك فوراً إعادة صياغة التعريف واستبداله بتعريف أكاديمي موضوعي رصين ومكثف (من جملة إلى جملتين) يشرح الجوهر العلمي الدقيق لهذا المفهوم كما في أدبيات التخصص.
+2. تصحيح واستبدال أسماء العلوم والتخصصات الكلية العامة:
+   إذا وجد مصطلح عبارة عن مجرد اسم علم عام أو تخصص مجرد (مثل Computer Science, Marketing, Economics, History, Management)، فقم بتعريفه علمياً كمفهوم تحليلي أو إطار تخصصي مع تصحيح التعريف والاسم المعتمد.
+3. مراجعة وتصحيح التعريب الصوتي (Domain-Independent Test):
+   اقرأ المصطلح العربي المقترح بمفرده. إذا كان تعريباً صوتياً أو لفظياً (مثل: كونسورتيوم -> اتحاد أو ائتلاف، ليرنينغ موداليتي -> نمط التعلم)، اكتب التعريب العربي الفصيح والمكافئ الحقيقي للمصطلح في verified_term.
 
-أجرِ الاختبار التالي لتحديد ما إذا كان المصطلح يحتاج لتصحيح (Domain-Independent Test):
-اقرأ المصطلح العربي المقترح بمفرده، دون رؤية التسمية الإنجليزية بجانبه. هل سيتعرف عليه القارئ العربي المثقف الذي لا يعرف الإنجليزية ككلمة أو عبارة حقيقية وذات معنى في لغته؟ أم أنه لا يصبح مفهوماً إلا إذا كان القارئ يعرف اللفظ الإنجليزي الأصلي ويقوم بتهجئة حروفه العربية صوتياً في مخيلته؟
-إذا كانت الحالة الثانية هي التي تنطبق، فهذا يعني فشلاً في التعريب والترجمة الفنية (Transliteration Failure) بغض النظر عن تخصص المادة، ويجب استبداله فوراً بمكافئ عربي حقيقي سليم ورصين.
-
-استخدم الأمثلة النمطية التالية كدليل لمعايرة جودة ومستوى التصحيح المطلوب:
-- المصطلحات الإحصائية والمنهجية:
-  * Correlation -> المسودة: كوروليشن | التصحيح النهائي: الارتباط
-  * Standard Deviation -> المسودة: ستاندرد ديفييشن | التصحيح النهائي: الانحراف المعياري
-- المصطلحات الأكاديمية والتنظيمية العامة:
-  * Consortium -> المسودة: كونسورتيوم | التصحيح النهائي: اتحاد أو ائتلاف
-  * Learning Modality -> المسودة: ليرنينغ موداليتي | التصحيح النهائي: نمط التعلم
-- المصطلحات التجريدية والمفاهيمية:
-  * Subjective experience -> المسودة: سوبجيكتيف إكسبرينس | التصحيح النهائي: التجربة الذاتية
-  * Self-reported data -> المسودة: سيلف ريبورتد ديتا | التصحيح النهائي: البيانات ذاتية الإبلاغ
-- المصطلحات التقنية والمركبة:
-  * Virtual Learning Environment -> المسودة: فيرتشوال ليرنينغ إنفايرومنت | التصحيح النهائي: بيئة التعلم الافتراضية
+لكل مصطلح في القائمة أدناه، أعد تعبئة وتوليد الحقول التالية بدقة:
+1. term: المصطلح الأصلي بالإنجليزية كما هو.
+2. draft_term: المصطلح العربي المقترح حالياً.
+3. definition: التعريف الأكاديمي الشارح والجامع الصريح بعد إزالة العبارات القالبية الفارغة وتوفير شرح علمي حقيقي ومكثف.
+4. verified_term: المصطلح العربي النهائى السليم المعتمد.
 
 المصطلحات المراد مراجعتها وتدقيقها:
 ${JSON.stringify(terms, null, 2)}`;
@@ -1114,13 +1132,15 @@ ${JSON.stringify(terms, null, 2)}`;
 
     const replyText = response.text || "";
     const data = JSON.parse(replyText.trim());
-    const normalizedTerms = (data.terms || []).map((t: any) => ({
-      term: t.term,
-      draft_term: t.draft_term,
-      verified_term: t.verified_term,
-      transliteration: t.verified_term || t.draft_term,
-      definition: t.definition,
-    }));
+    const normalizedTerms = (data.terms || [])
+      .filter((t: any) => !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition))
+      .map((t: any) => ({
+        term: t.term,
+        draft_term: t.draft_term,
+        verified_term: t.verified_term,
+        transliteration: t.verified_term || t.draft_term,
+        definition: t.definition,
+      }));
     res.json({ terms: normalizedTerms });
   } catch (error: any) {
     console.warn("Glossary sweep backend failed:", error);

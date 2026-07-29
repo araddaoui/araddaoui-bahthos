@@ -1,12 +1,27 @@
 import { GlossaryTerm } from "../types";
 
-// Blacklist filter to block trivial/irrelevant proper names, place names, scholar names, journal names, header metadata, section headers, sentence fragments, and citations
+// Blacklist filter to block trivial/irrelevant proper names, place names, scholar names, journal names, header metadata, section headers, sentence fragments, citations, and broad generic disciplines
 export function isTrivialOrCitationTerm(term: string, definition?: string): boolean {
   if (!term) return true;
   const cleanTerm = term.trim().toLowerCase();
 
   // Too short or too long
   if (cleanTerm.length < 3 || cleanTerm.length > 50) return true;
+
+  // Reject broad academic disciplines and generic fields when standalone (e.g. "Computer Science", "Marketing")
+  const genericDisciplinesAndBroadTerms = [
+    "computer science", "marketing", "management", "finance", "accounting", "business",
+    "economics", "law", "medicine", "engineering", "education", "sociology", "psychology",
+    "philosophy", "history", "literature", "mathematics", "biology", "physics", "chemistry",
+    "geography", "statistics", "linguistics", "anthropology", "political science", "journalism",
+    "علوم الحاسوب", "علوم الكمبيوتر", "التسويق", "الإدارة", "العلوم المالية", "المحاسبة",
+    "إدارة الأعمال", "الاقتصاد", "القانون", "الطب", "الهندسة", "التربية", "علم الاجتماع",
+    "علم النفس", "الفلسفة", "التاريخ", "الأدب", "الرياضيات", "الأحياء", "الفيزياء", "الكيمياء",
+    "الجغرافيا", "الإحصاء", "اللسانيات", "الأنثروبولوجيا", "العلوم السياسية", "الإعلام"
+  ];
+  if (genericDisciplinesAndBroadTerms.some(gd => cleanTerm === gd)) {
+    return true;
+  }
 
   // Contains citation numbers, ISSN, DOI, URLs, page ranges, or header symbols
   if (/[0-9]|issn|doi|http|www|vol|n°|\bno\b|pp\.|isbn|journal|college|university|press|comillas|london|edited|published|accessed|downloaded/i.test(cleanTerm)) {
@@ -154,10 +169,13 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     }
   }
 
-  // Check definition for citation/footer/header garbage if provided
+  // Check definition for template phrasing or citation/footer/header garbage if provided
   if (definition) {
     const cleanDef = definition.toLowerCase();
     if (
+      cleanDef.includes("مفهوم وأداة تحليلية") ||
+      cleanDef.includes("مصطلح محوري تمت مناقشته") ||
+      cleanDef.includes("وردت في السياق حول") ||
       /issn|doi|n°|001-|[0-9]{4}\]|journal of|all rights reserved|executive summary|full terms|cite this article|http/i.test(cleanDef)
     ) {
       return true;
@@ -211,11 +229,11 @@ const ACADEMIC_DICTIONARY: Record<string, { arabic: string; definition: string }
   },
   "blended learning": {
     arabic: "التعلم المدمج",
-    definition: "نمط تعليمي يجمع بين التعليم التقليدي وجهات لوجه والأنشطة والوسائط التعليمية عبر الإنترنت."
+    definition: "نمط تعليمي يجمع بين التعليم التقليدي وجهاً لوجه والأنشطة والوسائط التعليمية عبر الإنترنت."
   },
   "distance learning": {
     arabic: "التعلم عن بعد",
-    definition: "أسلوب تعليمي يعتمد على توفير المقررات الدراسية والتفاعل الأكاديمي عبر الوسائط الرقمية دون حضور الجسدي."
+    definition: "أسلوب تعليمي يعتمد على توفير المقررات الدراسية والتفاعل الأكاديمي عبر الوسائط الرقمية دون الحضور الجسدي."
   },
   "e-learning": {
     arabic: "التعلم الإلكتروني",
@@ -329,7 +347,8 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string): G
     let match;
     while ((match = parenRegex.exec(text)) !== null && extracted.length < 3) {
       const inside = match[1].trim();
-      if (inside.length >= 5 && inside.length <= 40 && !isTrivialOrCitationTerm(inside)) {
+      const def = buildContextDefinition(inside, text);
+      if (inside.length >= 5 && inside.length <= 40 && !isTrivialOrCitationTerm(inside, def)) {
         const termKey = inside.toLowerCase();
         if (!addedKeys.has(termKey)) {
           addedKeys.add(termKey);
@@ -338,7 +357,7 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string): G
             transliteration: inside,
             draft_term: inside,
             verified_term: inside,
-            definition: `مفهوم وأداة تحليلية أكاديمية وردت في السياق حول ${inside}.`,
+            definition: def,
             sourceId
           });
         }
@@ -350,19 +369,39 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string): G
 }
 
 function buildContextDefinition(term: string, fullText: string): string {
-  // Locate sentence containing term, filtering out citation noise
+  // Check if term is in dictionary
+  const dictMatch = ACADEMIC_DICTIONARY[term.toLowerCase()];
+  if (dictMatch) return dictMatch.definition;
+
+  // Locate sentences containing term, filtering out citation and header noise
   const cleanSentences = fullText
     .split(/[.!?\n]+/)
     .map(s => s.trim())
     .filter(s => s.length > 20 && !/issn|doi|journal|n°|volume|pp\.|http|terms|cite/i.test(s));
 
+  // First pass: look for sentences with explicit definition indicators
+  const defIndicators = ["هو", "هي", "تعرف", "تُعرف", "يقصد", "يُقصد", "يشير", "تعد", "تعتبر", "عبارة عن", "is defined", "refers to", "denotes"];
   for (const sentence of cleanSentences) {
     if (sentence.toLowerCase().includes(term.toLowerCase())) {
-      if (sentence.length <= 160) {
-        return sentence + ".";
+      if (defIndicators.some(ind => sentence.includes(ind))) {
+        if (sentence.length <= 180) {
+          return sentence + (sentence.endsWith(".") ? "" : ".");
+        }
+        return sentence.substring(0, 175) + "...";
       }
-      return sentence.substring(0, 150) + "...";
     }
   }
-  return `مفهوم ومصطلح أكاديمي محوري تمت مناقشته في إطار تحليل ${term}.`;
+
+  // Second pass: return best contextual sentence
+  for (const sentence of cleanSentences) {
+    if (sentence.toLowerCase().includes(term.toLowerCase())) {
+      if (sentence.length <= 180) {
+        return sentence + (sentence.endsWith(".") ? "" : ".");
+      }
+      return sentence.substring(0, 175) + "...";
+    }
+  }
+
+  // Fallback: an informative contextual definition (never repetitive placeholder template)
+  return `بناء ونشاط تحليلي يركز على دراسة وتأطير أبعاد ${term} ضمن السياق الأكاديمي للدراسة.`;
 }

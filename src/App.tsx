@@ -499,13 +499,15 @@ setGlossaryTerms(serverGlossary);
     if (currentUser) {
       setIsFirebaseLoading(true);
       try {
-        // 1. Save current state of the old project to Firestore first (to ensure no state loss)
-        await saveProjectData(currentUser.uid, currentProjectId, {
-          sources,
-          messages,
-          syntheses,
-          glossaryTerms
-        });
+        // 1. Save current state of the old project to Firestore first if old project still exists in projects
+        if (currentProjectId && projects.some((p) => p.id === currentProjectId)) {
+          await saveProjectData(currentUser.uid, currentProjectId, {
+            sources,
+            messages,
+            syntheses,
+            glossaryTerms
+          });
+        }
 
         // 2. Load the new project's state from Firestore
         const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
@@ -532,8 +534,8 @@ setGlossaryTerms(serverGlossary);
       return;
     }
 
-    // 1. Save current state of the old project to its specific keys
-    if (currentProjectId) {
+    // 1. Save current state of the old project to its specific keys if it still exists
+    if (currentProjectId && projects.some((p) => p.id === currentProjectId)) {
       try {
         localStorage.setItem(`bahthos_sources_${currentProjectId}`, JSON.stringify(sources));
         localStorage.setItem(`bahthos_messages_${currentProjectId}`, JSON.stringify(messages));
@@ -553,10 +555,10 @@ setGlossaryTerms(serverGlossary);
       const savedGlossary = localStorage.getItem(`bahthos_glossary_${newProjectId}`) || localStorage.getItem(`tawlif_glossary_${newProjectId}`);
       const savedTemp = localStorage.getItem(`bahthos_temperature_${newProjectId}`) || localStorage.getItem(`tawlif_temperature_${newProjectId}`);
 
-      const loadedSources = savedSources ? JSON.parse(savedSources) : (newProjectId === "default" ? defaultSources : []);
+      const loadedSources = savedSources ? JSON.parse(savedSources) : [];
       const loadedMessages = savedMessages ? JSON.parse(savedMessages) : [];
-      const loadedSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : (newProjectId === "default" ? initialSyntheses : []);
-      const loadedGlossary = savedGlossary ? JSON.parse(savedGlossary) : (newProjectId === "default" ? initialGlossary : []);
+      const loadedSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
+      const loadedGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
       const loadedTemp = savedTemp ? parseFloat(savedTemp) : 0.2;
 
       // 3. Update the ref immediately to block reactive saving of old values during render
@@ -575,6 +577,13 @@ setGlossaryTerms(serverGlossary);
       // Close reading view if open
       setSelectedSourceId(null);
       setActiveMainView("chat");
+
+      // Sync active project state to server
+      fetch("/api/save-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sources: loadedSources, glossaryTerms: loadedGlossary }),
+      }).catch(console.error);
     } catch (e) {
       console.error("Failed to switch project:", e);
     }
@@ -604,9 +613,13 @@ setGlossaryTerms(serverGlossary);
   };
 
   const handleDeleteProject = async (projectId: string) => {
-    const index = projects.findIndex((p) => p.id === projectId);
-    if (index === -1) return;
+    const targetProject = projects.find((p) => p.id === projectId);
+    if (!targetProject) return;
 
+    // Invalidate ref immediately to stop reactive auto-savers from re-persisting stale data
+    loadedProjectIdRef.current = "";
+
+    // 1. Delete all Firestore subcollections & project doc if user is logged in
     if (currentUser) {
       try {
         await deleteUserProject(currentUser.uid, projectId);
@@ -615,16 +628,15 @@ setGlossaryTerms(serverGlossary);
       }
     }
 
-    // Clean up localstorage for deleted project
+    // 2. Clean up ALL localStorage keys for deleted project
     try {
-      const keys = [
-        `bahthos_sources_${projectId}`, `bahthos_messages_${projectId}`,
-        `bahthos_syntheses_${projectId}`, `bahthos_glossary_${projectId}`,
-        `bahthos_temperature_${projectId}`, `tawlif_sources_${projectId}`,
-        `tawlif_messages_${projectId}`, `tawlif_syntheses_${projectId}`,
-        `tawlif_glossary_${projectId}`, `tawlif_temperature_${projectId}`
-      ];
-      keys.forEach((k) => localStorage.removeItem(k));
+      const prefixes = ["bahthos_", "tawlif_", "al_dalil_"];
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && prefixes.some((p) => key.startsWith(p)) && key.includes(projectId)) {
+          localStorage.removeItem(key);
+        }
+      }
     } catch (e) {
       console.error(e);
     }
@@ -632,7 +644,7 @@ setGlossaryTerms(serverGlossary);
     const updatedProjects = projects.filter((p) => p.id !== projectId);
 
     if (updatedProjects.length === 0) {
-      // If all projects were deleted, create a fresh empty project
+      // If all projects were deleted, create a fresh empty project with 0 sources & components
       const newProj: Project = {
         id: "proj-" + Date.now(),
         name: "المشروع التجريبي الأول",
@@ -659,13 +671,76 @@ setGlossaryTerms(serverGlossary);
       setGlossaryTerms([]);
       setSelectedSourceId(null);
 
-      // Reset server persistent state
+      // Reset server persistent state file
       fetch("/api/reset-state", { method: "POST" }).catch(console.error);
     } else {
       setProjects(updatedProjects);
       if (currentProjectId === projectId) {
         const nextActiveProject = updatedProjects[0];
-        handleSwitchProject(nextActiveProject.id);
+        // Load next project cleanly
+        if (currentUser) {
+          setIsFirebaseLoading(true);
+          try {
+            const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
+              await loadProjectData(currentUser.uid, nextActiveProject.id);
+
+            loadedProjectIdRef.current = nextActiveProject.id;
+            setSources(cloudSources);
+            setMessages(cloudMessages);
+            setSyntheses(cloudSyntheses);
+            setGlossaryTerms(cloudGlossary);
+            setTemperature(nextActiveProject.temperature ?? 0.2);
+            setCurrentProjectId(nextActiveProject.id);
+            setSelectedSourceId(null);
+            setActiveMainView("chat");
+
+            // Sync server persistent state with the new active project
+            fetch("/api/save-state", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sources: cloudSources, glossaryTerms: cloudGlossary }),
+            }).catch(console.error);
+          } catch (e) {
+            console.error("Failed to load next project from Firestore:", e);
+          } finally {
+            setIsFirebaseLoading(false);
+          }
+        } else {
+          const savedSources = localStorage.getItem(`bahthos_sources_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_sources_${nextActiveProject.id}`);
+          const savedMessages = localStorage.getItem(`bahthos_messages_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_messages_${nextActiveProject.id}`);
+          const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_syntheses_${nextActiveProject.id}`);
+          const savedGlossary = localStorage.getItem(`bahthos_glossary_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_glossary_${nextActiveProject.id}`);
+          const savedTemp = localStorage.getItem(`bahthos_temperature_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_temperature_${nextActiveProject.id}`);
+
+          const nextSources = savedSources ? JSON.parse(savedSources) : [];
+          const nextMessages = savedMessages ? JSON.parse(savedMessages) : [];
+          const nextSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
+          const nextGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
+
+          loadedProjectIdRef.current = nextActiveProject.id;
+          setSources(nextSources);
+          setMessages(nextMessages);
+          setSyntheses(nextSyntheses);
+          setGlossaryTerms(nextGlossary);
+          setTemperature(savedTemp ? parseFloat(savedTemp) : 0.2);
+          setCurrentProjectId(nextActiveProject.id);
+          setSelectedSourceId(null);
+          setActiveMainView("chat");
+
+          // Sync server persistent state with the new active project
+          fetch("/api/save-state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sources: nextSources, glossaryTerms: nextGlossary }),
+          }).catch(console.error);
+        }
+      } else {
+        // Active project wasn't the deleted one, sync current sources to server
+        fetch("/api/save-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sources, glossaryTerms }),
+        }).catch(console.error);
       }
     }
   };

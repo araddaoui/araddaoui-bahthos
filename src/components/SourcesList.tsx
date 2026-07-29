@@ -137,8 +137,8 @@ export default function SourcesList({
     setAnalysisStep("جاري قراءة محتوى الملف والمستند...");
     
     try {
-      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 400);
-      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص أكاديمي بليغ..."), 800);
+      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند وترميز النص..."), 400);
+      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بليغ باللغة العربية..."), 800);
 
       const response = await fetch("/api/analyze-document", {
         method: "POST",
