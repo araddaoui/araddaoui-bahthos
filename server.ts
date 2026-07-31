@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText } from "./src/utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent } from "./src/utils/termExtractor";
 
 // Load environment variables BEFORE anything else
 dotenv.config();
@@ -903,7 +903,7 @@ ${sourcesContext}`;
 
 // Endpoint to passively extract academic/technical terms from a text snippet
 app.post("/api/extract-glossary", async (req, res) => {
-  const { text, systemPrompt } = req.body;
+  const { text, systemPrompt, existingTerms } = req.body;
 
   if (!text || typeof text !== "string" || text.trim().length < 10) {
     return res.json({ terms: [] });
@@ -962,6 +962,9 @@ app.post("/api/extract-glossary", async (req, res) => {
 5. الجودة الصارمة للتعريب والتعريف الأكاديمي:
    لكل مصطلح، يجب تقديم المصطلح العربي المعيار المعتمد والمكافئ بدقة في حقل verified_term (يُمنع ترك verified_term باللغة الإنجليزية).
    صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم بأسلوب رصين وبدون أي عبارات قالبية فارغة.
+6. منع التكرار مع المصطلحات السابقة في المشروع:
+   يُمنع منعاً باتاً استخراج أو تكرار أي مصطلح أو مفهوم موجود بالفعل في هذه القائمة:
+   ${existingTerms && Array.isArray(existingTerms) && existingTerms.length > 0 ? existingTerms.map((t: any) => t.term || t.transliteration || t.verified_term).filter(Boolean).join("، ") : "لا يوجد بعد"}
 
 لكل مصطلح مستخرج، عبئ الحقول التالية بالترتيب الدقيق:
 1. term: المصطلح الأصلي بالإنجليزية.
@@ -1023,6 +1026,12 @@ ${text.substring(0, 3500)}`;
         if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
         if (isTrivialOrCitationTerm(verified, t.definition)) return false;
         if (/^[a-zA-Z\s\-]+$/.test(verified) && /^[a-zA-Z\s\-]+$/.test(mainTerm)) return false;
+        if (existingTerms && Array.isArray(existingTerms) && existingTerms.some((ex: any) =>
+          areTermsEquivalent(ex.term || "", mainTerm) ||
+          areTermsEquivalent(ex.verified_term || ex.transliteration || "", verified || mainTerm)
+        )) {
+          return false;
+        }
         return true;
       })
       .slice(0, 3)
@@ -1035,7 +1044,7 @@ ${text.substring(0, 3500)}`;
       }));
 
     if (!normalizedTerms || normalizedTerms.length === 0) {
-      normalizedTerms = extractFallbackTermsFromText(text).slice(0, 3).map((t) => ({
+      normalizedTerms = extractFallbackTermsFromText(text, undefined, undefined, existingTerms).slice(0, 3).map((t) => ({
         term: t.term,
         draft_term: t.draft_term,
         verified_term: t.verified_term,
@@ -1047,7 +1056,7 @@ ${text.substring(0, 3500)}`;
     return res.json({ terms: normalizedTerms });
   } catch (error: any) {
     console.warn("Passive glossary extraction backend failed, using local extraction fallback:", error);
-    const fallbacks = extractFallbackTermsFromText(text).map((t) => ({
+    const fallbacks = extractFallbackTermsFromText(text, undefined, undefined, existingTerms).map((t) => ({
       term: t.term,
       draft_term: t.draft_term,
       verified_term: t.verified_term,

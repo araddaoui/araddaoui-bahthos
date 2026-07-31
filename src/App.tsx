@@ -57,23 +57,24 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     return true;
   });
 
-  // Deduplicate terms and cap to max 3 items per source
+  // Deduplicate terms globally across all sources and cap to max 3 items per source
   const sourceCounts: Record<string, number> = {};
   const cappedTerms: GlossaryTerm[] = [];
   for (const t of validTerms) {
     const sId = t.sourceId || fallbackSourceId || "default";
     const currentCount = sourceCounts[sId] || 0;
     if (currentCount < 3) {
-      // Check if an equivalent concept is already present for this source
+      // Strict global duplicate check across ALL sources
       const eng = t.term || "";
       const ar = t.transliteration || t.verified_term || t.draft_term || eng;
       const isDuplicate = cappedTerms.some(
         (ex) =>
-          ex.sourceId === sId &&
-          (areTermsEquivalent(ex.term, eng) ||
-            areTermsEquivalent(ex.verified_term || ex.transliteration, ar) ||
-            areTermsEquivalent(ex.term, ar) ||
-            areTermsEquivalent(ex.verified_term || ex.transliteration, eng))
+          areTermsEquivalent(ex.term, eng) ||
+          areTermsEquivalent(ex.verified_term || ex.transliteration, ar) ||
+          areTermsEquivalent(ex.term, ar) ||
+          areTermsEquivalent(ex.verified_term || ex.transliteration, eng) ||
+          eng.trim().toLowerCase() === (ex.term || "").trim().toLowerCase() ||
+          ar.trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase()
       );
       if (!isDuplicate) {
         sourceCounts[sId] = currentCount + 1;
@@ -107,14 +108,15 @@ export function ensureEverySourceHasTerms(sources: Source[], currentTerms: Gloss
     const existingForSource = updatedTerms.filter((t) => t.sourceId === source.id);
     if (existingForSource.length < 2) {
       const textToExtract = source.content || source.title || "مستند بحثي";
-      const extracted = extractFallbackTermsFromText(textToExtract, source.id, source.title);
+      const extracted = extractFallbackTermsFromText(textToExtract, source.id, source.title, updatedTerms);
       const toAdd = extracted.filter(
         (t) =>
           !updatedTerms.some(
             (ex) =>
-              ex.sourceId === source.id &&
-              (areTermsEquivalent(ex.term, t.term) ||
-                areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term))
+              areTermsEquivalent(ex.term, t.term) ||
+              areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term) ||
+              t.term.trim().toLowerCase() === ex.term.trim().toLowerCase() ||
+              (t.verified_term || t.transliteration || "").trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase()
           )
       );
       updatedTerms = [...updatedTerms, ...toAdd];
@@ -1027,7 +1029,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       const response = await fetch("/api/extract-glossary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, existingTerms: glossaryTerms }),
       });
       if (response.ok) {
         const data = await response.json();
@@ -1042,7 +1044,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
 
     // Always run local fallback extractor if server API returned 0 terms
     if (extractedCount === 0) {
-      const fallbackTerms = extractFallbackTermsFromText(text, sourceId);
+      const fallbackTerms = extractFallbackTermsFromText(text, sourceId, undefined, glossaryTerms);
       if (fallbackTerms.length > 0) {
         addGlossaryTermsDirectly(fallbackTerms, sourceId);
       }
@@ -1076,13 +1078,15 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           sourceId: resolvedSourceId
         }));
 
-      const existingTermsLower = prev.map((t) => t.term.toLowerCase());
-      const existingTransLower = prev.map((t) => t.transliteration.toLowerCase());
-
       const filteredNew = normalizedNewTerms.filter(
         (t) =>
-          !existingTermsLower.includes(t.term.toLowerCase()) &&
-          !existingTransLower.includes(t.transliteration.toLowerCase())
+          !prev.some(
+            (ex) =>
+              areTermsEquivalent(ex.term, t.term) ||
+              areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term) ||
+              t.term.trim().toLowerCase() === ex.term.trim().toLowerCase() ||
+              (t.verified_term || t.transliteration || "").trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase()
+          )
       );
 
       if (filteredNew.length > 0) {

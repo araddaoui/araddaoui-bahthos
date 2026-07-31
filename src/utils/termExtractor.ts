@@ -369,15 +369,28 @@ export const ACADEMIC_TERMS_MAP: Record<string, string> = Object.entries(SCHOLAR
 // Check whether two term strings denote the exact same underlying scholarly concept
 export function areTermsEquivalent(termA: string, termB: string): boolean {
   if (!termA || !termB) return false;
-  const a = normalizeArabicText(termA).trim().toLowerCase();
-  const b = normalizeArabicText(termB).trim().toLowerCase();
+  const cleanStr = (s: string) =>
+    normalizeArabicText(s)
+      .replace(/[-–_،.]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  const a = cleanStr(termA);
+  const b = cleanStr(termB);
+  if (!a || !b) return false;
   if (a === b) return true;
 
-  // Compare via registry keys or Arabic translations
+  // Substring equivalence check for non-trivial terms (> 4 characters)
+  if (a.length > 4 && b.length > 4 && (a.includes(b) || b.includes(a))) {
+    return true;
+  }
+
+  // Compare via scholarly concepts registry (English key or Arabic translation)
   for (const [engKey, meta] of Object.entries(SCHOLARLY_CONCEPTS_REGISTRY)) {
-    const arLower = normalizeArabicText(meta.ar).toLowerCase();
-    const isAMatch = (a === engKey || a === arLower || (a.length > 4 && (a.includes(engKey) || a.includes(arLower) || arLower.includes(a))));
-    const isBMatch = (b === engKey || b === arLower || (b.length > 4 && (b.includes(engKey) || b.includes(arLower) || arLower.includes(b))));
+    const keyClean = cleanStr(engKey);
+    const arClean = cleanStr(meta.ar);
+    const isAMatch = a === keyClean || a === arClean || (a.length > 4 && (a.includes(keyClean) || a.includes(arClean) || arClean.includes(a)));
+    const isBMatch = b === keyClean || b === arClean || (b.length > 4 && (b.includes(keyClean) || b.includes(arClean) || arClean.includes(b)));
     if (isAMatch && isBMatch) {
       return true;
     }
@@ -409,7 +422,7 @@ export function ensureArabicSummary(summary?: string, title?: string, _content?:
  * Extracts 2 to 3 concepts and terms strictly relating to the provided text/document.
  * Eliminates all title headers, page numbers, duplicates, and non-theoretical phrases.
  */
-export function extractFallbackTermsFromText(text: string, sourceId?: string, title?: string): GlossaryTerm[] {
+export function extractFallbackTermsFromText(text: string, sourceId?: string, title?: string, existingGlossary?: GlossaryTerm[]): GlossaryTerm[] {
   if ((!text || text.trim().length < 5) && (!title || title.trim().length < 3)) {
     return [];
   }
@@ -417,6 +430,22 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   const cleanText = text || "";
   const searchScope = `${title || ""} ${cleanText}`.toLowerCase();
   const extracted: GlossaryTerm[] = [];
+
+  const isAlreadyPresent = (rawTerm: string, arabicTerm: string, list?: GlossaryTerm[]) => {
+    if (!list || list.length === 0) return false;
+    return list.some((ex) => {
+      const exEng = ex.term || "";
+      const exAr = ex.verified_term || ex.transliteration || ex.draft_term || "";
+      return (
+        areTermsEquivalent(exEng, rawTerm) ||
+        areTermsEquivalent(exAr, arabicTerm || rawTerm) ||
+        areTermsEquivalent(exEng, arabicTerm || rawTerm) ||
+        areTermsEquivalent(exAr, rawTerm) ||
+        rawTerm.trim().toLowerCase() === exEng.trim().toLowerCase() ||
+        (arabicTerm && arabicTerm.trim().toLowerCase() === exAr.trim().toLowerCase())
+      );
+    });
+  };
 
   const addTerm = (rawTerm: string, arabicTerm?: string, customDef?: string) => {
     if (extracted.length >= 3) return;
@@ -447,16 +476,11 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
       return;
     }
 
-    // Zero-duplicate check across English and Arabic equivalents
-    if (
-      extracted.some(
-        (e) =>
-          areTermsEquivalent(e.term, termClean) ||
-          areTermsEquivalent(e.verified_term, verifiedArabic || termClean) ||
-          areTermsEquivalent(e.term, verifiedArabic || termClean) ||
-          areTermsEquivalent(e.verified_term, termClean)
-      )
-    ) {
+    // Zero-duplicate check across English and Arabic equivalents globally
+    if (isAlreadyPresent(termClean, verifiedArabic || termClean, extracted)) {
+      return;
+    }
+    if (isAlreadyPresent(termClean, verifiedArabic || termClean, existingGlossary)) {
       return;
     }
 
@@ -503,7 +527,17 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
         "pedagogical translation",
         "didactics of translation",
         "technological turn in translation",
-        "neural machine translation"
+        "neural machine translation",
+        "translation equivalence",
+        "skopos theory",
+        "functional equivalence",
+        "dynamic equivalence",
+        "descriptive translation studies",
+        "cognitive load in translation",
+        "audiovisual translation",
+        "computer-assisted translation",
+        "translation theory",
+        "quality assurance"
       );
     } else if (isTranslationDomain) {
       domainCandidates.push(
@@ -511,7 +545,15 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
         "translator competence",
         "didactics of translation",
         "skopos theory",
-        "translation equivalence"
+        "translation equivalence",
+        "functional equivalence",
+        "dynamic equivalence",
+        "descriptive translation studies",
+        "cognitive load in translation",
+        "audiovisual translation",
+        "computer-assisted translation",
+        "translation theory",
+        "quality assurance"
       );
     } else if (isIrDomain) {
       domainCandidates.push(
@@ -519,28 +561,41 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
         "constructivism",
         "realism",
         "soft power",
-        "balance of power"
+        "balance of power",
+        "process tracing",
+        "path dependence",
+        "content analysis",
+        "critical discourse analysis"
       );
     } else if (isPedagogyDomain) {
       domainCandidates.push(
         "constructivist pedagogy",
         "scaffolding theory",
         "formative assessment",
-        "blended learning"
+        "blended learning",
+        "quality assurance",
+        "pedagogical translation",
+        "didactics of translation",
+        "cognitive load in translation"
       );
     } else if (isAiDomain) {
       domainCandidates.push(
         "generative artificial intelligence",
         "large language models",
         "natural language processing",
-        "machine learning"
+        "machine learning",
+        "neural machine translation",
+        "technological turn in translation"
       );
     } else {
       domainCandidates.push(
         "process tracing",
         "path dependence",
         "content analysis",
-        "critical discourse analysis"
+        "critical discourse analysis",
+        "quality assurance",
+        "scaffolding theory",
+        "formative assessment"
       );
     }
 
