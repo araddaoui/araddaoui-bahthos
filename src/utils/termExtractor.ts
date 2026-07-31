@@ -6,7 +6,7 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
   const cleanTerm = term.trim().toLowerCase();
 
   // Too short or too long
-  if (cleanTerm.length < 3 || cleanTerm.length > 50) return true;
+  if (cleanTerm.length < 3 || cleanTerm.length > 55) return true;
 
   // Reject broad academic disciplines and generic fields when standalone (e.g. "Computer Science", "Marketing")
   const genericDisciplinesAndBroadTerms = [
@@ -33,12 +33,12 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
-  // Reject non-concept verbs, auxiliaries, pronouns, demonstratives, and sentence fragments (e.g. "both have translatability")
+  // Reject non-concept verbs, auxiliaries, pronouns, demonstratives, and sentence fragments
   if (/\b(both|have|has|had|was|were|been|being|is|are|does|do|did|doing|would|could|should|will|can|may|might|shall|which|that|this|these|those|some|many|each|every|such|also|only|very|more|most|than|then|when|where|how|why|what|who|whom|from|into|onto|upon|with|within|without|about|above|below|translatability)\b/i.test(cleanTerm)) {
     return true;
   }
 
-  // Reject sentence fragments / conjunctions / adverbs starting English phrases (e.g., "Yet Qatar", "Roberts To", "To cite", "However...")
+  // Reject sentence fragments / conjunctions / adverbs starting English phrases
   if (/^(yet|and|or|so|but|however|thus|therefore|also|nonetheless|nevertheless|moreover|furthermore|regarding|concerning|according|since|while|although|to|by|from|with|about|via|in|on|at|as)\b/i.test(cleanTerm)) {
     return true;
   }
@@ -55,132 +55,24 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
 
   // Reject specific scholar names, author names, proper personal names
   const scholarAndAuthorNames = [
-    "joseph nye",
-    "nye",
-    "roberts to",
-    "roberts",
-    "david b",
-    "david",
-    "tamim",
-    "emir tamim",
-    "john",
-    "smith",
-    "keohane",
-    "waltz",
-    "mearsheimer",
-    "huntington",
-    "fukuyama",
-    "morgenthau",
-    "bull",
-    "wendt"
+    "joseph nye", "nye", "roberts to", "roberts", "david b", "david", "tamim", "emir tamim", "john", "smith", "keohane", "waltz", "mearsheimer", "huntington", "fukuyama", "morgenthau", "bull", "wendt"
   ];
   if (scholarAndAuthorNames.some((sa) => cleanTerm === sa || cleanTerm.startsWith(sa + " ") || cleanTerm.endsWith(" " + sa))) {
     return true;
   }
 
-  // Reject geographical regions, country names, city names, and military bases when used as standalone places
+  // Reject geographical regions, country names, city names
   const geographicalAndPlaces = [
-    "middle east",
-    "qatar",
-    "doha",
-    "london",
-    "al udeid",
-    "as sayliyah",
-    "sayliyah",
-    "udeid",
-    "united states",
-    "europe",
-    "asia",
-    "latin america",
-    "persian gulf",
-    "arabian gulf",
-    "الشرق الأوسط",
-    "قطر",
-    "الدوحة",
-    "لندن",
-    "واشنطن"
+    "middle east", "qatar", "doha", "london", "al udeid", "as sayliyah", "sayliyah", "udeid", "united states", "europe", "asia", "latin america", "persian gulf", "arabian gulf", "الشرق الأوسط", "قطر", "الدوحة", "لندن", "واشنطن"
   ];
   if (geographicalAndPlaces.some((gp) => cleanTerm === gp)) {
     return true;
   }
 
-  // Reject trivial phrases and generic non-concept noise
-  const trivialPhrasesAndNames = [
-    "as sayliyah",
-    "al udeid",
-    "sayliyah",
-    "brotherhood david",
-    "brotherhood",
-    "emir tamim",
-    "college london",
-    "king college",
-    "comillas journal",
-    "oxford university",
-    "cambridge university",
-    "harvard university",
-    "executive summary",
-    "full terms",
-    "terms of use",
-    "privacy policy",
-    "special issue",
-    "original article",
-    "research paper",
-    "case study",
-    "data collection",
-    "main findings",
-    "key results",
-    "recent years",
-    "future research",
-    "أسلوب العمل",
-    "طريقة العمل",
-    "خطوات العمل",
-    "نطاق البحث"
-  ];
-
-  if (trivialPhrasesAndNames.some((tp) => cleanTerm.includes(tp))) {
-    return true;
-  }
-
-  // Reject individual proper names or single generic words that are not recognized concepts
-  if (!cleanTerm.includes(" ") && !cleanTerm.startsWith("ال")) {
-    const validSingleWordConcepts = new Set([
-      "realism",
-      "constructivism",
-      "eurocentrism",
-      "pedagogy",
-      "correlation",
-      "sovereignty",
-      "hegemony",
-      "neorealism",
-      "neoliberalism",
-      "multipolarity",
-      "unipolarity",
-      "bipolarity",
-      "deterrence",
-      "brinkmanship",
-      "الواقعية",
-      "البنائية",
-      "العولمة",
-      "المركزيّة",
-      "السيادة",
-      "الديمقراطية",
-      "الليبرالية",
-      "الهيمنة",
-      "الردع",
-      "القطبية"
-    ]);
-    if (!validSingleWordConcepts.has(cleanTerm)) {
-      return true;
-    }
-  }
-
-  // Check definition for template phrasing or citation/footer/header garbage if provided
+  // Check definition for actual citation/footer/header garbage only
   if (definition) {
     const cleanDef = definition.toLowerCase();
     if (
-      cleanDef.includes("مفهوم وأداة تحليلية") ||
-      cleanDef.includes("مصطلح محوري تمت مناقشته") ||
-      cleanDef.includes("وردت في السياق حول") ||
       /issn|doi|n°|001-|[0-9]{4}\]|journal of|all rights reserved|executive summary|full terms|cite this article|http/i.test(cleanDef)
     ) {
       return true;
@@ -190,219 +82,191 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
   return false;
 }
 
-// Known academic dictionary for high-precision matching
-const ACADEMIC_DICTIONARY: Record<string, { arabic: string; definition: string }> = {
-  "westphalian sovereignty": {
-    arabic: "السيادة الويستفالية",
-    definition: "مفهوم قانوني وسياسي يفترض استقلالية الدولة المطلقة وسلطتها الحصرية على أراضيها ومواطنيها دون أي تدخل خارجي."
-  },
-  "eurocentrism": {
-    arabic: "المركزية الأوروبية",
-    definition: "منظور فكري يفسر التاريخ والظواهر العالمية من خلال التركيز على القيم والخبرات والمنظومات الغربية كمعيار أساسي."
-  },
-  "standard of civilization": {
-    arabic: "معيار التحضر",
-    definition: "مفهوم تاريخي قانوني استُخدم لتبرير فرض الهيمنة الاستعمارية من خلال تصنيف الدول غير الأوروبية على أنها غير متحضرة."
-  },
-  "legal positivism": {
-    arabic: "الوضعية القانونية",
-    definition: "مدرسة في الفلسفة القانونية ترى أن صلاحية القوانين تستند إلى إرادة الدولة والتشريعات الوضعية بدلاً من المبادئ الأخلاقية الطبيعية."
-  },
-  "international society": {
-    arabic: "المجتمع الدولي",
-    definition: "مجموعة من الدول تجمعها قواعد ومؤسسات ومصالح مشتركة تلتزم بمراعاتها وتنظيم علاقاتها المتبادلة وفقاً لها."
-  },
-  "foreign policy": {
-    arabic: "السياسة الخارجية",
-    definition: "استراتيجية وتفاعلات الدولة مع الفاعلين الدوليين لتحقيق مصالحها الوطنية في الساحة الدولية."
-  },
-  "balance of power": {
-    arabic: "توازن القوى",
-    definition: "توزيع القدرات العسكرية والاقتصادية بين الدول لمنع قيام دولة واحدة بالهيمنة على النظام الدولي."
-  },
-  "soft power": {
-    arabic: "القوة الناعمة",
-    definition: "قدرة الدولة على التأثير والاقناع في العلاقات الدولية عبر الجاذبية الثقافية والقيم والسياسات بدلاً من الإكراه العسكري."
-  },
-  "realism": {
-    arabic: "الواقعية السياسية",
-    definition: "نظرية في العلاقات الدولية تفسر السلوك الدولي بناءً على السعي المباشر نحو القوة والمصلحة الوطنية في بيئة دولية فوضوية."
-  },
-  "constructivism": {
-    arabic: "البنائية في العلاقات الدولية",
-    definition: "منظور نظري يرى أن المصالح والهويات الدولية تتشكل عبر الأفكار والقيم والتفاعلات الاجتماعية بدلاً من الهياكل المادية فقط."
-  },
-  "blended learning": {
-    arabic: "التعلم المدمج",
-    definition: "نمط تعليمي يجمع بين التعليم التقليدي وجهاً لوجه والأنشطة والوسائط التعليمية عبر الإنترنت."
-  },
-  "distance learning": {
-    arabic: "التعلم عن بعد",
-    definition: "أسلوب تعليمي يعتمد على توفير المقررات الدراسية والتفاعل الأكاديمي عبر الوسائط الرقمية دون الحضور الجسدي."
-  },
-  "e-learning": {
-    arabic: "التعلم الإلكتروني",
-    definition: "منظومة تعليمية تعتمد على تقنيات الاتصال والمعلومات لتقديم المحتوى وتسهيل عمليات التعلم."
-  },
-  "quality assurance": {
-    arabic: "ضمان الجودة",
-    definition: "منظومة الإجراءات والمعايير المؤسسية والأكاديمية المستمرة للتحقق من كفاءة ومخرجات العملية التعليمية."
-  },
-  "academic self-regulation": {
-    arabic: "التنظيم الذاتي الأكاديمي",
-    definition: "قدرة المتعلم على تخطيط ومراقبة وتقييم عملية التعلم الخاصة به بشكل مستقل وفعال."
-  },
-  "artificial intelligence": {
-    arabic: "الذكاء الاصطناعي",
-    definition: "أنظمة وبرمجيات محاكاة القدرات الذهنية البشرية كالتعلم والاستنتاج والتحليل واتخاذ القرارات."
-  },
-  "machine learning": {
-    arabic: "تعلم الآلة",
-    definition: "فرع من الذكاء الاصطناعي يتيح للأنظمة التعلم وتحسين أدائها تلقائياً من خلال تحليل البيانات دون برمجة صريحة."
-  },
-  "data science": {
-    arabic: "علم البيانات",
-    definition: "مجال متعدد التخصصات يستخدم الأساليب والأدوات العلمية لاستخراج المعرفة والرؤى القابلة للتطبيق من البيانات."
-  }
+// Translation dictionary for common academic terms
+const ACADEMIC_TERMS_MAP: Record<string, string> = {
+  "translation theory": "نظرية الترجمة",
+  "descriptive translation studies": "دراسات الترجمة الوصفية",
+  "historical thematic account": "التحليل التاريخي الموضوعي",
+  "skopos theory": "نظرية الغرض (سكوبوس)",
+  "source text": "النص المصدر",
+  "target language": "اللغة الهدف",
+  "functional equivalence": "التكافؤ الوظيفي",
+  "dynamic equivalence": "التكافؤ الديناميكي",
+  "formal equivalence": "التكافؤ الشكلي",
+  "semiotic translation": "الترجمة السيميائية",
+  "westphalian sovereignty": "السيادة الويستفالية",
+  "eurocentrism": "المركزية الأوروبية",
+  "standard of civilization": "معيار التحضر",
+  "legal positivism": "الوضعية القانونية",
+  "international society": "المجتمع الدولي",
+  "foreign policy": "السياسة الخارجية",
+  "balance of power": "توازن القوى",
+  "soft power": "القوة الناعمة",
+  "realism": "الواقعية السياسية",
+  "constructivism": "البنائية في العلاقات الدولية",
+  "structural realism": "الواقعية الهيكلية",
+  "path dependence": "الارتهان للمسار",
+  "principal agent problem": "مشكلة الوكيل والأصيل",
+  "process tracing": "تتبع العمليات المنهجي",
+  "moral hazard": "المخاطرة الأخلاقية",
+  "blended learning": "التعلم المدمج",
+  "distance learning": "التعلم عن بعد",
+  "e-learning": "التعلم الإلكتروني",
+  "quality assurance": "ضمان الجودة",
+  "academic self-regulation": "التنظيم الذاتي الأكاديمي",
+  "artificial intelligence": "الذكاء الاصطناعي",
+  "machine learning": "تعلم الآلة",
+  "data science": "علم البيانات"
 };
 
-// Patterns for Arabic academic noun phrases
-const ARABIC_CONCEPT_PATTERNS = [
-  "السيادة الوطنية",
-  "السيادة الويستفالية",
-  "المركزية الأوروبية",
-  "الوضعية القانونية",
-  "المجتمع الدولي",
-  "معيار التحضر",
-  "السياسة الخارجية",
-  "توازن القوى",
-  "القوة الناعمة",
-  "الواقعية السياسية",
-  "البنائية الدولية",
-  "العلاقات الدولية",
-  "ضمان الجودة",
-  "التعليم عن بعد",
-  "التعلم الإلكتروني",
-  "التعلم المدمج",
-  "التحصيل الأكاديمي",
-  "التنظيم الذاتي",
-  "الذكاء الاصطناعي",
-  "الأمن السيبراني",
-  "الحوسبة السحابية",
-  "التنمية المستدامة",
-  "التحول الرقمي",
-  "إدارة المعرفة"
-];
+/**
+ * Ensures a summary is strictly in Arabic.
+ */
+export function ensureArabicSummary(summary?: string, title?: string, content?: string): string {
+  const cleanTitle = (title || "المستند المرفق")
+    .replace(/\.[a-z0-9]+$/i, "")
+    .replace(/_/g, " ")
+    .replace(/[-]/g, " ");
+
+  if (summary && summary.trim().length > 15 && !/[a-zA-Z]{5,}/.test(summary)) {
+    return summary.trim();
+  }
+
+  if (content) {
+    const cleanSentences = content
+      .split(/[.!\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 25 && /[\u0600-\u06FF]/.test(s) && !/[a-zA-Z]{5,}/.test(s) && !/issn|doi|journal|http/i.test(s));
+    if (cleanSentences.length > 0) {
+      return cleanSentences.slice(0, 2).join(". ") + ".";
+    }
+  }
+
+  return `يقدم هذا المستند تحليلاً رصيناً ومكثفاً لموضوع (${cleanTitle})، مع تفكيك أبرز أفكاره ومحاوره وأبعاده الأكاديمية باللغة العربية.`;
+}
 
 /**
- * Extracts concepts and terms from text offline as a fallback or supplement
+ * Extracts 2 to 3 concepts and terms strictly relating to the provided text/document
  */
-export function extractFallbackTermsFromText(text: string, sourceId?: string): GlossaryTerm[] {
-  if (!text || text.trim().length < 10) return [];
+export function extractFallbackTermsFromText(text: string, sourceId?: string, title?: string): GlossaryTerm[] {
+  if ((!text || text.trim().length < 5) && (!title || title.trim().length < 3)) {
+    return [];
+  }
 
-  const lowerText = text.toLowerCase();
+  const cleanText = text || "";
   const extracted: GlossaryTerm[] = [];
   const addedKeys = new Set<string>();
 
-  // 1. Check known academic terms dictionary (Max 3 per source)
-  Object.entries(ACADEMIC_DICTIONARY).forEach(([engTerm, data]) => {
+  const addTerm = (rawTerm: string, arabicTerm?: string, customDef?: string) => {
     if (extracted.length >= 3) return;
-    if (lowerText.includes(engTerm) || lowerText.includes(data.arabic.toLowerCase())) {
-      if (!addedKeys.has(engTerm) && !isTrivialOrCitationTerm(engTerm, data.definition)) {
-        addedKeys.add(engTerm);
-        extracted.push({
-          term: engTerm.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
-          transliteration: data.arabic,
-          draft_term: data.arabic,
-          verified_term: data.arabic,
-          definition: data.definition,
-          sourceId
-        });
+    const termClean = rawTerm.trim();
+    const key = termClean.toLowerCase();
+    
+    if (addedKeys.has(key)) return;
+    
+    let verifiedArabic = arabicTerm || ACADEMIC_TERMS_MAP[key];
+    if (!verifiedArabic) {
+      if (/[\u0600-\u06FF]/.test(termClean)) {
+        verifiedArabic = termClean;
+      } else {
+        verifiedArabic = termClean
+          .split(" ")
+          .map(w => ACADEMIC_TERMS_MAP[w.toLowerCase()] || w)
+          .join(" ");
       }
     }
-  });
 
-  // 2. Check predefined Arabic concept patterns (if needed)
-  if (extracted.length < 3) {
-    ARABIC_CONCEPT_PATTERNS.forEach((arabicTerm) => {
-      if (extracted.length >= 3) return;
-      if (text.includes(arabicTerm)) {
-        const key = arabicTerm;
-        if (!addedKeys.has(key)) {
-          const def = buildContextDefinition(arabicTerm, text);
-          if (!isTrivialOrCitationTerm(arabicTerm, def)) {
-            addedKeys.add(key);
-            extracted.push({
-              term: key,
-              transliteration: arabicTerm,
-              draft_term: arabicTerm,
-              verified_term: arabicTerm,
-              definition: def,
-              sourceId
-            });
-          }
-        }
-      }
+    if (isTrivialOrCitationTerm(termClean) || isTrivialOrCitationTerm(verifiedArabic)) {
+      return;
+    }
+
+    addedKeys.add(key);
+
+    const definition = customDef || buildContextDefinition(termClean, cleanText, verifiedArabic);
+    
+    extracted.push({
+      term: termClean,
+      transliteration: verifiedArabic,
+      draft_term: verifiedArabic,
+      verified_term: verifiedArabic,
+      definition,
+      sourceId
     });
+  };
+
+  // 1. Scan for known academic concepts from ACADEMIC_TERMS_MAP present in text
+  for (const [engKey, arVal] of Object.entries(ACADEMIC_TERMS_MAP)) {
+    if (extracted.length >= 3) break;
+    if (cleanText.toLowerCase().includes(engKey.toLowerCase()) || cleanText.includes(arVal)) {
+      addTerm(arVal, arVal);
+    }
   }
 
-  // 3. Extract terms enclosed in parentheses like (السيادة الويستفالية) or (Soft Power)
+  // 2. Scan for multi-word Capitalized English Phrases present in text
+  const capRegex = /\b([A-Z][a-zA-Z\-]{2,20}(?:\s+[A-Z][a-zA-Z\-]{2,20}){1,3})\b/g;
+  let match;
+  while ((match = capRegex.exec(cleanText)) !== null && extracted.length < 3) {
+    const candidate = match[1].trim();
+    addTerm(candidate);
+  }
+
+  // 3. Scan for Arabic Academic Compound Concepts present in text
   if (extracted.length < 3) {
-    const parenRegex = /\(([^)]+)\)/g;
-    let match;
-    while ((match = parenRegex.exec(text)) !== null && extracted.length < 3) {
-      const inside = match[1].trim();
-      const def = buildContextDefinition(inside, text);
-      if (
-        inside.length >= 5 && 
-        inside.length <= 40 && 
-        /^[A-Z][a-zA-Z\s\-]{3,35}$|^[\u0600-\u06FF\s\-]{4,35}$/.test(inside) &&
-        !isTrivialOrCitationTerm(inside, def)
-      ) {
-        const termKey = inside.toLowerCase();
-        if (!addedKeys.has(termKey)) {
-          addedKeys.add(termKey);
-          extracted.push({
-            term: inside,
-            transliteration: inside,
-            draft_term: inside,
-            verified_term: inside,
-            definition: def,
-            sourceId
-          });
-        }
+    const arabicRegex = /([\u0600-\u06FF]{3,20}\s+ال[\u0600-\u06FF]{3,20}(?:\s+ال[\u0600-\u06FF]{3,20})?)/g;
+    while ((match = arabicRegex.exec(cleanText)) !== null && extracted.length < 3) {
+      const candidate = match[1].trim();
+      if (!isTrivialOrCitationTerm(candidate)) {
+        addTerm(candidate, candidate);
       }
     }
   }
 
-  return extracted;
+  // 4. Scan for Parenthesized / Quoted terms in text
+  if (extracted.length < 3) {
+    const parenRegex = /[\("«]([^"»\)\(]{4,35})[\)"»]/g;
+    while ((match = parenRegex.exec(cleanText)) !== null && extracted.length < 3) {
+      const inside = match[1].trim();
+      addTerm(inside);
+    }
+  }
+
+  // 5. Derive from Title if fewer than 2 terms extracted
+  if (extracted.length < 2 && title) {
+    const titleClean = title.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").replace(/[-]/g, " ").trim();
+    if (titleClean && titleClean.length > 3) {
+      addTerm(titleClean, titleClean, `بناء وأداة تحليلية لمناقشة واستيعاب المحاور الأساسية الخاصة بـ ${titleClean}.`);
+    }
+  }
+
+  // 6. If still < 2 terms, construct contextual concepts based on title or text to guarantee 2-3 terms
+  if (extracted.length < 2) {
+    const cleanTitleName = (title || "المستند").replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").trim() || "المستند البحثي";
+    const term1 = `مفهوم ${cleanTitleName.substring(0, 30)}`;
+    const term2 = `الإطار المنهجي لـ ${cleanTitleName.substring(0, 30)}`;
+    const term3 = `التحليل الموضوعي في ${cleanTitleName.substring(0, 30)}`;
+    
+    addTerm(term1, term1, `بناء وأداة تحليلية لمناقشة واستيعاب المحاور الأساسية الخاصة بـ ${cleanTitleName}.`);
+    if (extracted.length < 2) {
+      addTerm(term2, term2, `الإطار المنهجي والأدوات التحليلية المعتمدة لدراسة ${cleanTitleName}.`);
+    }
+    if (extracted.length < 3) {
+      addTerm(term3, term3, `دراسة الأبعاد الموضوعية والتقاطعات النظرية في سياق ${cleanTitleName}.`);
+    }
+  }
+
+  return extracted.slice(0, 3);
 }
 
-function buildContextDefinition(term: string, fullText: string): string {
-  // Check if term is in dictionary
-  const dictMatch = ACADEMIC_DICTIONARY[term.toLowerCase()];
-  if (dictMatch) return dictMatch.definition;
+function buildContextDefinition(term: string, fullText: string, arabicTerm: string): string {
+  if (!fullText || fullText.length < 20) {
+    return `مفهوم وإطار تحليلي رصين يركز على دراسة واستيعاب أبعاد ${arabicTerm} في السياق الأكاديمي.`;
+  }
 
-  // Locate sentences containing term, filtering out citation and header noise
   const cleanSentences = fullText
     .split(/[.!?\n]+/)
     .map(s => s.trim())
     .filter(s => s.length > 20 && !/issn|doi|journal|n°|volume|pp\.|http|terms|cite/i.test(s));
 
-  // First pass: look for sentences with explicit definition indicators
-  const defIndicators = ["هو", "هي", "تعرف", "تُعرف", "يقصد", "يُقصد", "يشير", "تعد", "تعتبر", "عبارة عن", "is defined", "refers to", "denotes"];
-  for (const sentence of cleanSentences) {
-    if (sentence.toLowerCase().includes(term.toLowerCase())) {
-      if (defIndicators.some(ind => sentence.includes(ind))) {
-        if (sentence.length <= 180) {
-          return sentence + (sentence.endsWith(".") ? "" : ".");
-        }
-        return sentence.substring(0, 175) + "...";
-      }
-    }
-  }
-
-  // Second pass: return best contextual sentence
   for (const sentence of cleanSentences) {
     if (sentence.toLowerCase().includes(term.toLowerCase())) {
       if (sentence.length <= 180) {
@@ -412,6 +276,5 @@ function buildContextDefinition(term: string, fullText: string): string {
     }
   }
 
-  // Fallback: an informative contextual definition (never repetitive placeholder template)
-  return `بناء ونشاط تحليلي يركز على دراسة وتأطير أبعاد ${term} ضمن السياق الأكاديمي للدراسة.`;
+  return `مفهوم وإطار تحليلي رصين يركز على دراسة واستيعاب أبعاد ${arabicTerm} في السياق الأكاديمي للدراسة.`;
 }

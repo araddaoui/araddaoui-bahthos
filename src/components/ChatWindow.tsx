@@ -16,6 +16,7 @@ import {
 import { Message, Source } from "../types";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView";
 import { parseDocumentFile } from "../utils/documentParser";
+import { ensureArabicSummary, extractFallbackTermsFromText } from "../utils/termExtractor";
 
 // Helper function to calculate the agreement score based on academic keyword matches
 const calculateAgreementMeter = (text: string) => {
@@ -126,18 +127,23 @@ export default function ChatWindow({
 
         if (response.ok) {
           const data = await response.json();
-          onAddSource(data.title, data.originalText || parsed.text, data.language || "ar", data.summary, undefined, data.terms);
+          const cleanSummary = ensureArabicSummary(data.summary, data.title, data.originalText || parsed.text);
+          onAddSource(data.title, data.originalText || parsed.text, data.language || "ar", cleanSummary, undefined, data.terms);
         } else {
           const fallbackText = (parsed.text && parsed.text.trim()) 
             ? parsed.text 
             : `محتوى المستند المرفق (${file.name}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-          onAddSource(file.name, fallbackText, "ar", fallbackText.substring(0, 300) + "...", undefined, []);
+          const cleanSummary = ensureArabicSummary("", file.name, fallbackText);
+          const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, file.name);
+          onAddSource(file.name, fallbackText, "ar", cleanSummary, undefined, fallbackTerms);
         }
       } catch (netErr: any) {
         const fallbackText = (parsed.text && parsed.text.trim()) 
           ? parsed.text 
           : `محتوى المستند المرفق (${file.name}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-        onAddSource(file.name, fallbackText, "ar", fallbackText.substring(0, 300) + "...", undefined, []);
+        const cleanSummary = ensureArabicSummary("", file.name, fallbackText);
+        const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, file.name);
+        onAddSource(file.name, fallbackText, "ar", cleanSummary, undefined, fallbackTerms);
       }
 
       setIsUploading(false);

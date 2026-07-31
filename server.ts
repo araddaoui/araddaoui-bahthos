@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./src/utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary } from "./src/utils/termExtractor";
 
 // Load environment variables BEFORE anything else
 dotenv.config();
@@ -393,7 +393,7 @@ app.post("/api/analyze-document", async (req, res) => {
   let result: any = {
     title: fileName || "مستند مرفق",
     language: "ar",
-    summary: parsedContent ? (parsedContent.substring(0, 350) + "...") : "تم إدراج المستند المرفق للتحليل والتوليف بواسطة الذكاء الاصطناعي.",
+    summary: ensureArabicSummary("", fileName || "مستند مرفق", parsedContent),
     extractedText: parsedContent || "",
     terms: [],
   };
@@ -406,17 +406,17 @@ app.post("/api/analyze-document", async (req, res) => {
 
 طبق القواعد الحاسمة التالية:
 1. الملخص (summary) باللغة العربية الفصحى حصراً وشرطاً قاطعاً:
-   يجب كتابة الملخص باللغة العربية الفصحى حصراً وبأسلوب سلس وواضح، بغض النظر عن لغة المستند الأصلية (حتى لو كان المستند مكتوباً بالإنجليزية أو الفرنسية).
-2. الاقتصار على المفاهيم النظرية والأطر المنهجية المعتمدة:
-   استخرج فقط المفاهيم البنيوية المركبة والأطر المعتمدة في الأدبيات العلمية (مثل: Soft Power, Westphalian Sovereignty, Machine Learning, Path Dependence, Constructivism, Quality Assurance, Realism).
+   يجب كتابة الملخص باللغة العربية الفصحى حصراً وبأسلوب سلس وواضح، بغض النظر عن لغة المستند الأصلية (حتى لو كان المستند مكتوباً بالإنجليزية أو الفرنسية). يُحظر تماماً كتابة أي نص بالإنجليزية في الملخص.
+2. الاقتصار على المفاهيم النظرية والأطر المنهجية المعتمدة في المستند:
+   استخرج فقط المفاهيم البنيوية المركبة والأطر المعتمدة المذكورة حقيقة في المستند (مثل: Soft Power, Westphalian Sovereignty, Translation Theory, Path Dependence, Constructivism, Quality Assurance, Realism).
 3. الحظر التام لاستخراج الجمل والعبارات اللغوية الشائعة (Linguistic Fragments):
-   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة (مثل: "both have translatability", "results show", "in this study", "data collected", "future research"). أي أجزاء جمل تحتوي أفعالاً أو أدوات ربط تُستبعد فوراً.
+   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة.
 4. استبعاد التخصصات والمجالات العامة:
-   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة كمصطلحات (مثل: Computer Science, Economics, History, Marketing...).
+   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة كمصطلحات.
 5. الترجمة والتعريب الدقيق (verified_term):
-   يجب تقديم مصطلح عربي فصيح ومعتمد ومكافئ للمصطلح الأصلي في حقل verified_term (يُحظر ترك verified_term باللغة الإنجليزية).
+   يجب تقديم مصطلح عربي فصيح ومعتمد ومكافئ للمصطلح الأصلي في حقل verified_term.
 6. الجودة الصارمة للتعريف:
-   لكل مصطلح، صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم العلمي ومعناه الدقيق بأسلوب رصين دون عبارات قالبية.`;
+   لكل مصطلح، صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم العلمي ومعناه الدقيق.`;
 
     let contentsParam: any;
     if (parsedContent && parsedContent.trim()) {
@@ -483,7 +483,7 @@ app.post("/api/analyze-document", async (req, res) => {
                 },
                 required: ["term", "draft_term", "definition", "verified_term"]
               },
-              description: "قائمة بأبرز المصطلحات والتقنيات المستخرجة من المستند مع الترجمة والتعريف."
+              description: "قائمة بأبرز المصطلحات والتقنيات المستخرجة من المستند مع الترجمة والتعريف (من 2 إلى 3 مصطلحات)."
             }
           },
           required: ["title", "language", "summary", "terms"]
@@ -495,31 +495,13 @@ app.post("/api/analyze-document", async (req, res) => {
     const data = JSON.parse(response.text?.trim() || "{}");
     result.title = data.title || fileName || "مستند بدون عنوان";
     result.language = data.language || "ar";
-    result.summary = data.summary || result.summary;
+    result.summary = ensureArabicSummary(data.summary || result.summary, result.title, parsedContent);
+    
     if (!parsedContent && data.extractedText) {
       parsedContent = data.extractedText;
       result.extractedText = data.extractedText;
     }
 
-    // Ensure the summary is strictly in Arabic (translate if Gemini generated an English summary)
-    if (result.summary && /[a-zA-Z]{6,}/.test(result.summary)) {
-      console.log("🌐 Detected English/foreign characters in generated summary, translating strictly to Arabic...");
-      try {
-        const translationRes = await generateContentWithRetry(ai, {
-          model: "gemini-3.6-flash",
-          contents: `قم بتلخيص وترجمة هذا النص بالكامل إلى اللغة العربية الفصحى الواضحة والبليغة حصراً وبدون أي كلمات إنجليزية أو مقدمات:\n\n${result.summary}`,
-          config: {
-            temperature: 0.1,
-          }
-        });
-        if (translationRes?.text && translationRes.text.trim()) {
-          result.summary = translationRes.text.trim();
-        }
-      } catch (trErr) {
-        console.warn("Summary Arabic translation failed:", trErr);
-      }
-    }
-    
     if (data.terms && Array.isArray(data.terms)) {
       result.terms = data.terms
         .filter((t: any) => {
@@ -527,7 +509,6 @@ app.post("/api/analyze-document", async (req, res) => {
           const verified = t.verified_term || t.draft_term || "";
           if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
           if (isTrivialOrCitationTerm(verified, t.definition)) return false;
-          if (/^[a-zA-Z\s\-]+$/.test(verified) && /^[a-zA-Z\s\-]+$/.test(mainTerm)) return false;
           return true;
         })
         .slice(0, 3);
@@ -535,15 +516,13 @@ app.post("/api/analyze-document", async (req, res) => {
   } catch (error) {
     console.warn("AI analysis failed, falling back to simple extraction:", error);
     result.title = fileName || "مستند مقتبس";
-    if (parsedContent) {
-      result.summary = parsedContent.substring(0, 300) + "...";
-    }
+    result.summary = ensureArabicSummary("", result.title, parsedContent);
   }
 
-  // Ensure terms and concepts are ALWAYS generated and returned for every document
-  if (!result.terms || !Array.isArray(result.terms) || result.terms.length === 0) {
+  // Ensure 2 to 3 terms are ALWAYS generated and returned for every document
+  if (!result.terms || !Array.isArray(result.terms) || result.terms.length < 2) {
     const textToExtract = parsedContent || result.summary || result.title || "";
-    const fallbackTerms = extractFallbackTermsFromText(textToExtract);
+    const fallbackTerms = extractFallbackTermsFromText(textToExtract, undefined, result.title);
     result.terms = fallbackTerms.slice(0, 3).map((t) => ({
       term: t.term,
       draft_term: t.draft_term,
@@ -551,6 +530,9 @@ app.post("/api/analyze-document", async (req, res) => {
       verified_term: t.verified_term
     }));
   }
+
+  // Final sanity check on summary to guarantee 100% Arabic language
+  result.summary = ensureArabicSummary(result.summary, result.title, parsedContent);
 
   const finalOriginalText = parsedContent && parsedContent.trim() 
     ? parsedContent 

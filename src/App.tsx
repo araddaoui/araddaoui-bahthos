@@ -11,7 +11,7 @@ import SettingsView from "./components/SettingsView";
 import LandingPage from "./components/LandingPage";
 import TermsOfService from "./components/TermsOfService";
 import PrivacyPolicy from "./components/PrivacyPolicy";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm } from "./utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary } from "./utils/termExtractor";
 import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { 
   auth, 
@@ -19,7 +19,10 @@ import {
   saveUserProject, 
   deleteUserProject, 
   saveProjectData, 
-  loadProjectData 
+  loadProjectData,
+  markProjectAsDeleted,
+  isProjectDeleted,
+  clearDeletedProjectsRegistry
 } from "./firebase";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView";
@@ -33,21 +36,20 @@ const initialSyntheses: Synthesis[] = [];
 // Helper to clean phonetic transliterations of academic/technical terms to real Arabic equivalents
 export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[]): GlossaryTerm[] {
   if (!terms || !Array.isArray(terms) || terms.length === 0) return [];
-  if (sources && (!Array.isArray(sources) || sources.length === 0)) return [];
 
   const validSourceIds = sources && sources.length > 0 ? new Set(sources.map((s) => s.id)) : null;
+  const fallbackSourceId = sources && sources[0]?.id;
 
   const validTerms = terms.filter((t) => {
     if (!t) return false;
-    // Must belong to a valid active source in the current project
-    if (validSourceIds && (!t.sourceId || !validSourceIds.has(t.sourceId))) {
+    // Must belong to a valid active source if sourceId is defined and sources are provided
+    if (validSourceIds && t.sourceId && !validSourceIds.has(t.sourceId)) {
       return false;
     }
     const eng = t.term || "";
     const arabic = t.transliteration || t.verified_term || t.draft_term || "";
     if (isTrivialOrCitationTerm(eng, t.definition)) return false;
     if (isTrivialOrCitationTerm(arabic, t.definition)) return false;
-    if (/^[a-zA-Z\s\-]+$/.test(arabic) && /^[a-zA-Z\s\-]+$/.test(eng)) return false;
     return true;
   });
 
@@ -55,15 +57,18 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
   const sourceCounts: Record<string, number> = {};
   const cappedTerms: GlossaryTerm[] = [];
   for (const t of validTerms) {
-    const sId = t.sourceId || "default";
+    const sId = t.sourceId || fallbackSourceId || "default";
     sourceCounts[sId] = (sourceCounts[sId] || 0) + 1;
     if (sourceCounts[sId] <= 3) {
-      cappedTerms.push(t);
+      cappedTerms.push({
+        ...t,
+        sourceId: sId
+      });
     }
   }
 
   return cappedTerms.map((t) => {
-    const currentTransliteration = t.transliteration || t.verified_term || t.draft_term || "";
+    const currentTransliteration = t.transliteration || t.verified_term || t.draft_term || t.term;
     return {
       ...t,
       term: t.term || currentTransliteration,
@@ -72,6 +77,26 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
       verified_term: t.verified_term || currentTransliteration || t.term,
     };
   });
+}
+
+// Helper to ensure EVERY source in sources has between 2 and 3 concepts
+export function ensureEverySourceHasTerms(sources: Source[], currentTerms: GlossaryTerm[]): GlossaryTerm[] {
+  if (!sources || sources.length === 0) return [];
+
+  let updatedTerms = cleanAndMigrateGlossary(currentTerms || [], sources);
+
+  sources.forEach((source) => {
+    const existingForSource = updatedTerms.filter((t) => t.sourceId === source.id);
+    if (existingForSource.length < 2) {
+      const textToExtract = source.content || source.title || "مستند بحثي";
+      const extracted = extractFallbackTermsFromText(textToExtract, source.id, source.title);
+      const existingLower = updatedTerms.map((t) => (t.term || "").toLowerCase());
+      const toAdd = extracted.filter((t) => !existingLower.includes((t.term || "").toLowerCase()));
+      updatedTerms = [...updatedTerms, ...toAdd];
+    }
+  });
+
+  return cleanAndMigrateGlossary(updatedTerms, sources);
 }
 
 export default function App() {
@@ -236,7 +261,10 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       const saved = localStorage.getItem("bahthos_projects") || localStorage.getItem("tawlif_projects");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const valid = parsed.filter((p: Project) => p && p.id && !isProjectDeleted(p.id));
+          if (valid.length > 0) return valid;
+        }
       }
     } catch (e) {
       console.error(e);
@@ -621,10 +649,34 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     const targetProject = projects.find((p) => p.id === projectId);
     if (!targetProject) return;
 
-    // Invalidate ref immediately to stop reactive auto-savers from re-persisting stale data
-    loadedProjectIdRef.current = "";
+    // 1. Immediately mark project ID as deleted globally to block all race-condition auto-saves
+    markProjectAsDeleted(projectId);
 
-    // 1. Delete all Firestore subcollections & project doc if user is logged in
+    // 2. Filter project out of state immediately
+    const updatedProjects = projects.filter((p) => p.id !== projectId);
+
+    // 3. Persist updated projects list to localStorage right away
+    try {
+      localStorage.setItem("bahthos_projects", JSON.stringify(updatedProjects));
+    } catch (e) {
+      console.error(e);
+    }
+
+    // 4. Remove all localStorage keys belonging to this deleted project
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes(projectId) || key.endsWith(`_${projectId}`))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch (e) {
+      console.error(e);
+    }
+
+    // 5. Delete from Firestore asynchronously if user is logged in
     if (currentUser) {
       try {
         await deleteUserProject(currentUser.uid, projectId);
@@ -633,29 +685,28 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       }
     }
 
-    // 2. Clean up ALL localStorage keys for deleted project
-    try {
-      const prefixes = ["bahthos_", "tawlif_", "al_dalil_"];
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i);
-        if (key && prefixes.some((p) => key.startsWith(p)) && key.includes(projectId)) {
-          localStorage.removeItem(key);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
-    const updatedProjects = projects.filter((p) => p.id !== projectId);
-
+    // 6. Handle UI and state transition cleanly
     if (updatedProjects.length === 0) {
-      // If all projects were deleted, create a fresh empty project with 0 sources & components
       const newProj: Project = {
         id: "proj-" + Date.now(),
         name: "المشروع التجريبي الأول",
         dateCreated: new Date().toISOString().split("T")[0],
         temperature: 0.2
       };
+
+      setProjects([newProj]);
+      setCurrentProjectId(newProj.id);
+      loadedProjectIdRef.current = newProj.id;
+      setSources([]);
+      setMessages([]);
+      setSyntheses([]);
+      setGlossaryTerms([]);
+      setSelectedSourceId(null);
+
+      try {
+        localStorage.setItem("bahthos_projects", JSON.stringify([newProj]));
+        localStorage.setItem("bahthos_current_project_id", newProj.id);
+      } catch (e) {}
 
       if (currentUser) {
         await saveUserProject(currentUser.uid, newProj);
@@ -667,39 +718,34 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         });
       }
 
-      setProjects([newProj]);
-      setCurrentProjectId(newProj.id);
-      loadedProjectIdRef.current = newProj.id;
-      setSources([]);
-      setMessages([]);
-      setSyntheses([]);
-      setGlossaryTerms([]);
-      setSelectedSourceId(null);
-
-      // Reset server persistent state file
       fetch("/api/reset-state", { method: "POST" }).catch(console.error);
     } else {
       setProjects(updatedProjects);
+
       if (currentProjectId === projectId) {
+        // Active project WAS deleted; switch to next project
         const nextActiveProject = updatedProjects[0];
-        // Load next project cleanly
+        setCurrentProjectId(nextActiveProject.id);
+        loadedProjectIdRef.current = nextActiveProject.id;
+
+        try {
+          localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
+        } catch (e) {}
+
         if (currentUser) {
           setIsFirebaseLoading(true);
           try {
             const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
               await loadProjectData(currentUser.uid, nextActiveProject.id);
 
-            loadedProjectIdRef.current = nextActiveProject.id;
             setSources(cloudSources);
             setMessages(cloudMessages);
             setSyntheses(cloudSyntheses);
             setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary, cloudSources));
             setTemperature(nextActiveProject.temperature ?? 0.2);
-            setCurrentProjectId(nextActiveProject.id);
             setSelectedSourceId(null);
             setActiveMainView("chat");
 
-            // Sync server persistent state with the new active project
             fetch("/api/save-state", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -722,17 +768,14 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           const nextSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
           const nextGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
 
-          loadedProjectIdRef.current = nextActiveProject.id;
           setSources(nextSources);
           setMessages(nextMessages);
           setSyntheses(nextSyntheses);
           setGlossaryTerms(cleanAndMigrateGlossary(nextGlossary, nextSources));
           setTemperature(savedTemp ? parseFloat(savedTemp) : 0.2);
-          setCurrentProjectId(nextActiveProject.id);
           setSelectedSourceId(null);
           setActiveMainView("chat");
 
-          // Sync server persistent state with the new active project
           fetch("/api/save-state", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -740,7 +783,8 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           }).catch(console.error);
         }
       } else {
-        // Active project wasn't the deleted one, sync current sources to server
+        // Deleted non-active project: keep loadedProjectIdRef intact for current project
+        loadedProjectIdRef.current = currentProjectId;
         fetch("/api/save-state", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -804,6 +848,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   useEffect(() => {
     if (!currentUser || isFirebaseLoading) return;
     if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (isProjectDeleted(currentProjectId)) return;
 
     saveProjectData(currentUser.uid, currentProjectId, {
       sources,
@@ -832,6 +877,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     }
   }, [sources, glossaryTerms, stateLoadedFromServer, currentUser]);
   const handleResetWorkspace = async () => {
+    clearDeletedProjectsRegistry();
     if (currentUser) {
       setIsFirebaseLoading(true);
       try {
@@ -981,9 +1027,8 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Add pre-extracted terms directly to the glossary
   const addGlossaryTermsDirectly = (terms: any[], targetSourceId?: string) => {
     if (!terms || !Array.isArray(terms) || terms.length === 0) return;
-    if (!sources || sources.length === 0) return;
 
-    const resolvedSourceId = targetSourceId || sources[0]?.id;
+    const resolvedSourceId = targetSourceId || sources?.[0]?.id || "default-source";
     if (!resolvedSourceId) return;
 
     setGlossaryTerms((prev) => {
@@ -995,7 +1040,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           if (!mainTerm) return false;
           if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
           if (isTrivialOrCitationTerm(verified, t.definition)) return false;
-          if (/^[a-zA-Z\s\-]+$/.test(verified) && /^[a-zA-Z\s\-]+$/.test(mainTerm)) return false;
           return true;
         })
         .map((t: any) => ({
@@ -1023,84 +1067,25 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     });
   };
 
-  // Guarantee that every uploaded source automatically has concepts and terms generated immediately upon upload
+  // Ensure every uploaded source automatically has an Arabic summary and 2 to 3 concepts
   useEffect(() => {
-    if (!stateLoadedFromServer || sources.length === 0) return;
+    if (sources.length === 0) return;
 
-    sources.forEach((source) => {
-      const sourceHasTerms = glossaryTerms.some(
-        (gt) =>
-          gt.sourceId === source.id ||
-          (gt.term && source.content.toLowerCase().includes(gt.term.toLowerCase())) ||
-          (gt.transliteration && source.content.includes(gt.transliteration))
-      );
-
-      if (!sourceHasTerms && source.content && source.content.trim().length > 10) {
-        console.log(`Auto-extracting concepts and terms for source: ${source.title}`);
-        extractGlossaryTerms(source.content, source.id);
+    let sourcesNeedsUpdate = false;
+    const sanitizedSources = sources.map((s) => {
+      const cleanSummary = ensureArabicSummary(s.summary, s.title, s.content);
+      if (cleanSummary !== s.summary) {
+        sourcesNeedsUpdate = true;
+        return { ...s, summary: cleanSummary };
       }
+      return s;
     });
-  }, [sources, stateLoadedFromServer, glossaryTerms]);
 
-  // Auto-populate glossary for uploaded Westphalian/Eurocentrism sources if not already present
-  useEffect(() => {
-    if (!stateLoadedFromServer) return;
-
-    const hasWestphalianSource = sources.some(s => 
-      s.title?.toLowerCase().includes("westphalian") || 
-      s.title?.toLowerCase().includes("eurocentrism") ||
-      s.content?.toLowerCase().includes("westphalian") ||
-      s.content?.toLowerCase().includes("eurocentrism")
-    );
-
-    if (hasWestphalianSource) {
-      const westphalianTerms = [
-        {
-          term: "Westphalian Sovereignty",
-          transliteration: "السيادة الويستفالية",
-          draft_term: "السيادة الويستفالية",
-          verified_term: "السيادة الويستفالية",
-          definition: "مفهوم قانوني وسياسي يفترض استقلالية الدولة المطلقة وسلطتها الحصرية على أراضيها ومواطنيها دون أي تدخل خارجي."
-        },
-        {
-          term: "Eurocentrism",
-          transliteration: "المركزية الأوروبية",
-          draft_term: "المركزية الأوروبية",
-          verified_term: "المركزية الأوروبية",
-          definition: "منظور فكري يفسر التاريخ والظواهر العالمية من خلال التركيز على القيم والخبرات والمنظومات الغربية كمعيار أساسي."
-        },
-        {
-          term: "Standard of Civilization",
-          transliteration: "معيار التحضر",
-          draft_term: "ستاندرد أوف سيفيليزيشن",
-          verified_term: "معيار التحضر",
-          definition: "مفهوم تاريخي قانوني استُخدم لتبرير فرض الهيمنة الاستعمارية من خلال تصنيف الدول غير الأوروبية على أنها غير متحضرة."
-        },
-        {
-          term: "Legal Positivism",
-          transliteration: "الوضعية القانونية",
-          draft_term: "الوضعية القانونية",
-          verified_term: "الوضعية القانونية",
-          definition: "مدرسة في الفلسفة القانونية ترى أن صلاحية القوانين تستند إلى إرادة الدولة والتشريعات الوضعية بدلاً من المبادئ الأخلاقية الطبيعية."
-        },
-        {
-          term: "International Society",
-          transliteration: "المجتمع الدولي",
-          draft_term: "المجتمع الدولي",
-          verified_term: "المجتمع الدولي",
-          definition: "مجموعة من الدول تجمعها قواعد ومؤسسات ومصالح مشتركة تلتزم بمراعاتها وتنظيم علاقاتها المتبادلة وفقاً لها."
-        }
-      ];
-
-      setGlossaryTerms((prev) => {
-        const existingLower = prev.map(t => t.term.toLowerCase());
-        const toAdd = westphalianTerms.filter(t => !existingLower.includes(t.term.toLowerCase()));
-        if (toAdd.length > 0) {
-          return [...prev, ...toAdd];
-        }
-        return prev;
-      });
+    if (sourcesNeedsUpdate) {
+      setSources(sanitizedSources);
     }
+
+    setGlossaryTerms((prev) => ensureEverySourceHasTerms(sanitizedSources, prev));
   }, [sources, stateLoadedFromServer]);
 
   // Toggle single source checkbox

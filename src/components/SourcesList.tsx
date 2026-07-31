@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Source, GlossaryTerm } from "../types";
 import { parseDocumentFile } from "../utils/documentParser";
+import { ensureArabicSummary, extractFallbackTermsFromText } from "../utils/termExtractor";
 
 interface SourcesListProps {
   sources: Source[];
@@ -176,7 +177,8 @@ export default function SourcesList({
         throw new Error("تلقى التطبيق استجابة غير صالحة من خادم التحليل.");
       }
       
-      onAddSource(data.title, data.originalText || content, data.language || "ar", data.summary, undefined, data.terms);
+      const finalArabicSummary = ensureArabicSummary(data.summary, data.title, data.originalText || content);
+      onAddSource(data.title, data.originalText || content, data.language || "ar", finalArabicSummary, undefined, data.terms);
       setNewContent("");
       setErrorMsg("");
       setShowAddForm(false);
@@ -187,9 +189,10 @@ export default function SourcesList({
       const textContent = (content && content.trim()) 
         ? content 
         : `محتوى المستند المرفق (${fallbackTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-      const autoSummary = textContent.substring(0, 300) + "...";
+      const autoSummary = ensureArabicSummary("", fallbackTitle, textContent);
       
-      onAddSource(fallbackTitle, textContent, "ar", autoSummary, undefined, []);
+      const fallbackTerms = extractFallbackTermsFromText(textContent, undefined, fallbackTitle);
+      onAddSource(fallbackTitle, textContent, "ar", autoSummary, undefined, fallbackTerms);
       setNewContent("");
       setErrorMsg("");
       setShowAddForm(false);

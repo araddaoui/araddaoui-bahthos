@@ -51,16 +51,55 @@ testConnection();
 
 export { app, auth, db };
 
+// Tracking set for deleted project IDs to prevent race conditions and re-persisting deleted projects
+const deletedProjectIds = new Set<string>();
+
+try {
+  const saved = localStorage.getItem("bahthos_deleted_projects");
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((id) => deletedProjectIds.add(id));
+    }
+  }
+} catch (e) {
+  console.error("Failed to load deleted project IDs from localStorage", e);
+}
+
+export function markProjectAsDeleted(projectId: string): void {
+  if (!projectId) return;
+  deletedProjectIds.add(projectId);
+  try {
+    localStorage.setItem("bahthos_deleted_projects", JSON.stringify(Array.from(deletedProjectIds)));
+  } catch (e) {
+    console.error("Failed to save deleted project IDs to localStorage", e);
+  }
+}
+
+export function isProjectDeleted(projectId: string): boolean {
+  if (!projectId) return false;
+  return deletedProjectIds.has(projectId);
+}
+
+export function clearDeletedProjectsRegistry(): void {
+  deletedProjectIds.clear();
+  try {
+    localStorage.removeItem("bahthos_deleted_projects");
+  } catch (e) {}
+}
+
 // Helper to load all user projects from Firestore
 export async function loadUserProjects(userId: string): Promise<Project[]> {
   const projectsRef = collection(db, "users", userId, "projects");
   const snapshot = await getDocs(projectsRef);
   const projects: Project[] = [];
   snapshot.forEach((doc) => {
-    projects.push({
-      id: doc.id,
-      ...doc.data()
-    } as Project);
+    if (!isProjectDeleted(doc.id)) {
+      projects.push({
+        id: doc.id,
+        ...doc.data()
+      } as Project);
+    }
   });
   return projects;
 }
@@ -89,6 +128,10 @@ export function sanitizeForFirestore<T>(data: T): T {
 
 // Helper to save/update a single project to Firestore
 export async function saveUserProject(userId: string, project: Project): Promise<void> {
+  if (isProjectDeleted(project.id)) {
+    console.log(`[Firestore] Skipping saveUserProject for deleted project: ${project.id}`);
+    return;
+  }
   const projectDocRef = doc(db, "users", userId, "projects", project.id);
   const dataToSave = sanitizeForFirestore({
     id: project.id,
@@ -101,6 +144,7 @@ export async function saveUserProject(userId: string, project: Project): Promise
 
 // Helper to delete a project from Firestore
 export async function deleteUserProject(userId: string, projectId: string): Promise<void> {
+  markProjectAsDeleted(projectId);
   // Delete subcollection documents first in chunks, then the project document itself
   const subcollections = ["sources", "messages", "syntheses", "glossaryTerms"];
   for (const sub of subcollections) {
@@ -129,6 +173,10 @@ export async function saveProjectData(
     glossaryTerms?: GlossaryTerm[];
   }
 ): Promise<void> {
+  if (isProjectDeleted(projectId)) {
+    console.log(`[Firestore] Skipping saveProjectData for deleted project: ${projectId}`);
+    return;
+  }
   const { sources, messages, syntheses, glossaryTerms } = data;
 
   if (sources !== undefined) {
