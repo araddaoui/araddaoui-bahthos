@@ -11,7 +11,7 @@ import SettingsView from "./components/SettingsView";
 import LandingPage from "./components/LandingPage";
 import TermsOfService from "./components/TermsOfService";
 import PrivacyPolicy from "./components/PrivacyPolicy";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary } from "./utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, areTermsEquivalent } from "./utils/termExtractor";
 import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { 
   auth, 
@@ -50,20 +50,38 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     const arabic = t.transliteration || t.verified_term || t.draft_term || "";
     if (isTrivialOrCitationTerm(eng, t.definition)) return false;
     if (isTrivialOrCitationTerm(arabic, t.definition)) return false;
+    // Safety check against page ranges in definitions (e.g., 567-580)
+    if (t.definition && (/\b\d{1,4}\s*[-–]\s*\d{1,4}\b/.test(t.definition) || t.definition.includes("جامعة") || t.definition.includes("أنموذجا"))) {
+      return false;
+    }
     return true;
   });
 
-  // Cap terms to max 3 items per source
+  // Deduplicate terms and cap to max 3 items per source
   const sourceCounts: Record<string, number> = {};
   const cappedTerms: GlossaryTerm[] = [];
   for (const t of validTerms) {
     const sId = t.sourceId || fallbackSourceId || "default";
-    sourceCounts[sId] = (sourceCounts[sId] || 0) + 1;
-    if (sourceCounts[sId] <= 3) {
-      cappedTerms.push({
-        ...t,
-        sourceId: sId
-      });
+    const currentCount = sourceCounts[sId] || 0;
+    if (currentCount < 3) {
+      // Check if an equivalent concept is already present for this source
+      const eng = t.term || "";
+      const ar = t.transliteration || t.verified_term || t.draft_term || eng;
+      const isDuplicate = cappedTerms.some(
+        (ex) =>
+          ex.sourceId === sId &&
+          (areTermsEquivalent(ex.term, eng) ||
+            areTermsEquivalent(ex.verified_term || ex.transliteration, ar) ||
+            areTermsEquivalent(ex.term, ar) ||
+            areTermsEquivalent(ex.verified_term || ex.transliteration, eng))
+      );
+      if (!isDuplicate) {
+        sourceCounts[sId] = currentCount + 1;
+        cappedTerms.push({
+          ...t,
+          sourceId: sId
+        });
+      }
     }
   }
 
@@ -90,8 +108,15 @@ export function ensureEverySourceHasTerms(sources: Source[], currentTerms: Gloss
     if (existingForSource.length < 2) {
       const textToExtract = source.content || source.title || "مستند بحثي";
       const extracted = extractFallbackTermsFromText(textToExtract, source.id, source.title);
-      const existingLower = updatedTerms.map((t) => (t.term || "").toLowerCase());
-      const toAdd = extracted.filter((t) => !existingLower.includes((t.term || "").toLowerCase()));
+      const toAdd = extracted.filter(
+        (t) =>
+          !updatedTerms.some(
+            (ex) =>
+              ex.sourceId === source.id &&
+              (areTermsEquivalent(ex.term, t.term) ||
+                areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term))
+          )
+      );
       updatedTerms = [...updatedTerms, ...toAdd];
     }
   });

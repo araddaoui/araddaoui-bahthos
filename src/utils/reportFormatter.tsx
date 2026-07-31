@@ -1,11 +1,13 @@
 import React from "react";
+import { normalizeArabicText } from "./termExtractor";
 
 /**
- * Utility to strip out XML evidence tags completely (<evidence ...>...</evidence>)
+ * Utility to strip out XML evidence tags completely (<evidence ...>...</evidence>) and normalize Arabic font/OCR characters.
  */
 export function stripEvidenceTags(text: string): string {
   if (!text) return "";
-  return text.replace(/<evidence([\s\S]*?)>([\s\S]*?)<\/evidence>/gi, "").trim();
+  const stripped = text.replace(/<evidence([\s\S]*?)>([\s\S]*?)<\/evidence>/gi, "").trim();
+  return normalizeArabicText(stripped);
 }
 
 /**

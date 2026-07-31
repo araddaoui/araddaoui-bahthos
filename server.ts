@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary } from "./src/utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText } from "./src/utils/termExtractor";
 
 // Load environment variables BEFORE anything else
 dotenv.config();
@@ -264,7 +264,7 @@ app.post("/api/chat", async (req, res) => {
       },
     });
 
-    const replyText = response?.text || "المصادر المتاحة لا توفر إجابة كافية حيال هذا السؤال المباشر.";
+    const replyText = normalizeArabicText(response?.text || "المصادر المتاحة لا توفر إجابة كافية حيال هذا السؤال المباشر.");
     return res.json({ text: replyText });
   } catch (error: any) {
     console.error("Gemini chat API call failed, generating synthesis fallback:", error);
@@ -341,7 +341,7 @@ app.post("/api/analyze-document", async (req, res) => {
       console.log(`📄 Parsing Word: ${fileName || "document.docx"} using mammoth...`);
       const buffer = Buffer.from(base64, "base64");
       const mammothResult = await mammoth.extractRawText({ buffer });
-      parsedContent = mammothResult.value || "";
+      parsedContent = normalizeArabicText(mammothResult.value || "");
       console.log(`✅ Word parsed: ${parsedContent.length} chars`);
     } catch (err: any) {
       console.error("❌ Word parsing error:", err.message);
@@ -369,7 +369,7 @@ app.post("/api/analyze-document", async (req, res) => {
         ),
       ]);
       
-      parsedContent = (textResult as any)?.text || "";
+      parsedContent = normalizeArabicText((textResult as any)?.text || "");
       console.log(`✅ PDF parsed locally: ${parsedContent.length} chars, ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words`);
       
     } catch (err: any) {
@@ -409,10 +409,10 @@ app.post("/api/analyze-document", async (req, res) => {
    يجب كتابة الملخص باللغة العربية الفصحى حصراً وبأسلوب سلس وواضح، بغض النظر عن لغة المستند الأصلية (حتى لو كان المستند مكتوباً بالإنجليزية أو الفرنسية). يُحظر تماماً كتابة أي نص بالإنجليزية في الملخص.
 2. الاقتصار على المفاهيم النظرية والأطر المنهجية المعتمدة في المستند:
    استخرج فقط المفاهيم البنيوية المركبة والأطر المعتمدة المذكورة حقيقة في المستند (مثل: Soft Power, Westphalian Sovereignty, Translation Theory, Path Dependence, Constructivism, Quality Assurance, Realism).
-3. الحظر التام لاستخراج الجمل والعبارات اللغوية الشائعة (Linguistic Fragments):
-   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة.
-4. استبعاد التخصصات والمجالات العامة:
-   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة كمصطلحات.
+3. الحظر التام لاستخراج العناوين وأسماء الجامعات والبيانات المؤسسية والعبارات الشائعة:
+   يُمنع منعاً باتاً استخراج أسماء الجامعات أو الأقسام أو الصفوف أو المدن (مثل: University of Saida, Department of Translation, First-Year Students, Case Study, جامعة سعيدة، قسم الترجمة، طلبة سنة أولى)، أو أجزاء العناوين (مثل: Teaching Translation in the Light of Artificial Intelligence أو تدريس الترجمة في ظل الذكاء الاصطناعي)، أو أرقام الصفحات والمراجع.
+4. استبعاد التخصصات والمجالات الفضفاضة والكلمات التافهة:
+   يُمنع استخراج أسماء العلوم العامة أو العناوين الفرعية أو التراكيب اللغوية غير النظرية.
 5. الترجمة والتعريب الدقيق (verified_term):
    يجب تقديم مصطلح عربي فصيح ومعتمد ومكافئ للمصطلح الأصلي في حقل verified_term.
 6. الجودة الصارمة للتعريف:
@@ -701,7 +701,7 @@ ${sourcesContext}`;
       },
     });
 
-    const replyText = response?.text || "فشل توليد التوليف.";
+    const replyText = normalizeArabicText(response?.text || "فشل توليد التوليف.");
     return res.json({ text: replyText });
 
   } catch (error: any) {
@@ -895,7 +895,7 @@ ${sourcesContext}`;
     }
 
     res.json({ 
-      text: reportText, 
+      text: normalizeArabicText(reportText), 
       isFallback: true 
     });
   }

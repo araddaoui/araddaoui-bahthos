@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
+import { normalizeArabicText } from './termExtractor';
 
 // Set up worker for pdfjs in browser using jsdelivr CDN with unpkg fallback
 if (typeof window !== 'undefined') {
@@ -56,7 +57,7 @@ export async function parseDocumentFile(file: File): Promise<ParsedDocumentResul
         }
       }
 
-      extractedText = fullText.trim();
+      extractedText = normalizeArabicText(fullText.trim());
       console.log(`✅ Client PDF extracted: ${extractedText.length} characters from ${fileName}`);
     } catch (err) {
       console.warn("Client-side pdfjs text extraction failed or timed out:", err);
@@ -79,7 +80,7 @@ export async function parseDocumentFile(file: File): Promise<ParsedDocumentResul
       const mammothResult = await mammoth.extractRawText({ arrayBuffer } as any);
       if (mammothResult.value && mammothResult.value.trim().length > 10) {
         return {
-          text: mammothResult.value.trim(),
+          text: normalizeArabicText(mammothResult.value.trim()),
           mimeType: file.type || "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           fileName
         };
