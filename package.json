@@ -1,7 +1,8 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.1",
+  "description": "bahthOS - Smart academic research assistant with zero-duplicate concept extraction across sources",
   "type": "module",
   "engines": {
     "node": ">=20.x"
