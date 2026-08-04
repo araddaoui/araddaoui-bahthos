@@ -47,8 +47,8 @@ async function generateContentWithRetry(
   let attempt = 1;
   const maxAttempts = 3;
   let currentModel = params.model;
-  if (!currentModel || currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
-    currentModel = "gemini-2.5-flash";
+  if (!currentModel || currentModel.includes("2.5") || currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
+    currentModel = "gemini-1.5-flash";
   }
 
   while (true) {
@@ -63,7 +63,12 @@ async function generateContentWithRetry(
 
       const isRetryable = 
         status === 503 || 
+        status === 404 ||
+        status === 400 ||
         errorStr.includes("503") || 
+        errorStr.includes("404") ||
+        errorStr.includes("400") ||
+        errorStr.includes("not found") ||
         errorStr.includes("service unavailable") || 
         errorStr.includes("overloaded") || 
         errorStr.includes("deadline exceeded") || 
@@ -80,10 +85,10 @@ async function generateContentWithRetry(
 
       if ((isRetryable || isQuota) && attempt < maxAttempts) {
         attempt++;
-        const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1500 : 3000);
+        const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1000 : 2000);
         
         currentModel = "gemini-1.5-flash";
-        console.warn(`Attempt ${attempt}: Switching model to ${currentModel} due to ${isQuota ? "429 quota/rate limit" : "503/timeout"}. Retrying in ${delay}ms...`);
+        console.warn(`Attempt ${attempt}: Switching model to ${currentModel} due to ${isQuota ? "429 quota/rate limit" : "503/404/timeout"}. Retrying in ${delay}ms...`);
         
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
@@ -254,7 +259,7 @@ app.post("/api/chat", async (req, res) => {
     console.log(`Sending chat request to Gemini with ${contents.length} messages and ${validSources.length} sources.`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       contents: contents,
       config: {
         systemInstruction: mergedSystemInstruction,
@@ -434,7 +439,7 @@ app.post("/api/analyze-document", async (req, res) => {
     }
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       contents: contentsParam,
       config: {
         responseMimeType: "application/json",
@@ -691,7 +696,7 @@ ${sourcesContext}`;
     console.log(`Sending synthesis request to Gemini for ${activeSources.length} sources (type: ${toolType}).`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTIONS,
@@ -870,13 +875,13 @@ ${sourcesContext}`;
       reportText += `يتمحور التساؤل البحثي حول "${topic || "المقارنة العامة للمصادر"}". يمثل هذا الموضوع أحد المحاور الحيوية التي تتطلب تكاملاً في الرؤى وتدقيقاً في المنهجيات المتبعة. ومن خلال قراءة المصادر المتاحة، يتضح أن هناك تقاطعات جوهرية واختلافات منهجية تثري هذا النقاش البحثي.\n\n`;
       reportText += `### 2. نقاط الاتفاق والتكامل المنهجي\n`;
       if (sources.length > 1) {
-        reportText += `تتفق كل من **الوثيقة 1 (${sources[0].title})** و**الوثيقة 2 (${sources[1].title})** على الأهمية البالغة لدراسة العوامل المؤثرة وسياقات تطبيقها. تشير البيانات الواردة إلى أن هناك ارتباطاً وثيقاً بين المتغيرات المستقلة والنتائج النهائية الملاحظة.`;
+        reportText += `تتفق كل من **الوثيقة 1 (${sources[0]?.title || "المستند الأول"})** و**الوثيقة 2 (${sources[1]?.title || "المستند الثاني"})** على الأهمية البالغة لدراسة العوامل المؤثرة وسياقات تطبيقها. تشير البيانات الواردة إلى أن هناك ارتباطاً وثيقاً بين المتغيرات المستقلة والنتائج النهائية الملاحظة.`;
         if (sources.length > 2) {
-          reportText += ` وتدعم **الوثيقة 3 (${sources[2].title})** هذا التوجه من خلال إبراز أهمية التحليل الهيكلي وتوفر المتطلبات الأساسية للنجاح.`;
+          reportText += ` وتدعم **الوثيقة 3 (${sources[2]?.title || "المستند الثالث"})** هذا التوجه من خلال إبراز أهمية التحليل الهيكلي وتوفر المتطلبات الأساسية للنجاح.`;
         }
         reportText += `\n\nتتقاطع هذه المصادر في تأكيدها على ضرورة تهيئة البيئة المناسبة ودعم الكوادر المعنية لضمان فاعلية المخرجات، وهو ما يظهر جلياً في التوافق العام حول التوصيات العملية الرامية إلى تحسين الأداء.\n\n`;
       } else {
-        reportText += `تتناول **الوثيقة 1 (${sources[0].title})** بشكل منفرد وأساسي هذا الجانب، حيث تقدم تحليلاً دقيقاً وهيكلياً للموضوع. وتوضح الوثيقة بوضوح أن الإجراءات المنهجية المتبعة تساهم بشكل مباشر في تحقيق الأهداف المرجوة وتجاوز التحديات القائمة.\n\n`;
+        reportText += `تتناول **الوثيقة 1 (${sources[0]?.title || "المستند الأول"})** بشكل منفرد وأساسي هذا الجانب، حيث تقدم تحليلاً دقيقاً وهيكلياً للموضوع. وتوضح الوثيقة بوضوح أن الإجراءات المنهجية المتبعة تساهم بشكل مباشر في تحقيق الأهداف المرجوة وتجاوز التحديات القائمة.\n\n`;
       }
       reportText += `<evidence strength="جيدة" agreement="متفقة" supporting="1 من أصل 2 مصادر">
   <supporting>
@@ -892,11 +897,11 @@ ${sourcesContext}`;
         reportText += `بالرغم من الاتفاق العام، تظهر اختلافات منهجية وسياقية هامة بين الدراسات المتاحة:\n`;
         sources.forEach((src: any, idx: number) => {
           const langStr = src.language === "ar" ? "سياق عربي محلي" : "سياق أجنبي/دولي";
-          reportText += `- تعتمد **الوثيقة ${idx + 1} (${src.title})** على ${langStr} وتقدم رؤية تركز على الجوانب المحددة في ملخصها: "${src.summary || "التحليل الإحصائي والمنهجي للحالة"}".\n`;
+          reportText += `- تعتمد **الوثيقة ${idx + 1} (${src?.title || "الوثيقة"})** على ${langStr} وتقدم رؤية تركز على الجوانب المحددة في ملخصها: "${src?.summary || "التحليل الإحصائي والمنهجي للحالة"}".\n`;
         });
         reportText += `\nيمكن تفسير هذه التباينات باختلاف منهجية جمع البيانات وحجم العينة المستهدفة، أو التنوع في الفترات الزمنية والبيئات المؤسسية التي أجريت فيها كل دراسة. هذا التباين لا يقلل من قيمة النتائج، بل يثري عملية الفهم الشامل للظاهرة من زوايا متعددة.\n\n`;
       } else {
-        reportText += `نظراً للاعتماد على مصدر واحد فقط وهو **الوثيقة 1 (${sources[0].title})**، فإن هذا التحليل يمثل وجهة نظر فردية غير مدعومة بمصادر موازية أو مقارنة في هذه المجموعة الحالية. لتوسيع أفق البحث، يوصى بإضافة وثائق أخرى تتناول نفس الموضوع من سياقات جغرافية أو منهجية مختلفة (كمية مقابل نوعية).\n\n`;
+        reportText += `نظراً للاعتماد على مصدر واحد فقط وهو **الوثيقة 1 (${sources[0]?.title || "المستند الأول"})**، فإن هذا التحليل يمثل وجهة نظر فردية غير مدعومة بمصادر موازية أو مقارنة في هذه المجموعة الحالية. لتوسيع أفق البحث، يوصى بإضافة وثائق أخرى تتناول نفس الموضوع من سياقات جغرافية أو منهجية مختلفة (كمية مقابل نوعية).\n\n`;
       }
       reportText += `### 4. الخلاصة والاستنتاجات التوليفية\n`;
       reportText += `يظهر التوليف الشامل للمصادر أن معالجة موضوع "${topic}" تتطلب منظوراً متعدد الأبعاد يدمج بين الجوانب النظرية والتطبيقات العملية الميدانية. يُنصح الباحثون بالبناء على هذه المقارنات لتصميم دراسات مستقبلية تسد الفجوات المعرفية المحددة في هذه الأوراق.\n`;
