@@ -41,19 +41,22 @@ async function generateContentWithRetry(
     model: string;
     contents: any;
     config?: any;
-    systemInstruction?: any;   // ✅ already correct
+    systemInstruction?: any;
   }
 ) {
   let attempt = 1;
   const maxAttempts = 3;
-  let currentModel = params.model === "gemini-3.5-flash" ? "gemini-3.6-flash" : params.model;
+  let currentModel = params.model;
+  if (!currentModel || currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
+    currentModel = "gemini-2.5-flash";
+  }
 
   while (true) {
     try {
-return await ai.models.generateContent({
-  ...params,
-  model: currentModel,
-});
+      return await ai.models.generateContent({
+        ...params,
+        model: currentModel,
+      });
     } catch (error: any) {
       const status = error.status;
       const errorStr = (error.message || "").toLowerCase();
@@ -79,13 +82,8 @@ return await ai.models.generateContent({
         attempt++;
         const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1500 : 3000);
         
-        // On quota error or on 2nd retry, switch to gemini-3.1-flash-lite for higher throughput limits
-        if (isQuota || currentModel === "gemini-3.6-flash") {
-          currentModel = "gemini-3.1-flash-lite";
-          console.warn(`Attempt ${attempt}: Switching model to gemini-3.1-flash-lite due to ${isQuota ? "429 quota/rate limit" : "503/timeout"}. Retrying in ${delay}ms...`);
-        } else {
-          console.warn(`Attempt ${attempt}: Retrying ${currentModel} after delay of ${delay}ms...`);
-        }
+        currentModel = "gemini-1.5-flash";
+        console.warn(`Attempt ${attempt}: Switching model to ${currentModel} due to ${isQuota ? "429 quota/rate limit" : "503/timeout"}. Retrying in ${delay}ms...`);
         
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
@@ -256,7 +254,7 @@ app.post("/api/chat", async (req, res) => {
     console.log(`Sending chat request to Gemini with ${contents.length} messages and ${validSources.length} sources.`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: contents,
       config: {
         systemInstruction: mergedSystemInstruction,
@@ -436,7 +434,7 @@ app.post("/api/analyze-document", async (req, res) => {
     }
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: contentsParam,
       config: {
         responseMimeType: "application/json",
@@ -693,7 +691,7 @@ ${sourcesContext}`;
     console.log(`Sending synthesis request to Gemini for ${activeSources.length} sources (type: ${toolType}).`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTIONS,
@@ -708,9 +706,19 @@ ${sourcesContext}`;
     console.error("Gemini synthesis API call failed, preparing local fallback report:", error);
 
     const reqBody = req.body || {};
-    const sources = Array.isArray(reqBody.sources) ? reqBody.sources : [];
+    const rawSources = Array.isArray(reqBody.sources) ? reqBody.sources : [];
+    const sources = rawSources
+      .filter((s: any) => s && typeof s === "object")
+      .map((s: any, idx: number) => ({
+        id: s?.id || `src-${idx + 1}`,
+        title: s?.title || `الوثيقة ${idx + 1}`,
+        language: s?.language || "ar",
+        wordCount: s?.wordCount || 0,
+        summary: s?.summary || (s?.content ? s.content.substring(0, 200) + "..." : "لا يتوفر ملخص متاح."),
+        content: s?.content || "",
+      }));
     const topic = reqBody.topic || "تحليل المقارنة الشامل";
-    const toolType = reqBody.toolType || "synthesis";
+    const toolType = reqBody.toolType || "general";
 
     let errorMessage = "تعذر توليد التقرير المباشر عبر الذكاء الاصطناعي — تم تفعيل نظام النسخ الاحتياطي للأدلة والمصادر المحلية بنجاح.";
 
@@ -915,7 +923,7 @@ app.post("/api/extract-glossary", async (req, res) => {
     if (systemPrompt && typeof systemPrompt === "string" && systemPrompt.trim().length >= 10) {
       console.log("🤖 Calling Google AI with custom system prompt...");
       const response = await generateContentWithRetry(ai, {
-        model: "gemini-3.6-flash",
+        model: "gemini-2.5-flash",
         contents: text,
         config: {
           temperature: 0.1,
@@ -976,7 +984,7 @@ app.post("/api/extract-glossary", async (req, res) => {
 ${text.substring(0, 3500)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
