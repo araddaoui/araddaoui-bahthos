@@ -12,11 +12,17 @@ export function stripEvidenceTags(text: string): string {
 
 /**
  * Normalizes raw report text structure to guarantee line breaks between sections,
- * questions (س1:), answers (ج:), headings (####), and disclosures.
+ * questions (س1:), answers (ج:), headings (####), disclosures, and fix all-bold lines.
  */
 export function normalizeReportStructure(text: string): string {
   if (!text) return "";
   let result = stripEvidenceTags(text);
+
+  // Untangle all-bold lines where heading and body were wrapped in double asterisks
+  // e.g., **1. تحليل الأدلة من المصادر: توثق الوثيقة نتائج...** -> **1. تحليل الأدلة من المصادر:** توثق الوثيقة نتائج...
+  result = result.replace(/^(\s*)\*\*(\d+\.\s*[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
+  result = result.replace(/^(\s*)\*\*(تحليل الأدلة[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
+  result = result.replace(/^(\s*)\*\*([^*:\n]+:)\s*([^*]{30,})\*\*/gm, "$1**$2** $3");
 
   // Ensure double newlines before key meta headers
   result = result.replace(/(\s*)(عنوان تقرير التوليف:)/gi, "\n\n$2\n");
@@ -103,8 +109,119 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
 }
 
 /**
+ * Helper to parse and render a markdown table into a styled React component
+ */
+function renderMarkdownTableReact(tableLines: string[], key: string): React.ReactNode {
+  if (tableLines.length === 0) return null;
+
+  const parseRow = (rowStr: string) => {
+    let trimmed = rowStr.trim();
+    if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
+    if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
+    return trimmed.split("|").map((cell) => cell.trim());
+  };
+
+  const isDelimiter = (rowStr: string) => {
+    return /^[\s|:-]+$/.test(rowStr.trim()) && rowStr.includes("-");
+  };
+
+  let headerCells: string[] = [];
+  let dataRowsStr: string[] = [];
+
+  if (tableLines.length >= 2 && isDelimiter(tableLines[1])) {
+    headerCells = parseRow(tableLines[0]);
+    dataRowsStr = tableLines.slice(2);
+  } else {
+    dataRowsStr = tableLines;
+  }
+
+  const rows = dataRowsStr.map(parseRow);
+
+  return (
+    <div key={key} className="my-6 overflow-x-auto rounded-xl border border-teal-200/90 shadow-xs bg-white">
+      <table className="w-full text-right border-collapse text-xs md:text-sm" dir="rtl">
+        {headerCells.length > 0 && (
+          <thead className="bg-[#094d4e] text-white">
+            <tr>
+              {headerCells.map((h, i) => (
+                <th key={i} className="p-3.5 px-4 font-black border-b border-teal-700 whitespace-nowrap text-right">
+                  {renderInlineMarkdown(h)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody className="divide-y divide-teal-100/80">
+          {rows.map((rowCells, rIdx) => (
+            <tr key={rIdx} className={rIdx % 2 === 0 ? "bg-white hover:bg-teal-50/40" : "bg-teal-50/25 hover:bg-teal-50/60"}>
+              {rowCells.map((cell, cIdx) => (
+                <td key={cIdx} className="p-3.5 px-4 text-gray-850 leading-relaxed font-normal align-top text-right">
+                  {renderInlineMarkdown(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Helper to render a markdown table into MS Word HTML string
+ */
+function renderMarkdownTableHtml(tableLines: string[]): string {
+  if (tableLines.length === 0) return "";
+
+  const parseRow = (rowStr: string) => {
+    let trimmed = rowStr.trim();
+    if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
+    if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
+    return trimmed.split("|").map((cell) => cell.trim());
+  };
+
+  const isDelimiter = (rowStr: string) => {
+    return /^[\s|:-]+$/.test(rowStr.trim()) && rowStr.includes("-");
+  };
+
+  let headerCells: string[] = [];
+  let dataRowsStr: string[] = [];
+
+  if (tableLines.length >= 2 && isDelimiter(tableLines[1])) {
+    headerCells = parseRow(tableLines[0]);
+    dataRowsStr = tableLines.slice(2);
+  } else {
+    dataRowsStr = tableLines;
+  }
+
+  const rows = dataRowsStr.map(parseRow);
+
+  let html = `<table style="width: 100%; border-collapse: collapse; margin-top: 16pt; margin-bottom: 20pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt;" dir="rtl">\n`;
+  if (headerCells.length > 0) {
+    html += `  <thead>\n    <tr style="background-color: #094d4e; color: #ffffff;">\n`;
+    headerCells.forEach((h) => {
+      html += `      <th style="padding: 8pt 10pt; border: 1pt solid #094d4e; font-weight: bold; text-align: right; font-size: 10.5pt;">${formatInlineHtml(h)}</th>\n`;
+    });
+    html += `    </tr>\n  </thead>\n`;
+  }
+
+  html += `  <tbody>\n`;
+  rows.forEach((rowCells, rIdx) => {
+    const bgColor = rIdx % 2 === 0 ? "#ffffff" : "#f0fdfa";
+    html += `    <tr style="background-color: ${bgColor};">\n`;
+    rowCells.forEach((cell) => {
+      html += `      <td style="padding: 8pt 10pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.6; color: #1e293b;">${formatInlineHtml(cell)}</td>\n`;
+    });
+    html += `    </tr>\n`;
+  });
+  html += `  </tbody>\n</table>\n`;
+
+  return html;
+}
+
+/**
  * Converts a raw report string (containing markdown and XML) into structured React components.
- * Formats headers, Q&A blocks, scope disclosures, and lists seamlessly with generous spacing.
+ * Formats headers, Q&A blocks, scope disclosures, tables, and lists seamlessly with generous spacing.
  */
 export function parseMarkdownToReact(text: string): React.ReactNode {
   if (!text) return null;
@@ -114,6 +231,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
 
   const elements: React.ReactNode[] = [];
   let currentListItems: React.ReactNode[] = [];
+  let currentTableLines: string[] = [];
 
   const flushList = (keyPrefix: string) => {
     if (currentListItems.length > 0) {
@@ -126,12 +244,30 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     }
   };
 
-  lines.forEach((line, idx) => {
+  const flushTable = (keyPrefix: string) => {
+    if (currentTableLines.length > 0) {
+      const tableNode = renderMarkdownTableReact(currentTableLines, `${keyPrefix}-tbl`);
+      if (tableNode) elements.push(tableNode);
+      currentTableLines = [];
+    }
+  };
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
     const trimmed = line.trim();
+
+    // Check if line is a table row
+    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2) {
+      flushList(`line-${idx}`);
+      currentTableLines.push(trimmed);
+      continue;
+    } else {
+      flushTable(`line-${idx}`);
+    }
 
     if (!trimmed) {
       flushList(`line-${idx}`);
-      return;
+      continue;
     }
 
     // Horizontal rule divider
@@ -140,7 +276,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
       elements.push(
         <hr key={idx} className="my-6 border-t-2 border-teal-100/80" />
       );
-      return;
+      continue;
     }
 
     // Meta / Scope disclosure banners
@@ -151,7 +287,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
           <span>{trimmed}</span>
         </div>
       );
-      return;
+      continue;
     }
 
     if (trimmed.startsWith("توضيح النطاق:")) {
@@ -162,7 +298,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
           <span className="flex-1">{trimmed.replace("توضيح النطاق:", "").trim()}</span>
         </div>
       );
-      return;
+      continue;
     }
 
     // Check for Headings: ####, ###, ##, #
@@ -216,7 +352,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
           );
         }
       }
-      return;
+      continue;
     }
 
     // Direct Question line without #### (e.g. "س1: ما هي...")
@@ -237,7 +373,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
           </div>
         </div>
       );
-      return;
+      continue;
     }
 
     // Check for List Items: * or - or 1.
@@ -250,7 +386,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
           <span className="flex-1">{renderInlineMarkdown(itemContent)}</span>
         </li>
       );
-      return;
+      continue;
     }
 
     // Check if line starts with Answer tag (**ج:** or ج: or **إجابة:** or إجابة:)
@@ -269,7 +405,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
           </div>
         </div>
       );
-      return;
+      continue;
     }
 
     // Normal paragraph line
@@ -280,9 +416,10 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
         {renderInlineMarkdown(trimmed)}
       </p>
     );
-  });
+  }
 
   flushList("end");
+  flushTable("end");
 
   return <div className="space-y-1 text-right" dir="rtl">{elements}</div>;
 }
@@ -312,9 +449,29 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
 
   let bodyHtml = "";
   let inList = false;
+  let currentTableLines: string[] = [];
+
+  const flushTable = () => {
+    if (currentTableLines.length > 0) {
+      bodyHtml += renderMarkdownTableHtml(currentTableLines);
+      currentTableLines = [];
+    }
+  };
 
   lines.forEach((line) => {
     const trimmed = line.trim();
+
+    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      currentTableLines.push(trimmed);
+      return;
+    } else {
+      flushTable();
+    }
+
     if (!trimmed) {
       if (inList) {
         bodyHtml += "</ul>\n";
@@ -424,6 +581,7 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
   if (inList) {
     bodyHtml += "</ul>\n";
   }
+  flushTable();
 
   return `
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
