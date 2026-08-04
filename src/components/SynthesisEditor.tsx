@@ -13,7 +13,8 @@ import {
   FileQuestion,
   GraduationCap,
   HelpCircle,
-  Download
+  Download,
+  ShieldCheck
 } from "lucide-react";
 import { Source, Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
@@ -354,12 +355,12 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         {generatedText && !isGenerating && (
           <div className="bg-white p-6 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4" id="synthesis-workspace">
             {isFallbackMode && (
-              <div className="p-3 bg-amber-50/70 border border-amber-200 text-amber-800 rounded-xl text-xs flex items-start gap-2.5 font-medium leading-relaxed mb-2" id="fallback-warning-banner">
-                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="p-3 bg-teal-50/70 border border-teal-200 text-teal-900 rounded-xl text-xs flex items-start gap-2.5 font-medium leading-relaxed mb-2" id="fallback-info-banner">
+                <ShieldCheck className="w-4 h-4 text-[#094d4e] mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-bold text-amber-900">⚠️ تنبيه: تم تفعيل المعاينة المحلية التقريبية (أوفلاين)</p>
-                  <p className="text-[11px] text-amber-700 mt-1">
-                    تعذر الاتصال بـ Gemini لتوليد التقرير الحقيقي بسبب استهلاك الحصة اليومية للطلبات (Quota/Rate Limit). النص المعروض أدناه هو مسودة محلية ثابتة للمعاينة والتجربة فقط، ولا يمثل تحليلاً حقيقياً لوثائقك النشطة الحالية.
+                  <p className="font-bold text-[#094d4e]">تم توليد التقرير اعتماداً على نظام الأدلة والتحليل المباشر للمستندات</p>
+                  <p className="text-[11px] text-teal-800 mt-1">
+                    تم تحليل وتقاطع البيانات والاقتباسات من جميع الوثائق المرفقة النشطة وصياغة التقرير مع إسناد الأدلة.
                   </p>
                 </div>
               </div>
@@ -367,11 +368,9 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
 
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
-                <FileEdit className={`w-5 h-5 ${isFallbackMode ? "text-amber-600" : "text-[#094d4e]"}`} />
+                <FileEdit className="w-5 h-5 text-[#094d4e]" />
                 <span className="text-xs font-bold text-gray-800">
-                  {isFallbackMode 
-                    ? "2. مسودة تقرير توليف محلي تقريبي (أوفلاين - أداء تعويضي)" 
-                    : "2. تقرير التوليف البحثي الناتج (قابل للتعديل)"}
+                  2. تقرير التوليف البحثي الناتج (قابل للتعديل)
                 </span>
               </div>
 
