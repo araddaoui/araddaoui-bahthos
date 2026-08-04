@@ -11,11 +11,39 @@ export function stripEvidenceTags(text: string): string {
 }
 
 /**
+ * Normalizes raw report text structure to guarantee line breaks between sections,
+ * questions (س1:), answers (ج:), headings (####), and disclosures.
+ */
+export function normalizeReportStructure(text: string): string {
+  if (!text) return "";
+  let result = stripEvidenceTags(text);
+
+  // Ensure double newlines before key meta headers
+  result = result.replace(/(\s*)(عنوان تقرير التوليف:)/gi, "\n\n$2\n");
+  result = result.replace(/(\s*)(محتوى التقرير الأكاديمي:)/gi, "\n\n$2\n");
+  result = result.replace(/(\s*)(توضيح النطاق:)/gi, "\n\n$2 ");
+
+  // Ensure newlines before markdown headings (####, ###, ##, #)
+  result = result.replace(/([^\n])(#{1,6}\s+)/g, "$1\n\n$2");
+
+  // Ensure double newlines before questions like #### س1: or س1: or سؤال 1: or **س1:**
+  result = result.replace(/([^\n])\s*(#{1,6}\s*)?(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*)/gi, "$1\n\n$2$3");
+
+  // Ensure double newlines before answers like **ج:** or ج: or **إجابة:** or إجابة:
+  result = result.replace(/([^\n])\s*(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/gi, "$1\n\n$2 ");
+
+  // Ensure double newlines around section dividers
+  result = result.replace(/([^\n])(---)/g, "$1\n\n$2\n\n");
+
+  return result.trim();
+}
+
+/**
  * Strips all markdown syntax (####, **, *, -, etc.) returning clean plain text
  */
 export function cleanMarkdownToPlainText(text: string): string {
   if (!text) return "";
-  let result = stripEvidenceTags(text);
+  let result = normalizeReportStructure(text);
 
   // Remove heading prefixes (####, ###, ##, #)
   result = result.replace(/^#{1,6}\s+/gm, "");
@@ -55,8 +83,8 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
             key={index}
             className={`inline-flex items-center px-2 py-0.5 rounded font-black text-xs mx-1 border shadow-2xs ${
               isAnswer
-                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                : "bg-teal-50 text-[#094d4e] border-teal-200"
+                ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                : "bg-teal-100 text-[#094d4e] border-teal-300"
             }`}
           >
             {boldText}
@@ -65,7 +93,7 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
       }
 
       return (
-        <strong key={index} className="font-extrabold text-gray-900">
+        <strong key={index} className="font-extrabold text-gray-950">
           {boldText}
         </strong>
       );
@@ -76,13 +104,13 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
 
 /**
  * Converts a raw report string (containing markdown and XML) into structured React components.
- * Strips out ####, **, and formats headers, Q&A blocks, and lists seamlessly.
+ * Formats headers, Q&A blocks, scope disclosures, and lists seamlessly with generous spacing.
  */
 export function parseMarkdownToReact(text: string): React.ReactNode {
   if (!text) return null;
 
-  const clean = stripEvidenceTags(text);
-  const lines = clean.split("\n");
+  const normalized = normalizeReportStructure(text);
+  const lines = normalized.split("\n");
 
   const elements: React.ReactNode[] = [];
   let currentListItems: React.ReactNode[] = [];
@@ -90,7 +118,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
   const flushList = (keyPrefix: string) => {
     if (currentListItems.length > 0) {
       elements.push(
-        <ul key={`${keyPrefix}-ul`} className="my-2.5 space-y-1.5 pr-4 border-r-2 border-teal-600/30">
+        <ul key={`${keyPrefix}-ul`} className="my-4 space-y-2 pr-4 border-r-3 border-teal-600/40 bg-teal-50/30 p-3 rounded-l-xl">
           {currentListItems}
         </ul>
       );
@@ -106,6 +134,37 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
       return;
     }
 
+    // Horizontal rule divider
+    if (trimmed === "---") {
+      flushList(`line-${idx}`);
+      elements.push(
+        <hr key={idx} className="my-6 border-t-2 border-teal-100/80" />
+      );
+      return;
+    }
+
+    // Meta / Scope disclosure banners
+    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير الأكاديمي:")) {
+      flushList(`line-${idx}`);
+      elements.push(
+        <div key={idx} className="mt-4 mb-2 p-2.5 px-4 bg-[#094d4e]/10 border-r-4 border-[#094d4e] text-[#094d4e] font-extrabold text-xs md:text-sm rounded-lg flex items-center gap-2">
+          <span>{trimmed}</span>
+        </div>
+      );
+      return;
+    }
+
+    if (trimmed.startsWith("توضيح النطاق:")) {
+      flushList(`line-${idx}`);
+      elements.push(
+        <div key={idx} className="my-4 p-3.5 px-4 bg-teal-50/90 border border-teal-200/80 text-[#094d4e] text-xs md:text-sm font-semibold rounded-xl shadow-2xs flex items-center gap-2 leading-relaxed">
+          <span className="shrink-0 bg-[#094d4e] text-white px-2 py-0.5 rounded text-[11px] font-extrabold">نطاق التقرير</span>
+          <span className="flex-1">{trimmed.replace("توضيح النطاق:", "").trim()}</span>
+        </div>
+      );
+      return;
+    }
+
     // Check for Headings: ####, ###, ##, #
     const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
     if (headingMatch) {
@@ -118,13 +177,15 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
 
       if (level <= 2) {
         elements.push(
-          <h2 key={idx} className="text-base md:text-lg font-black text-[#094d4e] mt-5 mb-2.5 pb-1 border-b border-teal-100 flex items-center gap-2">
+          <h2 key={idx} className="text-base md:text-xl font-black text-[#094d4e] mt-7 mb-4 pb-2 border-b-2 border-teal-200/80 flex items-center gap-2">
+            <span className="w-2.5 h-6 bg-[#094d4e] rounded-sm shrink-0"></span>
             <span>{headingContent}</span>
           </h2>
         );
       } else if (level === 3) {
         elements.push(
-          <h3 key={idx} className="text-sm md:text-base font-extrabold text-[#094d4e] mt-4 mb-2 flex items-center gap-2">
+          <h3 key={idx} className="text-sm md:text-lg font-extrabold text-[#094d4e] mt-6 mb-3 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-teal-600 shrink-0"></span>
             <span>{headingContent}</span>
           </h3>
         );
@@ -132,23 +193,23 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
         // level >= 4
         if (isQAHeading) {
           const colonIdx = headingContent.indexOf(":");
-          const qPrefix = colonIdx !== -1 ? headingContent.substring(0, colonIdx + 1) : headingContent;
-          const qBody = colonIdx !== -1 ? headingContent.substring(colonIdx + 1) : "";
+          const qPrefix = colonIdx !== -1 ? headingContent.substring(0, colonIdx + 1) : "سؤال:";
+          const qBody = colonIdx !== -1 ? headingContent.substring(colonIdx + 1) : headingContent;
           elements.push(
-            <div key={idx} className="mt-4 mb-2 p-3.5 bg-teal-50/70 border border-teal-200/80 rounded-xl shadow-2xs">
-              <div className="flex items-start gap-2">
-                <span className="bg-[#094d4e] text-white px-2 py-0.5 rounded text-xs font-bold shrink-0">
+            <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-teal-50/90 border-r-4 border-r-[#094d4e] border border-teal-200/90 rounded-xl shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <span className="bg-[#094d4e] text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5">
                   {qPrefix}
                 </span>
-                <h4 className="text-xs md:text-sm font-extrabold text-[#094d4e] leading-snug">
-                  {renderInlineMarkdown(qBody)}
+                <h4 className="text-sm md:text-base font-extrabold text-[#094d4e] leading-snug flex-1">
+                  {renderInlineMarkdown(qBody.trim())}
                 </h4>
               </div>
             </div>
           );
         } else {
           elements.push(
-            <h4 key={idx} className="text-xs md:text-sm font-extrabold text-gray-900 mt-3.5 mb-1.5 flex items-center gap-1.5">
+            <h4 key={idx} className="text-xs md:text-sm font-extrabold text-gray-900 mt-5 mb-2 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[#094d4e] shrink-0"></span>
               <span>{renderInlineMarkdown(headingContent)}</span>
             </h4>
@@ -158,15 +219,55 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
       return;
     }
 
+    // Direct Question line without #### (e.g. "س1: ما هي...")
+    const directQuestionMatch = /^(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*)\s*(.*)$/i.exec(trimmed);
+    if (directQuestionMatch) {
+      flushList(`line-${idx}`);
+      const qPrefix = directQuestionMatch[1].replace(/\*/g, "").trim();
+      const qBody = directQuestionMatch[2].trim();
+      elements.push(
+        <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-teal-50/90 border-r-4 border-r-[#094d4e] border border-teal-200/90 rounded-xl shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <span className="bg-[#094d4e] text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5">
+              {qPrefix}
+            </span>
+            <h4 className="text-sm md:text-base font-extrabold text-[#094d4e] leading-snug flex-1">
+              {renderInlineMarkdown(qBody)}
+            </h4>
+          </div>
+        </div>
+      );
+      return;
+    }
+
     // Check for List Items: * or - or 1.
     const listMatch = /^([*-]|\d+\.)\s+(.*)$/.exec(trimmed);
     if (listMatch) {
       const itemContent = listMatch[2];
       currentListItems.push(
-        <li key={idx} className="text-xs md:text-sm text-gray-800 leading-relaxed flex items-start gap-2">
-          <span className="text-[#094d4e] font-extrabold shrink-0 mt-0.5">•</span>
+        <li key={idx} className="text-xs md:text-sm text-gray-800 leading-relaxed flex items-start gap-2.5 py-0.5">
+          <span className="text-[#094d4e] font-black shrink-0 mt-0.5 text-base">•</span>
           <span className="flex-1">{renderInlineMarkdown(itemContent)}</span>
         </li>
+      );
+      return;
+    }
+
+    // Check if line starts with Answer tag (**ج:** or ج: or **إجابة:** or إجابة:)
+    if (/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/.test(trimmed)) {
+      flushList(`line-${idx}`);
+      const body = trimmed.replace(/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/, "").trim();
+      elements.push(
+        <div key={idx} className="mt-2 mb-6 p-4 md:p-5 bg-emerald-50/60 border-r-4 border-r-emerald-600 border border-emerald-200/80 rounded-xl shadow-xs space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="bg-emerald-600 text-white px-2.5 py-0.5 rounded text-xs font-black">
+              الإجابة العلمية (ج)
+            </span>
+          </div>
+          <div className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-800 font-normal">
+            {renderInlineMarkdown(body)}
+          </div>
+        </div>
       );
       return;
     }
@@ -174,26 +275,8 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     // Normal paragraph line
     flushList(`line-${idx}`);
 
-    // Check if line starts with **ج:** or **س:** or ج:
-    if (/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*)/.test(trimmed)) {
-      const body = trimmed.replace(/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*)/, "").trim();
-      elements.push(
-        <div key={idx} className="my-2.5 p-3.5 bg-white border border-emerald-100/80 rounded-xl shadow-2xs space-y-1">
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="bg-emerald-100 text-emerald-900 border border-emerald-300/60 px-2 py-0.5 rounded text-[11px] font-black">
-              الإجابة (ج):
-            </span>
-          </div>
-          <p className="text-xs md:text-sm leading-loose text-gray-800">
-            {renderInlineMarkdown(body)}
-          </p>
-        </div>
-      );
-      return;
-    }
-
     elements.push(
-      <p key={idx} className="text-xs md:text-sm leading-loose text-gray-800 mb-2 font-sans">
+      <p key={idx} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-800 my-3 font-sans">
         {renderInlineMarkdown(trimmed)}
       </p>
     );
@@ -215,7 +298,7 @@ function formatInlineHtml(text: string): string {
     .replace(/>/g, "&gt;");
 
   // Bold **text** -> <strong>
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong style='font-weight: bold; color: #111;'>$1</strong>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong style='font-weight: bold; color: #0f172a;'>$1</strong>");
   html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
   return html;
 }
@@ -224,8 +307,8 @@ function formatInlineHtml(text: string): string {
  * Converts report text containing markdown and evidence tags into an MS Word compatible HTML document string.
  */
 export function markdownToWordHtml(title: string, markdownText: string): string {
-  const clean = stripEvidenceTags(markdownText);
-  const lines = clean.split("\n");
+  const normalized = normalizeReportStructure(markdownText);
+  const lines = normalized.split("\n");
 
   let bodyHtml = "";
   let inList = false;
@@ -240,6 +323,35 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
       return;
     }
 
+    // Divider
+    if (trimmed === "---") {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      bodyHtml += `<hr style="border: none; border-top: 1.5pt solid #094d4e; margin-top: 18pt; margin-bottom: 18pt;" />\n`;
+      return;
+    }
+
+    // Meta / Scope disclosure
+    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير الأكاديمي:")) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      bodyHtml += `<div style="background-color: #f0fdfa; border-right: 3.5pt solid #094d4e; padding: 8pt 12pt; margin-top: 12pt; margin-bottom: 10pt; font-weight: bold; color: #094d4e; font-size: 11pt; font-family: 'Segoe UI', Arial, sans-serif;">${formatInlineHtml(trimmed)}</div>\n`;
+      return;
+    }
+
+    if (trimmed.startsWith("توضيح النطاق:")) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      bodyHtml += `<div style="background-color: #f0fdfa; border: 1pt solid #99f6e4; border-right: 3.5pt solid #094d4e; padding: 10pt 12pt; margin-top: 12pt; margin-bottom: 14pt; border-radius: 4pt; color: #0f766e; font-size: 10.5pt; font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.7;"><strong>نطاق التقرير:</strong> ${formatInlineHtml(trimmed.replace("توضيح النطاق:", "").trim())}</div>\n`;
+      return;
+    }
+
     // Headings
     const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
     if (headingMatch) {
@@ -248,15 +360,36 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
         inList = false;
       }
       const level = headingMatch[1].length;
-      const content = cleanMarkdownToPlainText(headingMatch[2]);
+      const content = headingMatch[2];
+      const isQAHeading = /^(س\d*|سؤال|س):/i.test(content.trim());
 
       if (level <= 2) {
-        bodyHtml += `<h2 style="color: #094d4e; font-size: 16pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 16pt; margin-bottom: 6pt; font-weight: bold; border-bottom: 1.5pt solid #094d4e; padding-bottom: 3pt;">${content}</h2>\n`;
+        bodyHtml += `<h2 style="color: #094d4e; font-size: 16pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 20pt; margin-bottom: 8pt; font-weight: bold; border-bottom: 2pt solid #094d4e; padding-bottom: 4pt;">${cleanMarkdownToPlainText(content)}</h2>\n`;
       } else if (level === 3) {
-        bodyHtml += `<h3 style="color: #094d4e; font-size: 13pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 12pt; margin-bottom: 4pt; font-weight: bold;">${content}</h3>\n`;
+        bodyHtml += `<h3 style="color: #094d4e; font-size: 13.5pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 16pt; margin-bottom: 6pt; font-weight: bold;">${cleanMarkdownToPlainText(content)}</h3>\n`;
       } else {
-        bodyHtml += `<h4 style="color: #0d6264; font-size: 11pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 10pt; margin-bottom: 4pt; font-weight: bold;">${content}</h4>\n`;
+        if (isQAHeading) {
+          const colonIdx = content.indexOf(":");
+          const qPrefix = colonIdx !== -1 ? content.substring(0, colonIdx + 1) : "سؤال:";
+          const qBody = colonIdx !== -1 ? content.substring(colonIdx + 1) : content;
+          bodyHtml += `<div style="background-color: #f0fdfa; border-right: 4pt solid #094d4e; border: 1pt solid #ccfbf1; padding: 10pt 14pt; margin-top: 16pt; margin-bottom: 6pt; border-radius: 6pt;"><strong style="color: #094d4e; font-size: 11.5pt;">${formatInlineHtml(qPrefix)}</strong> <span style="font-size: 11.5pt; font-weight: bold; color: #0f172a;">${formatInlineHtml(qBody.trim())}</span></div>\n`;
+        } else {
+          bodyHtml += `<h4 style="color: #0f766e; font-size: 11.5pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 14pt; margin-bottom: 6pt; font-weight: bold;">${cleanMarkdownToPlainText(content)}</h4>\n`;
+        }
       }
+      return;
+    }
+
+    // Direct question
+    const directQuestionMatch = /^(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*)\s*(.*)$/i.exec(trimmed);
+    if (directQuestionMatch) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      const qPrefix = directQuestionMatch[1].replace(/\*/g, "").trim();
+      const qBody = directQuestionMatch[2].trim();
+      bodyHtml += `<div style="background-color: #f0fdfa; border-right: 4pt solid #094d4e; border: 1pt solid #ccfbf1; padding: 10pt 14pt; margin-top: 16pt; margin-bottom: 6pt; border-radius: 6pt;"><strong style="color: #094d4e; font-size: 11.5pt;">${formatInlineHtml(qPrefix)}</strong> <span style="font-size: 11.5pt; font-weight: bold; color: #0f172a;">${formatInlineHtml(qBody)}</span></div>\n`;
       return;
     }
 
@@ -264,11 +397,11 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
     const listMatch = /^([*-]|\d+\.)\s+(.*)$/.exec(trimmed);
     if (listMatch) {
       if (!inList) {
-        bodyHtml += `<ul style="margin-right: 18pt; margin-top: 4pt; margin-bottom: 8pt; font-size: 11pt; font-family: 'Segoe UI', Arial, sans-serif;">\n`;
+        bodyHtml += `<ul style="margin-right: 18pt; margin-top: 6pt; margin-bottom: 10pt; font-size: 11pt; font-family: 'Segoe UI', Arial, sans-serif;">\n`;
         inList = true;
       }
       const itemText = formatInlineHtml(listMatch[2]);
-      bodyHtml += `  <li style="margin-bottom: 4pt; line-height: 1.7;">${itemText}</li>\n`;
+      bodyHtml += `  <li style="margin-bottom: 6pt; line-height: 1.8;">${itemText}</li>\n`;
       return;
     }
 
@@ -277,15 +410,15 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
       inList = false;
     }
 
-    // QA lines
-    if (/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*)/.test(trimmed)) {
-      const answerContent = trimmed.replace(/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*)/, "").trim();
-      bodyHtml += `<p style="margin-top: 6pt; margin-bottom: 8pt; background-color: #f0fdf4; padding: 8pt 10pt; border-right: 3.5pt solid #059669; font-size: 11pt; line-height: 1.7;"><strong style="color: #065f46;">الإجابة (ج):</strong> ${formatInlineHtml(answerContent)}</p>\n`;
+    // QA Answer lines
+    if (/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/.test(trimmed)) {
+      const answerContent = trimmed.replace(/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/, "").trim();
+      bodyHtml += `<div style="background-color: #f0fdf4; border-right: 4pt solid #059669; border: 1pt solid #dcfce7; padding: 10pt 14pt; margin-top: 6pt; margin-bottom: 16pt; border-radius: 6pt; font-size: 11pt; line-height: 1.8;"><strong style="color: #047857; font-size: 11pt;">الإجابة العلمية (ج):</strong> <span style="color: #1e293b;">${formatInlineHtml(answerContent)}</span></div>\n`;
       return;
     }
 
     // Standard paragraph
-    bodyHtml += `<p style="margin-bottom: 8pt; font-size: 11pt; line-height: 1.7; color: #1f1f1f; font-family: 'Segoe UI', Arial, sans-serif;">${formatInlineHtml(trimmed)}</p>\n`;
+    bodyHtml += `<p style="margin-bottom: 12pt; font-size: 11pt; line-height: 1.8; color: #1e293b; font-family: 'Segoe UI', Arial, sans-serif; text-align: justify;">${formatInlineHtml(trimmed)}</p>\n`;
   });
 
   if (inList) {
@@ -312,14 +445,14 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
     direction: rtl;
     text-align: right;
     line-height: 1.8;
-    color: #1f1f1f;
+    color: #1e293b;
     margin: 30pt;
   }
   h1, h2, h3, h4 { font-family: 'Segoe UI', 'Traditional Arabic', sans-serif; }
 </style>
 </head>
 <body>
-  ${title ? `<h1 style="color: #094d4e; font-size: 20pt; font-weight: bold; margin-bottom: 12pt; border-bottom: 2pt solid #094d4e; padding-bottom: 6pt;">${title}</h1>` : ""}
+  ${title ? `<h1 style="color: #094d4e; font-size: 20pt; font-weight: bold; margin-bottom: 14pt; border-bottom: 2pt solid #094d4e; padding-bottom: 8pt;">${title}</h1>` : ""}
   ${bodyHtml}
 </body>
 </html>`.trim();
@@ -376,3 +509,4 @@ export async function copyReportToClipboard(title: string, text: string): Promis
     }
   }
 }
+
