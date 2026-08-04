@@ -18,6 +18,7 @@ import {
 import { Source, Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
 import { copyReportToClipboard, exportToWordDocument } from "../utils/reportFormatter";
+import { generateClientSynthesisFallback } from "../utils/synthesisFallback";
 
 interface SynthesisEditorProps {
   sources: Source[];
@@ -64,44 +65,68 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
     setIsFallbackMode(false);
     setViewMode("preview");
 
+    const activeSourcesData = sources
+      .filter((s) => selectedSourceIds.includes(s.id))
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        language: s.language || "ar",
+        wordCount: s.wordCount || 0,
+        summary: s.summary || "",
+        content: (s.content || s.summary || "").substring(0, 15000),
+      }));
+
+    let autoTitle = `توليف بحثي: ${topic || "عام"}`;
+    if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic || "شاملة"}`;
+    else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic || "شامل"}`;
+    else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic || "موجز"}`;
+    else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic || "دليل"}`;
+
     try {
-      const activeSourcesData = sources.filter((s) => selectedSourceIds.includes(s.id));
-      
-      const response = await fetch("/api/synthesize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sources: activeSourcesData,
-          topic: topic,
-          toolType: toolType,
-        }),
-      });
+      let data: any = null;
+      try {
+        const response = await fetch("/api/synthesize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sources: activeSourcesData,
+            topic: topic,
+            toolType: toolType,
+          }),
+        });
 
-      const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+          data = await response.json().catch(() => null);
+        } else {
+          const errBody = await response.json().catch(() => null);
+          console.warn("Server synthesize returned non-ok status:", response.status, errBody);
+        }
+      } catch (fetchErr) {
+        console.warn("Backend API synthesize request failed/unreachable, using client fallback:", fetchErr);
+      }
 
-      if (data.text) {
+      if (data && data.text && typeof data.text === "string" && data.text.trim().length > 20) {
         setGeneratedText(data.text);
         setIsFallbackMode(Boolean(data.isFallback));
-        
-        let autoTitle = `توليف بحثي: ${topic || "عام"}`;
-        if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic || "شاملة"}`;
-        else if (toolType === "gap") autoTitle = `تقرير فجوات الأدلة: ${topic || "شامل"}`;
-        else if (toolType === "briefing") autoTitle = `تقرير التوصيات والآثار: ${topic || "موجز"}`;
-        else if (toolType === "faq") autoTitle = `الأسئلة الشائعة والإجابات: ${topic || "دليل"}`;
-        
         if (data.isFallback) {
           autoTitle = `توليف الأدلة: ${topic || "مستندات"}`;
         }
-        
         setReportTitle(autoTitle);
-      } else if (!response.ok) {
-        throw new Error(data.error || "فشلت عملية توليد التوليف.");
       } else {
-        throw new Error("لم يتنقل أي نص من خادم التوليف.");
+        // PERMANENT FIX: If AI API or server is down/unreachable/quota-exceeded, generate complete synthesis locally!
+        console.log("Generating full synthesis report locally via client-side evidence fallback.");
+        const fallbackText = generateClientSynthesisFallback(activeSourcesData, topic, toolType);
+        setGeneratedText(fallbackText);
+        setIsFallbackMode(true);
+        setReportTitle(`توليف الأدلة: ${topic || "مستندات"}`);
       }
     } catch (error: any) {
-      console.error(error);
-      setErrorMsg(error.message || "حدث خطأ أثناء التوليف بالذكاء الاصطناعي. يرجى المحاولة لاحقاً.");
+      console.error("Unexpected synthesis error:", error);
+      // Guarantee output even on unexpected errors
+      const fallbackText = generateClientSynthesisFallback(activeSourcesData, topic, toolType);
+      setGeneratedText(fallbackText);
+      setIsFallbackMode(true);
+      setReportTitle(`توليف الأدلة: ${topic || "مستندات"}`);
     } finally {
       setIsGenerating(false);
     }
