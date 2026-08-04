@@ -27,10 +27,16 @@ export function normalizeReportStructure(text: string): string {
   // Ensure double newlines before key meta headers
   result = result.replace(/(\s*)(عنوان تقرير التوليف:)/gi, "\n\n$2\n");
   result = result.replace(/(\s*)(محتوى التقرير الأكاديمي:)/gi, "\n\n$2\n");
-  result = result.replace(/(\s*)(توضيح النطاق:)/gi, "\n\n$2 ");
+  
+  // Ensure double newlines around disclosure banners (توضيح النطاق: or نطاق التقرير:)
+  result = result.replace(/([^\n])\s*(توضيح النطاق:|نطاق التقرير:)/gi, "$1\n\n$2");
+  result = result.replace(/(توضيح النطاق:[^\n]+|نطاق التقرير:[^\n]+)([^\n])/gi, "$1\n\n$2");
 
-  // Ensure newlines before markdown headings (####, ###, ##, #)
+  // Ensure double newlines before markdown headings (####, ###, ##, #)
   result = result.replace(/([^\n])(#{1,6}\s+)/g, "$1\n\n$2");
+
+  // Ensure double newlines before markdown tables starting with |
+  result = result.replace(/([^\n|])\n*(\|[^\n]+\|)/g, "$1\n\n$2");
 
   // Ensure double newlines before questions like #### س1: or س1: or سؤال 1: or **س1:**
   result = result.replace(/([^\n])\s*(#{1,6}\s*)?(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*)/gi, "$1\n\n$2$3");
@@ -131,20 +137,33 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
   if (tableLines.length >= 2 && isDelimiter(tableLines[1])) {
     headerCells = parseRow(tableLines[0]);
     dataRowsStr = tableLines.slice(2);
+  } else if (tableLines.length >= 1 && isDelimiter(tableLines[0])) {
+    dataRowsStr = tableLines.slice(1);
   } else {
     dataRowsStr = tableLines;
   }
 
-  const rows = dataRowsStr.map(parseRow);
+  // Filter out empty rows or alignment delimiter artifacts (e.g. lines with only colons/hyphens)
+  const rows = dataRowsStr
+    .map(parseRow)
+    .filter((rowCells) => rowCells.some((cell) => cell.replace(/[:\s-]/g, "").length > 0));
+
+  if (headerCells.length === 0 && rows.length === 0) return null;
+
+  const colWidths = headerCells.length === 4 
+    ? ["w-[6%]", "w-[26%]", "w-[38%]", "w-[30%]"]
+    : headerCells.length === 5 
+    ? ["w-[6%]", "w-[24%]", "w-[25%]", "w-[25%]", "w-[20%]"]
+    : headerCells.map(() => "");
 
   return (
     <div key={key} className="my-6 overflow-x-auto rounded-xl border border-teal-200/90 shadow-xs bg-white">
-      <table className="w-full text-right border-collapse text-xs md:text-sm" dir="rtl">
+      <table className="w-full text-right border-collapse text-xs md:text-sm table-fixed" dir="rtl">
         {headerCells.length > 0 && (
           <thead className="bg-[#094d4e] text-white">
             <tr>
               {headerCells.map((h, i) => (
-                <th key={i} className="p-3.5 px-4 font-black border-b border-teal-700 whitespace-nowrap text-right">
+                <th key={i} className={`p-3 px-3.5 font-black border-b border-teal-700 text-right align-middle break-words ${colWidths[i] || ""}`}>
                   {renderInlineMarkdown(h)}
                 </th>
               ))}
@@ -155,7 +174,7 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
           {rows.map((rowCells, rIdx) => (
             <tr key={rIdx} className={rIdx % 2 === 0 ? "bg-white hover:bg-teal-50/40" : "bg-teal-50/25 hover:bg-teal-50/60"}>
               {rowCells.map((cell, cIdx) => (
-                <td key={cIdx} className="p-3.5 px-4 text-gray-850 leading-relaxed font-normal align-top text-right">
+                <td key={cIdx} className={`p-3 px-3.5 text-gray-850 leading-relaxed font-normal align-top text-right break-words ${colWidths[cIdx] || ""}`}>
                   {renderInlineMarkdown(cell)}
                 </td>
               ))}
@@ -168,7 +187,7 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
 }
 
 /**
- * Helper to render a markdown table into MS Word HTML string
+ * Helper to render a markdown table into MS Word HTML string with explicit table-layout and column widths
  */
 function renderMarkdownTableHtml(tableLines: string[]): string {
   if (tableLines.length === 0) return "";
@@ -190,17 +209,31 @@ function renderMarkdownTableHtml(tableLines: string[]): string {
   if (tableLines.length >= 2 && isDelimiter(tableLines[1])) {
     headerCells = parseRow(tableLines[0]);
     dataRowsStr = tableLines.slice(2);
+  } else if (tableLines.length >= 1 && isDelimiter(tableLines[0])) {
+    dataRowsStr = tableLines.slice(1);
   } else {
     dataRowsStr = tableLines;
   }
 
-  const rows = dataRowsStr.map(parseRow);
+  // Filter out empty delimiter artifact rows
+  const rows = dataRowsStr
+    .map(parseRow)
+    .filter((rowCells) => rowCells.some((cell) => cell.replace(/[:\s-]/g, "").length > 0));
 
-  let html = `<table style="width: 100%; border-collapse: collapse; margin-top: 16pt; margin-bottom: 20pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt;" dir="rtl">\n`;
+  if (headerCells.length === 0 && rows.length === 0) return "";
+
+  const colWidths = headerCells.length === 4 
+    ? ["6%", "26%", "38%", "30%"]
+    : headerCells.length === 5 
+    ? ["6%", "24%", "25%", "25%", "20%"]
+    : headerCells.map(() => `${Math.floor(100 / (headerCells.length || 1))}%`);
+
+  let html = `<table style="width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 16pt; margin-bottom: 20pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 9.5pt;" dir="rtl">\n`;
   if (headerCells.length > 0) {
     html += `  <thead>\n    <tr style="background-color: #094d4e; color: #ffffff;">\n`;
-    headerCells.forEach((h) => {
-      html += `      <th style="padding: 8pt 10pt; border: 1pt solid #094d4e; font-weight: bold; text-align: right; font-size: 10.5pt;">${formatInlineHtml(h)}</th>\n`;
+    headerCells.forEach((h, i) => {
+      const w = colWidths[i] || "auto";
+      html += `      <th style="width: ${w}; padding: 8pt 8pt; border: 1pt solid #094d4e; font-weight: bold; text-align: right; font-size: 10pt; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(h)}</th>\n`;
     });
     html += `    </tr>\n  </thead>\n`;
   }
@@ -209,8 +242,9 @@ function renderMarkdownTableHtml(tableLines: string[]): string {
   rows.forEach((rowCells, rIdx) => {
     const bgColor = rIdx % 2 === 0 ? "#ffffff" : "#f0fdfa";
     html += `    <tr style="background-color: ${bgColor};">\n`;
-    rowCells.forEach((cell) => {
-      html += `      <td style="padding: 8pt 10pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.6; color: #1e293b;">${formatInlineHtml(cell)}</td>\n`;
+    rowCells.forEach((cell, cIdx) => {
+      const w = colWidths[cIdx] || "auto";
+      html += `      <td style="width: ${w}; padding: 8pt 8pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.5; color: #1e293b; vertical-align: top; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(cell)}</td>\n`;
     });
     html += `    </tr>\n`;
   });
