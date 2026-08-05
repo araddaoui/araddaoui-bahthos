@@ -347,20 +347,26 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     try {
       const activeId = localStorage.getItem("bahthos_current_project_id") || localStorage.getItem("tawlif_current_project_id") || "default";
       const saved = localStorage.getItem(`bahthos_sources_${activeId}`) || localStorage.getItem(`tawlif_sources_${activeId}`);
+      let rawSources: Source[] = [];
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-      if (activeId === "default") {
-        // Migration of legacy non-prefixed key
+        if (Array.isArray(parsed)) rawSources = parsed;
+      } else if (activeId === "default") {
         const legacy = localStorage.getItem("bahthos_sources") || localStorage.getItem("tawlif_sources") || localStorage.getItem("al_dalil_sources");
-        if (legacy) return JSON.parse(legacy);
-        return defaultSources;
+        if (legacy) rawSources = JSON.parse(legacy);
+        else rawSources = defaultSources;
       }
+      return rawSources.map(s => ({
+        ...s,
+        summary: ensureArabicSummary(s.summary, s.content, s.title)
+      }));
     } catch (e) {
       console.error(e);
+      return defaultSources.map(s => ({
+        ...s,
+        summary: ensureArabicSummary(s.summary, s.content, s.title)
+      }));
     }
-    return [];
   });
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");

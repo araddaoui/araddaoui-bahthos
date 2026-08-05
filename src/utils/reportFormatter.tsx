@@ -120,11 +120,26 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
 function renderMarkdownTableReact(tableLines: string[], key: string): React.ReactNode {
   if (tableLines.length === 0) return null;
 
-  const parseRow = (rowStr: string) => {
+  const parseRow = (rowStr: string): string[] => {
     let trimmed = rowStr.trim();
     if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
     if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
-    return trimmed.split("|").map((cell) => cell.trim());
+    
+    let cells = trimmed.split("|").map((cell) => {
+      let c = cell.trim();
+      // Remove malformed tag artifacts like span<>/br<pdf or embedded html tags
+      c = c.replace(/span<>\/br<[^\s]*/gi, " ")
+           .replace(/<[^>]*>/g, " ")
+           .replace(/\s+/g, " ")
+           .trim();
+      return c;
+    });
+
+    // Remove trailing empty cells if any
+    while (cells.length > 0 && cells[cells.length - 1] === "") {
+      cells.pop();
+    }
+    return cells;
   };
 
   const isDelimiter = (rowStr: string) => {
@@ -143,18 +158,25 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
     dataRowsStr = tableLines;
   }
 
-  // Filter out empty rows or alignment delimiter artifacts (e.g. lines with only colons/hyphens)
+  // Cap columns to max 4 to prevent cramped/unreadable tables
+  if (headerCells.length > 4) {
+    headerCells = headerCells.slice(0, 4);
+  }
+
+  // Filter out empty rows or alignment delimiter artifacts
   const rows = dataRowsStr
     .map(parseRow)
+    .map((rowCells) => (rowCells.length > 4 ? rowCells.slice(0, 4) : rowCells))
     .filter((rowCells) => rowCells.some((cell) => cell.replace(/[:\s-]/g, "").length > 0));
 
   if (headerCells.length === 0 && rows.length === 0) return null;
 
-  const colWidths = headerCells.length === 4 
-    ? ["w-[6%]", "w-[26%]", "w-[38%]", "w-[30%]"]
-    : headerCells.length === 5 
-    ? ["w-[6%]", "w-[24%]", "w-[25%]", "w-[25%]", "w-[20%]"]
-    : headerCells.map(() => "");
+  // Optimized column widths for max 4 columns
+  const colWidths = headerCells.length === 2
+    ? ["w-[25%]", "w-[75%]"]
+    : headerCells.length === 3
+    ? ["w-[10%]", "w-[42%]", "w-[48%]"]
+    : ["w-[8%]", "w-[28%]", "w-[34%]", "w-[30%]"];
 
   return (
     <div key={key} className="my-6 overflow-x-auto rounded-xl border border-teal-200/90 shadow-xs bg-white">
@@ -163,7 +185,7 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
           <thead className="bg-[#094d4e] text-white">
             <tr>
               {headerCells.map((h, i) => (
-                <th key={i} className={`p-3 px-3.5 font-black border-b border-teal-700 text-right align-middle break-words ${colWidths[i] || ""}`}>
+                <th key={i} className={`p-3.5 px-4 font-extrabold border-b border-teal-700 text-right align-middle leading-snug break-words ${colWidths[i] || ""}`}>
                   {renderInlineMarkdown(h)}
                 </th>
               ))}
@@ -174,7 +196,7 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
           {rows.map((rowCells, rIdx) => (
             <tr key={rIdx} className={rIdx % 2 === 0 ? "bg-white hover:bg-teal-50/40" : "bg-teal-50/25 hover:bg-teal-50/60"}>
               {rowCells.map((cell, cIdx) => (
-                <td key={cIdx} className={`p-3 px-3.5 text-gray-850 leading-relaxed font-normal align-top text-right break-words ${colWidths[cIdx] || ""}`}>
+                <td key={cIdx} className={`p-3.5 px-4 text-gray-850 leading-relaxed font-normal align-top text-right break-words ${colWidths[cIdx] || ""}`}>
                   {renderInlineMarkdown(cell)}
                 </td>
               ))}
@@ -192,11 +214,22 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
 function renderMarkdownTableHtml(tableLines: string[]): string {
   if (tableLines.length === 0) return "";
 
-  const parseRow = (rowStr: string) => {
+  const parseRow = (rowStr: string): string[] => {
     let trimmed = rowStr.trim();
     if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
     if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
-    return trimmed.split("|").map((cell) => cell.trim());
+    let cells = trimmed.split("|").map((cell) => {
+      let c = cell.trim();
+      c = c.replace(/span<>\/br<[^\s]*/gi, " ")
+           .replace(/<[^>]*>/g, " ")
+           .replace(/\s+/g, " ")
+           .trim();
+      return c;
+    });
+    while (cells.length > 0 && cells[cells.length - 1] === "") {
+      cells.pop();
+    }
+    return cells;
   };
 
   const isDelimiter = (rowStr: string) => {
@@ -215,25 +248,31 @@ function renderMarkdownTableHtml(tableLines: string[]): string {
     dataRowsStr = tableLines;
   }
 
+  // Cap columns to max 4 for MS Word table readability
+  if (headerCells.length > 4) {
+    headerCells = headerCells.slice(0, 4);
+  }
+
   // Filter out empty delimiter artifact rows
   const rows = dataRowsStr
     .map(parseRow)
+    .map((rowCells) => (rowCells.length > 4 ? rowCells.slice(0, 4) : rowCells))
     .filter((rowCells) => rowCells.some((cell) => cell.replace(/[:\s-]/g, "").length > 0));
 
   if (headerCells.length === 0 && rows.length === 0) return "";
 
-  const colWidths = headerCells.length === 4 
-    ? ["6%", "26%", "38%", "30%"]
-    : headerCells.length === 5 
-    ? ["6%", "24%", "25%", "25%", "20%"]
-    : headerCells.map(() => `${Math.floor(100 / (headerCells.length || 1))}%`);
+  const colWidths = headerCells.length === 2
+    ? ["25%", "75%"]
+    : headerCells.length === 3
+    ? ["10%", "42%", "48%"]
+    : ["8%", "28%", "34%", "30%"];
 
-  let html = `<table style="width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 16pt; margin-bottom: 20pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 9.5pt;" dir="rtl">\n`;
+  let html = `<table style="width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 16pt; margin-bottom: 20pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt;" dir="rtl">\n`;
   if (headerCells.length > 0) {
     html += `  <thead>\n    <tr style="background-color: #094d4e; color: #ffffff;">\n`;
     headerCells.forEach((h, i) => {
       const w = colWidths[i] || "auto";
-      html += `      <th style="width: ${w}; padding: 8pt 8pt; border: 1pt solid #094d4e; font-weight: bold; text-align: right; font-size: 10pt; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(h)}</th>\n`;
+      html += `      <th style="width: ${w}; padding: 10pt 10pt; border: 1pt solid #094d4e; font-weight: bold; text-align: right; font-size: 10.5pt; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(h)}</th>\n`;
     });
     html += `    </tr>\n  </thead>\n`;
   }
@@ -244,7 +283,7 @@ function renderMarkdownTableHtml(tableLines: string[]): string {
     html += `    <tr style="background-color: ${bgColor};">\n`;
     rowCells.forEach((cell, cIdx) => {
       const w = colWidths[cIdx] || "auto";
-      html += `      <td style="width: ${w}; padding: 8pt 8pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.5; color: #1e293b; vertical-align: top; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(cell)}</td>\n`;
+      html += `      <td style="width: ${w}; padding: 10pt 10pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.6; color: #1e293b; vertical-align: top; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(cell)}</td>\n`;
     });
     html += `    </tr>\n`;
   });
