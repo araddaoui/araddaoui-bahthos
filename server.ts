@@ -457,11 +457,118 @@ app.post("/api/extract-text", async (req, res) => {
 });
 
 // Endpoint to generate academic synthesis reports using Gemini or smart fallback
+function deduplicateSources(sources: any[]): any[] {
+  if (!Array.isArray(sources)) return [];
+  const seenKeys = new Set<string>();
+  const unique: any[] = [];
+
+  for (const src of sources) {
+    if (!src) continue;
+    const title = (src?.title || "").trim();
+    const normTitle = title
+      .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+    const rawContent = (src?.content || src?.summary || src?.extractedText || "").trim();
+    const contentSnippet = rawContent.substring(0, 300).toLowerCase().replace(/\s+/g, " ");
+
+    const titleKey = normTitle.length > 5 ? normTitle : null;
+    const contentKey = contentSnippet.length > 30 ? contentSnippet : null;
+
+    if (titleKey && seenKeys.has(titleKey)) continue;
+    if (contentKey && seenKeys.has(contentKey)) continue;
+
+    if (titleKey) seenKeys.add(titleKey);
+    if (contentKey) seenKeys.add(contentKey);
+
+    unique.push(src);
+  }
+
+  return unique.length > 0 ? unique : sources;
+}
+
+function deduplicateReportText(text: string): string {
+  if (!text) return "";
+
+  const blocks = text.split(/\n{2,}/);
+  const resultBlocks: string[] = [];
+  
+  const seenQAKeys = new Set<string>();
+  const seenBulletKeys = new Set<string>();
+  let questionCounter = 1;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i].trim();
+    if (!block) continue;
+
+    const isQuestion = /^(?:#{1,6}\s*)?(?:س\d*:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*|\*\*سؤال:\*\*)/i.test(block);
+
+    if (isQuestion) {
+      const nextBlock = i + 1 < blocks.length ? blocks[i + 1].trim() : "";
+      const isAnswer = /^(?:\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*|الإجابة\s+العلمية\s*\(ج\):)/i.test(nextBlock);
+
+      const rawQuestionText = block.replace(/^(?:#{1,6}\s*)?(?:س\d*:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*|\*\*سؤال:\*\*)\s*/i, "").trim();
+      const normQuestion = rawQuestionText
+        .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+      let normAnswer = "";
+      if (isAnswer) {
+        const rawAnswerText = nextBlock.replace(/^(?:\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*|الإجابة\s+العلمية\s*\(ج\):)\s*/i, "").trim();
+        normAnswer = rawAnswerText
+          .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+          .substring(0, 150)
+          .toLowerCase()
+          .replace(/\s+/g, " ");
+      }
+
+      const qaKey = normQuestion + "||" + normAnswer;
+
+      if (seenQAKeys.has(qaKey)) {
+        if (isAnswer) i++; // Skip answer block
+        continue;
+      }
+
+      seenQAKeys.add(qaKey);
+
+      const cleanQHeader = `#### س${questionCounter++}: ${rawQuestionText}`;
+      resultBlocks.push(cleanQHeader);
+
+      if (isAnswer) {
+        resultBlocks.push(nextBlock);
+        i++; // Skip answer block as processed
+      }
+      continue;
+    }
+
+    if (block.startsWith("- ") || block.startsWith("* ") || block.startsWith("• ")) {
+      const bulletContent = block.replace(/^[*•-]\s+/, "").trim();
+      const normBullet = bulletContent
+        .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+      if (normBullet.length > 20 && seenBulletKeys.has(normBullet)) {
+        continue;
+      }
+      if (normBullet.length > 20) {
+        seenBulletKeys.add(normBullet);
+      }
+    }
+
+    resultBlocks.push(block);
+  }
+
+  return resultBlocks.join("\n\n");
+}
+
 app.post("/api/synthesize", async (req, res) => {
   try {
     const { sources: rawSourcesInput, topic, toolType } = req.body || {};
     const sources = Array.isArray(rawSourcesInput) ? rawSourcesInput : [];
-    const activeSources = sources;
+    const activeSources = deduplicateSources(sources);
     
     if (activeSources.length === 0) {
       return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
@@ -540,7 +647,11 @@ scopeIntro + sourcesContext;
 "الموضوع: \"" + (topic || "الملخص التنفيذي والتوصيات") + "\"\n\n" +
 scopeIntro + sourcesContext;
     } else if (toolType === "faq") {
-      userPrompt = "صغ دليلاً للأسئلة الشائعة والإجابات العلمية الموثقة (Academic FAQ Guide) يطرح أسئلة جوهرية عن كل وثيقة وإجابات تفصيلية فريدة باللغة العربية الفصحى السلسة، بالإضافة إلى أسئلة المقارنة والتركيب البحثي بين الوثائق.\n\n" +
+      userPrompt = "صغ دليلاً للأسئلة الشائعة والإجابات العلمية الموثقة (Academic FAQ Guide) يطرح أسئلة جوهرية وفريدة عن كل وثيقة وإجابات تفصيلية باللغة العربية الفصحى السلسة.\n\n" +
+"شروط صارمة لمنع التكرار:\n" +
+"- يُحظر حظراً تاماً تكرار نفس صيغة السؤال أو نفس الإجابة لأكثر من وثيقة واحدة.\n" +
+"- اشتق زاوية سؤال مختلفة ومتميزة لكل وثيقة (مثل: الإطار النظري والقيمة المنهجية، الأدلة الميدانية، التحديات والحدود التشغيلية، ودور العنصر البشري).\n" +
+"- قم بترقيم الأسئلة بالتتابع وبشكل فريد (س1:، س2:، س3:...).\n\n" +
 "الموضوع: \"" + (topic || "دليل الأسئلة الشائعة") + "\"\n\n" +
 scopeIntro + sourcesContext;
     } else {
@@ -564,8 +675,9 @@ scopeIntro + sourcesContext;
       });
 
       if (response?.text && response.text.trim().length > 100) {
+        const cleanText = deduplicateReportText(normalizeArabicText(response.text.trim()));
         return res.json({
-          text: normalizeArabicText(response.text.trim()),
+          text: cleanText,
           isFallback: false
         });
       }
@@ -576,7 +688,7 @@ scopeIntro + sourcesContext;
     // Smart, document-specific fallback if AI call fails
     const fallbackReport = generateClientSynthesisFallback(activeSources, topic || "تحليل ومقارنة شاملة للمصادر", toolType);
     return res.json({
-      text: normalizeArabicText(fallbackReport),
+      text: deduplicateReportText(normalizeArabicText(fallbackReport)),
       isFallback: true
     });
 
@@ -584,7 +696,7 @@ scopeIntro + sourcesContext;
     console.error("Error in synthesis API:", error);
     const fallbackReport = generateClientSynthesisFallback(req.body?.sources || [], req.body?.topic || "تحليل وتوليف المصادر", req.body?.toolType);
     return res.json({
-      text: normalizeArabicText(fallbackReport),
+      text: deduplicateReportText(normalizeArabicText(fallbackReport)),
       isFallback: true
     });
   }

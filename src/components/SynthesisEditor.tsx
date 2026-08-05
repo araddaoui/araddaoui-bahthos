@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Source, Synthesis } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
-import { copyReportToClipboard, exportToWordDocument } from "../utils/reportFormatter";
+import { copyReportToClipboard, exportToWordDocument, deduplicateSources } from "../utils/reportFormatter";
 import { generateClientSynthesisFallback } from "../utils/synthesisFallback";
 
 interface SynthesisEditorProps {
@@ -66,7 +66,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
     setIsFallbackMode(false);
     setViewMode("preview");
 
-    const activeSourcesData = sources
+    const rawActiveSources = sources
       .filter((s) => selectedSourceIds.includes(s.id))
       .map((s) => ({
         id: s.id,
@@ -76,6 +76,8 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
         summary: s.summary || "",
         content: (s.content || s.summary || "").substring(0, 15000),
       }));
+
+    const activeSourcesData = deduplicateSources(rawActiveSources);
 
     let autoTitle = `توليف بحثي: ${topic || "عام"}`;
     if (toolType === "matrix") autoTitle = `مصفوفة الأدلة والتعارضات: ${topic || "شاملة"}`;

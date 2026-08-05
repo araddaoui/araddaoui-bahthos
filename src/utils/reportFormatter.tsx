@@ -86,7 +86,137 @@ export function normalizeReportStructure(text: string): string {
   // Normalize max 2 newlines in a row
   result = result.replace(/\n{3,}/g, "\n\n");
 
+  // Deduplicate Q&A blocks and bullet items, renumbering questions sequentially
+  result = deduplicateReportBlocks(result);
+
   return result.trim();
+}
+
+/**
+ * Deduplicates sources by normalized title and content snippet.
+ */
+export function deduplicateSources<T extends { title?: string; content?: string; summary?: string; extractedText?: string }>(sources: T[]): T[] {
+  if (!Array.isArray(sources)) return [];
+  const seenKeys = new Set<string>();
+  const unique: T[] = [];
+
+  for (const src of sources) {
+    if (!src) continue;
+    const title = (src.title || "").trim();
+    const normTitle = title
+      .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+    const rawContent = (src.content || src.summary || src.extractedText || "").trim();
+    const contentSnippet = rawContent.substring(0, 300).toLowerCase().replace(/\s+/g, " ");
+
+    const titleKey = normTitle.length > 5 ? normTitle : null;
+    const contentKey = contentSnippet.length > 30 ? contentSnippet : null;
+
+    if (titleKey && seenKeys.has(titleKey)) {
+      continue;
+    }
+    if (contentKey && seenKeys.has(contentKey)) {
+      continue;
+    }
+
+    if (titleKey) seenKeys.add(titleKey);
+    if (contentKey) seenKeys.add(contentKey);
+
+    unique.push(src);
+  }
+
+  return unique.length > 0 ? unique : sources;
+}
+
+/**
+ * Removes duplicate Q&A questions/answers, repeated bullet items, and near-identical blocks.
+ * Re-numbers Q&A questions sequentially (س1:, س2:, س3:...).
+ */
+export function deduplicateReportBlocks(text: string): string {
+  if (!text) return "";
+
+  const blocks = text.split(/\n{2,}/);
+  const resultBlocks: string[] = [];
+  
+  const seenQAKeys = new Set<string>();
+  const seenBulletKeys = new Set<string>();
+  let questionCounter = 1;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i].trim();
+    if (!block) continue;
+
+    // Detect if block is a Question line
+    const isQuestion = /^(?:#{1,6}\s*)?(?:س\d*:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*|\*\*سؤال:\*\*)/i.test(block);
+
+    if (isQuestion) {
+      // Check if next block is an Answer line
+      const nextBlock = i + 1 < blocks.length ? blocks[i + 1].trim() : "";
+      const isAnswer = /^(?:\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*|الإجابة\s+العلمية\s*\(ج\):)/i.test(nextBlock);
+
+      // Clean question text
+      const rawQuestionText = block.replace(/^(?:#{1,6}\s*)?(?:س\d*:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*|\*\*سؤال:\*\*)\s*/i, "").trim();
+      const normQuestion = rawQuestionText
+        .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+      let normAnswer = "";
+      if (isAnswer) {
+        const rawAnswerText = nextBlock.replace(/^(?:\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*|الإجابة\s+العلمية\s*\(ج\):)\s*/i, "").trim();
+        normAnswer = rawAnswerText
+          .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+          .substring(0, 150)
+          .toLowerCase()
+          .replace(/\s+/g, " ");
+      }
+
+      // Deduplication key
+      const qaKey = normQuestion + "||" + normAnswer;
+
+      if (seenQAKeys.has(qaKey)) {
+        // Skip duplicate question AND skip its answer if paired!
+        if (isAnswer) {
+          i++; // Skip answer block
+        }
+        continue;
+      }
+
+      seenQAKeys.add(qaKey);
+
+      // Format clean, sequentially numbered question
+      const cleanQHeader = `#### س${questionCounter++}: ${rawQuestionText}`;
+      resultBlocks.push(cleanQHeader);
+
+      if (isAnswer) {
+        resultBlocks.push(nextBlock);
+        i++; // Skip answer block as it's processed
+      }
+      continue;
+    }
+
+    // Deduplicate bullet points (e.g. - توصية مستندة إلى... or - الفجوة 1...)
+    if (block.startsWith("- ") || block.startsWith("* ") || block.startsWith("• ")) {
+      const bulletContent = block.replace(/^[*•-]\s+/, "").trim();
+      const normBullet = bulletContent
+        .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+      if (normBullet.length > 20 && seenBulletKeys.has(normBullet)) {
+        continue; // Skip duplicate bullet
+      }
+      if (normBullet.length > 20) {
+        seenBulletKeys.add(normBullet);
+      }
+    }
+
+    resultBlocks.push(block);
+  }
+
+  return resultBlocks.join("\n\n");
 }
 
 /**

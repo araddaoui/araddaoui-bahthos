@@ -1,4 +1,5 @@
 import { normalizeArabicText, cleanBibliographicClutterAndNormalizeArabic } from "./termExtractor";
+import { deduplicateSources, deduplicateReportBlocks } from "./reportFormatter";
 
 /**
  * Helper to extract unique, document-specific analytical insights based on title, content, and summary.
@@ -65,9 +66,10 @@ export function generateClientSynthesisFallback(
   topic: string,
   toolType: "general" | "matrix" | "gap" | "briefing" | "faq"
 ): string {
-  const activeSources = Array.isArray(sources) && sources.length > 0 ? sources : [
+  const rawActive = Array.isArray(sources) && sources.length > 0 ? sources : [
     { title: "المصدر المرفق الأول", summary: "تحليل المحاور الرئيسية واستعراض الأدلة الأكاديمية." }
   ];
+  const activeSources = deduplicateSources(rawActive);
 
   const safeTopic = topic && topic.trim().length > 0 ? topic : "مقارنة وتحليل شامل للمصادر المرفقة";
   const activeCount = activeSources.length;
@@ -172,10 +174,19 @@ export function generateClientSynthesisFallback(
     reportText = `### دليل الأسئلة الشائعة والإجابات العلمية: ${safeTopic}\n\n`;
     reportText += scopeDisclosure;
     
+    const questionTemplates = [
+      (title: string) => `ما هي الأطر المنهجية والأدلة العلمية الأساسية الموثقة في دراسة (${title})؟`,
+      (title: string) => `ما هي النتائج الميدانية والآثار العملية المقترنة بدراسة (${title}) حول موضوع ${safeTopic}؟`,
+      (title: string) => `كيف تقيّم دراسة (${title}) الحدود التشغيلية ودور العنصر البشري في ظل التطورات الحديثة؟`,
+      (title: string) => `ما الذي تنطوي عليه نتائج (${title}) فيما يتعلق بتحسين معايير الجودة وممارسات العمل الميدانية؟`,
+    ];
+
     activeSources.forEach((src: any, idx: number) => {
       const details = extractDocSubstance(src, idx, safeTopic);
-      reportText += `#### س${idx + 1}: ما هي الرؤية والأدلة العلمية الرئيسية الواردة في "${details.title}"؟\n\n`;
-      reportText += `**ج:** تركز هذه الوثيقة على ${details.coreIssue} وتتلخص أدلتها في: ${details.supportingEvidence}\n\n`;
+      const qFn = questionTemplates[idx % questionTemplates.length];
+      const qText = qFn(details.title);
+      reportText += `#### س${idx + 1}: ${qText}\n\n`;
+      reportText += `**ج:** تركز هذه الوثيقة على ${details.coreIssue}، وتتلخص أدلتها العلمية في: ${details.supportingEvidence}. وتوصي الدراسة باعتماها لتحديث معايير الجودة والتخطيط التشغيلي الميداني.\n\n`;
     });
     
     if (activeSources.length > 1) {
@@ -219,6 +230,7 @@ export function generateClientSynthesisFallback(
     reportText += `يُظهر التوليف الشامل للمصادر أن معالجة موضوع "${safeTopic}" تتطلب منظوراً متعدد الأبعاد يدمج بين الجوانب النظرية والتطبيقات العملية الميدانية.\n\n`;
   }
 
-  return cleanBibliographicClutterAndNormalizeArabic(reportText);
+  const cleanedText = cleanBibliographicClutterAndNormalizeArabic(reportText);
+  return deduplicateReportBlocks(cleanedText);
 }
 
