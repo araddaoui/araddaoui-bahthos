@@ -18,18 +18,33 @@ export function normalizeReportStructure(text: string): string {
   if (!text) return "";
   let result = stripEvidenceTags(text);
 
+  // 1. Clean leading bullets/dots/numbers before pipes '|' on table lines
+  result = result.replace(/^[ \t]*[•*.\d\s]+(?=\|)/gm, "");
+
+  // 2. Convert bullet-prefixed section headings (e.g., "• الفجوات المعرفية والمنهجية المرصودة") to proper markdown h3
+  result = result.replace(/^[ \t]*[•*-]\s*(الفجوات المعرفية|الأسئلة البحثية|مقترحات المستندات|التوصيات العملية|الملخص التنفيذي|القراءة التحليلية|نقاط الاتفاق|نقاط الاختلاف|الخلاصة والاستنتاجات)/gm, "### $1");
+
+  // 3. Separate inline merged gap blocks (e.g. "...حالياً. - الفجوة 2: ..." or "• الفجوة 1: ...") into double-spaced standalone bullet lines
+  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?الفجوة\s*(?:رقم\s*)?[:\[]?\s*\d+\s*\]?:?)/gi, "\n\n- $1");
+
+  // 4. Separate inline proposals for gap resolution (e.g. "...شاملة. - لسد فجوة...") into double-spaced bullet lines
+  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?لسد\s+فجوة\s+الأدلة)/gi, "\n\n- $1");
+
+  // 5. Separate inline numbered research questions (e.g. "...موسعة؟ 2. بناءً على...") into double-spaced numbered lines
+  result = result.replace(/(?:[ \t]*[•*-]?\s*)(\d+\.\s+بناءً\s+على|بناءً\s+على\s+الملاحظات)/gi, "\n\n$1");
+
   // Untangle all-bold lines where heading and body were wrapped in double asterisks
   // e.g., **1. تحليل الأدلة من المصادر: توثق الوثيقة نتائج...** -> **1. تحليل الأدلة من المصادر:** توثق الوثيقة نتائج...
   result = result.replace(/^(\s*)\*\*(\d+\.\s*[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
   result = result.replace(/^(\s*)\*\*(تحليل الأدلة[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
   result = result.replace(/^(\s*)\*\*([^*:\n]+:)\s*([^*]{30,})\*\*/gm, "$1**$2** $3");
 
-  // Clean and preserve markdown tables: group consecutive | lines together without interior blank lines
-  result = result.replace(/(?:^[ \t]*\|[^\n]+\|[ \t]*$\n?)+/gm, (tableBlock) => {
+  // Clean and preserve markdown tables: group consecutive lines with pipes '|' together without interior blank lines
+  result = result.replace(/(?:^[ \t]*\|[^\n]+\n?)+/gm, (tableBlock) => {
     const cleanRows = tableBlock
       .split("\n")
-      .map((r) => r.trim())
-      .filter((r) => r.startsWith("|") && r.endsWith("|"));
+      .map((r) => r.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim())
+      .filter((r) => r.startsWith("|") && (r.match(/\|/g) || []).length >= 2);
     if (cleanRows.length === 0) return "";
     return "\n\n" + cleanRows.join("\n") + "\n\n";
   });
@@ -59,6 +74,9 @@ export function normalizeReportStructure(text: string): string {
 
   // Ensure double newlines around section dividers
   result = result.replace(/([^\n])(---)/g, "$1\n\n$2\n\n");
+
+  // Normalize max 2 newlines in a row
+  result = result.replace(/\n{3,}/g, "\n\n");
 
   return result.trim();
 }
@@ -128,59 +146,69 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
 }
 
 /**
- * Helper to parse and render a markdown table into a styled React component
+ * Helper to clean and parse a block of markdown table lines into header cells and data rows.
+ * Strips delimiter lines, removes artifacts, normalizes columns to max 4.
  */
-function renderMarkdownTableReact(tableLines: string[], key: string): React.ReactNode {
-  if (tableLines.length === 0) return null;
-
+function parseTableBlock(tableLines: string[]) {
   const parseRow = (rowStr: string): string[] => {
-    let trimmed = rowStr.trim();
+    let trimmed = rowStr.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
     if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
     if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
     
     let cells = trimmed.split("|").map((cell) => {
       let c = cell.trim();
-      // Remove malformed tag artifacts like span<>/br<pdf or embedded html tags
       c = c.replace(/span<>\/br<[^\s]*/gi, " ")
            .replace(/<[^>]*>/g, " ")
            .replace(/\s+/g, " ")
            .trim();
       return c;
     });
-
-    // Remove trailing empty cells if any
-    while (cells.length > 0 && cells[cells.length - 1] === "") {
-      cells.pop();
-    }
     return cells;
   };
 
-  const isDelimiter = (rowStr: string) => {
-    return /^[\s|:-]+$/.test(rowStr.trim()) && rowStr.includes("-");
-  };
+  // Filter out pure delimiter/alignment rows (e.g. | :--- | :--- | or : | or | --- |)
+  const contentRowsStr = tableLines.filter((line) => {
+    const cells = parseRow(line);
+    if (cells.length === 0) return false;
+    const isAllDelimiters = cells.every((c) => /^[:\-]*$/.test(c.trim()));
+    return !isAllDelimiters;
+  });
 
-  let headerCells: string[] = [];
-  let dataRowsStr: string[] = [];
-
-  if (tableLines.length >= 2 && isDelimiter(tableLines[1])) {
-    headerCells = parseRow(tableLines[0]);
-    dataRowsStr = tableLines.slice(2);
-  } else if (tableLines.length >= 1 && isDelimiter(tableLines[0])) {
-    dataRowsStr = tableLines.slice(1);
-  } else {
-    dataRowsStr = tableLines;
+  if (contentRowsStr.length === 0) {
+    return { headerCells: [], rows: [] };
   }
 
-  // Cap columns to max 4 to prevent cramped/unreadable tables
+  // The first non-delimiter row is ALWAYS the header row!
+  let headerCells = parseRow(contentRowsStr[0]);
+  let dataRowsStr = contentRowsStr.slice(1);
+
   if (headerCells.length > 4) {
     headerCells = headerCells.slice(0, 4);
   }
 
-  // Filter out empty rows or alignment delimiter artifacts
   const rows = dataRowsStr
     .map(parseRow)
-    .map((rowCells) => (rowCells.length > 4 ? rowCells.slice(0, 4) : rowCells))
+    .map((rowCells) => {
+      if (rowCells.length > headerCells.length) {
+        return rowCells.slice(0, headerCells.length);
+      }
+      while (rowCells.length < headerCells.length) {
+        rowCells.push("");
+      }
+      return rowCells;
+    })
     .filter((rowCells) => rowCells.some((cell) => cell.replace(/[:\s-]/g, "").length > 0));
+
+  return { headerCells, rows };
+}
+
+/**
+ * Helper to parse and render a markdown table into a styled React component
+ */
+function renderMarkdownTableReact(tableLines: string[], key: string): React.ReactNode {
+  if (tableLines.length === 0) return null;
+
+  const { headerCells, rows } = parseTableBlock(tableLines);
 
   if (headerCells.length === 0 && rows.length === 0) return null;
 
@@ -227,50 +255,7 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
 function renderMarkdownTableHtml(tableLines: string[]): string {
   if (tableLines.length === 0) return "";
 
-  const parseRow = (rowStr: string): string[] => {
-    let trimmed = rowStr.trim();
-    if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
-    if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
-    let cells = trimmed.split("|").map((cell) => {
-      let c = cell.trim();
-      c = c.replace(/span<>\/br<[^\s]*/gi, " ")
-           .replace(/<[^>]*>/g, " ")
-           .replace(/\s+/g, " ")
-           .trim();
-      return c;
-    });
-    while (cells.length > 0 && cells[cells.length - 1] === "") {
-      cells.pop();
-    }
-    return cells;
-  };
-
-  const isDelimiter = (rowStr: string) => {
-    return /^[\s|:-]+$/.test(rowStr.trim()) && rowStr.includes("-");
-  };
-
-  let headerCells: string[] = [];
-  let dataRowsStr: string[] = [];
-
-  if (tableLines.length >= 2 && isDelimiter(tableLines[1])) {
-    headerCells = parseRow(tableLines[0]);
-    dataRowsStr = tableLines.slice(2);
-  } else if (tableLines.length >= 1 && isDelimiter(tableLines[0])) {
-    dataRowsStr = tableLines.slice(1);
-  } else {
-    dataRowsStr = tableLines;
-  }
-
-  // Cap columns to max 4 for MS Word table readability
-  if (headerCells.length > 4) {
-    headerCells = headerCells.slice(0, 4);
-  }
-
-  // Filter out empty delimiter artifact rows
-  const rows = dataRowsStr
-    .map(parseRow)
-    .map((rowCells) => (rowCells.length > 4 ? rowCells.slice(0, 4) : rowCells))
-    .filter((rowCells) => rowCells.some((cell) => cell.replace(/[:\s-]/g, "").length > 0));
+  const { headerCells, rows } = parseTableBlock(tableLines);
 
   if (headerCells.length === 0 && rows.length === 0) return "";
 
@@ -343,9 +328,10 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     const trimmed = line.trim();
 
     // Check if line is a table row
-    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2) {
+    const cleanTableLine = trimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+    if (cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2) {
       flushList(`line-${idx}`);
-      currentTableLines.push(trimmed);
+      currentTableLines.push(cleanTableLine);
       continue;
     } else {
       flushTable(`line-${idx}`);
@@ -547,12 +533,13 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
   lines.forEach((line) => {
     const trimmed = line.trim();
 
-    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2) {
+    const cleanTableLine = trimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+    if (cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2) {
       if (inList) {
         bodyHtml += "</ul>\n";
         inList = false;
       }
-      currentTableLines.push(trimmed);
+      currentTableLines.push(cleanTableLine);
       return;
     } else {
       flushTable();
