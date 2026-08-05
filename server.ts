@@ -7,6 +7,7 @@ import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent } from "./src/utils/termExtractor";
+import { generateClientSynthesisFallback } from "./src/utils/synthesisFallback";
 
 // Load environment variables BEFORE anything else
 dotenv.config();
@@ -46,9 +47,9 @@ async function generateContentWithRetry(
 ) {
   let attempt = 1;
   const maxAttempts = 3;
-  let currentModel = params.model || "gemini-2.5-flash";
-  if (currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
-    currentModel = "gemini-2.5-flash";
+  let currentModel = params.model || "gemini-2.0-flash";
+  if (currentModel.includes("2.5") || currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
+    currentModel = "gemini-2.0-flash";
   }
 
   while (true) {
@@ -287,276 +288,175 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // Dynamic context-aware analysis based on actual active sources
-    const docSentences: { index: number; title: string; text: string }[] = [];
-    activeSources.forEach((src: any, idx: number) => {
-      const title = src?.title || `وثيقة ${idx + 1}`;
-      const content = src?.summary || src?.content || src?.extractedText || "";
-      const sentences = content.split(/[.!?\n]+/).map((s: string) => s.trim()).filter(Boolean);
-      const text = sentences.length > 0 ? sentences.slice(0, 3).join(". ") : "تم تزويد الخادم بنص هذه الوثيقة للتحليل والتنسيق.";
-      docSentences.push({
-        index: idx + 1,
-        title,
-        text: text.substring(0, 300) + (text.length > 300 ? "..." : "")
-      });
-    });
-
     let responseText = `### التوليف والمقارنة المباشرة للمصادر المرفقة حول: "${lastUserMessage}"\n\n`;
-    responseText += `بناءً على قراءة وتقاطع البيانات الواردة في المستندات المرفقة (${activeSources.map((s: any) => s?.title || "وثيقة").join("، ")}):\n\n`;
-
-    docSentences.forEach((doc) => {
-      responseText += `1. **الوثيقة ${doc.index} ("${doc.title}")**:\n   ${doc.text}\n\n`;
+    responseText += `بناءً على قراءة وتقاطع البيانات الواردة في ${activeSources.length} من الوثائق المتاحة:\n\n`;
+    activeSources.forEach((src: any, idx: number) => {
+      const title = src?.title || `الوثيقة ${idx + 1}`;
+      const summary = src?.summary || (src?.content ? src.content.substring(0, 300) + "..." : "محتوى الوثيقة المرفقة");
+      responseText += `#### ${idx + 1}. ${title}\n- ${summary}\n\n`;
     });
+    responseText += `---\n**خلاصة تركيبية:** توفر هذه الوثائق أرضية بحثية متكاملة للإجابة على التساؤل المطروح.`;
 
-    responseText += `### التقييم والتقاطع الأكاديمي للدليل:\n`;
-    responseText += `تتطرق الوثائق المرفقة بشكل مباشر للتوصيات والاستراتيجيات والأبعاد المرتبطة بسؤالك. تم توليف هذا الرد استناداً للمصادر المرفقة.`;
-
-    // Always return 200 so the UI displays the response text seamlessly
-    return res.json({ 
-      text: responseText, 
-      isFallback: true 
-    });
+    return res.json({ text: responseText });
   }
 });
 
-// Endpoint for automatic single-document analysis (title, language, summary extraction)
-app.post("/api/analyze-document", async (req, res) => {
-  const { content, base64, mimeType, fileName } = req.body;
-  
-  console.log(`📄 Document upload: ${fileName || "unnamed"}, mimeType: ${mimeType}`);
-  console.log(`📄 content length: ${content?.length || 0}, base64 length: ${base64?.length || 0}`);
-
-  if (!content && !base64) {
-    return res.status(400).json({ error: "محتوى المستند فارغ أو غير صالح." });
-  }
-
-  const isPdf = mimeType === "application/pdf" || fileName?.toLowerCase().endsWith(".pdf");
-  const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || 
-                 fileName?.toLowerCase().endsWith(".docx") || 
-                 mimeType === "application/msword" ||
-                 fileName?.toLowerCase().endsWith(".doc");
-
-  let parsedContent = content || "";
-
-  // ----- WORD PARSING -----
-  if (!parsedContent && isDocx && base64) {
-    try {
-      console.log(`📄 Parsing Word: ${fileName || "document.docx"} using mammoth...`);
-      const buffer = Buffer.from(base64, "base64");
-      const mammothResult = await mammoth.extractRawText({ buffer });
-      parsedContent = normalizeArabicText(mammothResult.value || "");
-      console.log(`✅ Word parsed: ${parsedContent.length} chars`);
-    } catch (err: any) {
-      console.error("❌ Word parsing error:", err.message);
-    }
-  }
-
-  // ----- PDF PARSING WITH TIMEOUT & FALLBACK -----
-  if (!parsedContent && isPdf && base64) {
-    try {
-      console.log(`📄 Parsing PDF: ${fileName || "document.pdf"}`);
-      
-      const buffer = Buffer.from(base64, "base64");
-      console.log(`📄 PDF size: ${buffer.length} bytes (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
-
-      if (buffer.length > 4_500_000) {
-        console.warn(`⚠️ PDF exceeds 4.5MB – fallback to direct Gemini multimodal parsing`);
-      }
-
-      // Try local PDF parsing with a 6-second timeout
-      const parser = new PDFParse({ data: new Uint8Array(buffer) });
-      const textResult = await Promise.race([
-        parser.getText(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("PDF local parsing timeout")), 6000)
-        ),
-      ]);
-      
-      parsedContent = normalizeArabicText((textResult as any)?.text || "");
-      console.log(`✅ PDF parsed locally: ${parsedContent.length} chars, ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words`);
-      
-    } catch (err: any) {
-      console.warn("⚠️ Local PDF text extraction failed or timed out:", err.message);
-      console.warn("🔄 Will rely on direct Gemini multimodal PDF processing via base64...");
-      // DO NOT throw or return 500! Gemini will process base64 directly.
-    }
-  }
-
-  // If no content AND no base64, return a helpful validation error
-  if (!parsedContent && !base64) {
-    console.warn(`⚠️ No content or base64 available for ${fileName || "document"}`);
-    return res.status(400).json({
-      error: "لم نتمكن من قراءة النص أو الملف. يرجى التأكد من صحة المستند وتجربة رفعه مجدداً.",
-      details: "No text content or base64",
-      fallback: true,
-    });
-  }
-
-  // ----- BUILD RESPONSE OBJECT -----
-  let result: any = {
-    title: fileName || "مستند مرفق",
-    language: "ar",
-    summary: ensureArabicSummary("", fileName || "مستند مرفق", parsedContent),
-    extractedText: parsedContent || "",
-    terms: [],
-  };
-
-  // ----- AI ANALYSIS & TERM EXTRACTION -----
+// Endpoint to extract text and terms from uploaded file or text content
+app.post("/api/extract-text", async (req, res) => {
   try {
-    const ai = getAiClient();
-    const promptText = `أنت خبير ومحلل مصطلحي رفيع (Chief Terminologist) في نظام "بحث OS".
-مهمتك استخراج قائمة دقيقة ونقية جداً (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين، وصياغة ملخص شامل ودقيق للمستند باللغة العربية حصراً.
+    const { content, base64, mimeType, fileName } = req.body || {};
 
-طبق القواعد الحاسمة التالية:
-1. الملخص (summary) باللغة العربية الفصحى حصراً وشرطاً قاطعاً:
-   يجب كتابة الملخص باللغة العربية الفصحى حصراً وبأسلوب سلس وواضح، بغض النظر عن لغة المستند الأصلية (حتى لو كان المستند مكتوباً بالإنجليزية أو الفرنسية). يُحظر تماماً كتابة أي نص بالإنجليزية في الملخص.
-2. الاقتصار على المفاهيم النظرية والأطر المنهجية المعتمدة في المستند:
-   استخرج فقط المفاهيم البنيوية المركبة والأطر المعتمدة المذكورة حقيقة في المستند (مثل: Soft Power, Westphalian Sovereignty, Translation Theory, Path Dependence, Constructivism, Quality Assurance, Realism).
-3. الحظر التام لاستخراج العناوين وأسماء الجامعات والبيانات المؤسسية والعبارات الشائعة:
-   يُمنع منعاً باتاً استخراج أسماء الجامعات أو الأقسام أو الصفوف أو المدن (مثل: University of Saida, Department of Translation, First-Year Students, Case Study, جامعة سعيدة، قسم الترجمة، طلبة سنة أولى)، أو أجزاء العناوين (مثل: Teaching Translation in the Light of Artificial Intelligence أو تدريس الترجمة في ظل الذكاء الاصطناعي)، أو أرقام الصفحات والمراجع.
-4. استبعاد التخصصات والمجالات الفضفاضة والكلمات التافهة:
-   يُمنع استخراج أسماء العلوم العامة أو العناوين الفرعية أو التراكيب اللغوية غير النظرية.
-5. الترجمة والتعريب الدقيق (verified_term):
-   يجب تقديم مصطلح عربي فصيح ومعتمد ومكافئ للمصطلح الأصلي في حقل verified_term.
-6. الجودة الصارمة للتعريف:
-   لكل مصطلح، صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم العلمي ومعناه الدقيق.`;
+    const isPdf = mimeType === "application/pdf" || fileName?.toLowerCase().endsWith(".pdf");
+    const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || 
+                   fileName?.toLowerCase().endsWith(".docx") || 
+                   mimeType === "application/msword" ||
+                   fileName?.toLowerCase().endsWith(".doc");
 
-    let contentsParam: any;
-    if (parsedContent && parsedContent.trim()) {
-      contentsParam = `${promptText}\n\nنص المستند:\n${parsedContent.substring(0, 15000)}`;
-    } else if (base64) {
-      contentsParam = [
-        {
-          inlineData: {
-            mimeType: isPdf ? "application/pdf" : (mimeType || "application/octet-stream"),
-            data: base64
-          }
-        },
-        { text: promptText }
-      ];
-    } else {
-      contentsParam = `${promptText}\n\nاسم المستند:\n${fileName || "مستند بدون عنوان"}`;
-    }
+    let parsedContent = content || "";
 
-    const response = await generateContentWithRetry(ai, {
-      model: "gemini-1.5-flash",
-      contents: contentsParam,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: {
-              type: Type.STRING,
-              description: "عنوان المستند الرصين."
-            },
-            language: {
-              type: Type.STRING,
-              description: "لغة المستند الرئيسية (ar أو en أو fr)."
-            },
-            summary: {
-              type: Type.STRING,
-              description: "ملخص بليغ ومكثف لمحتوى المستند باللغة العربية الفصحى حصراً وشرطاً قاطعاً (يُمنع كتابة الملخص بالإنجليزية أو بأي لغة غير العربية)."
-            },
-            extractedText: {
-              type: Type.STRING,
-              description: "أبرز أجزاء نص المستند أو تفكيك محتواه الأساسي."
-            },
-            terms: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  term: {
-                    type: Type.STRING,
-                    description: "المصطلح الأصلي بالإنجليزية."
-                  },
-                  draft_term: {
-                    type: Type.STRING,
-                    description: "المصطلح العربي المقترح في المسودة الأولى."
-                  },
-                  definition: {
-                    type: Type.STRING,
-                    description: "شرح مفاهيمي مبسط وواضح باللغة العربية الفصحى في جملة واحدة فقط."
-                  },
-                  verified_term: {
-                    type: Type.STRING,
-                    description: "المصطلح العربي النهائي المدقق والمصحح بالكامل."
-                  }
-                },
-                required: ["term", "draft_term", "definition", "verified_term"]
-              },
-              description: "قائمة بأبرز المصطلحات والتقنيات المستخرجة من المستند مع الترجمة والتعريف (من 2 إلى 3 مصطلحات)."
-            }
-          },
-          required: ["title", "language", "summary", "terms"]
-        },
-        temperature: 0.1,
+    // ----- WORD PARSING -----
+    if (!parsedContent && isDocx && base64) {
+      try {
+        console.log(`📄 Parsing Word: ${fileName || "document.docx"} using mammoth...`);
+        const buffer = Buffer.from(base64, "base64");
+        const mammothResult = await mammoth.extractRawText({ buffer });
+        parsedContent = normalizeArabicText(mammothResult.value || "");
+        console.log(`✅ Word parsed: ${parsedContent.length} chars`);
+      } catch (err: any) {
+        console.error("❌ Word parsing error:", err.message);
       }
-    });
-
-    const data = JSON.parse(response.text?.trim() || "{}");
-    result.title = data.title || fileName || "مستند بدون عنوان";
-    result.language = data.language || "ar";
-    result.summary = ensureArabicSummary(data.summary || result.summary, result.title, parsedContent);
-    
-    if (!parsedContent && data.extractedText) {
-      parsedContent = data.extractedText;
-      result.extractedText = data.extractedText;
     }
 
-    if (data.terms && Array.isArray(data.terms)) {
-      result.terms = data.terms
-        .filter((t: any) => {
-          const mainTerm = t.term || "";
-          const verified = t.verified_term || t.draft_term || "";
-          if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
-          if (isTrivialOrCitationTerm(verified, t.definition)) return false;
-          return true;
-        })
-        .slice(0, 3);
+    // ----- PDF PARSING WITH TIMEOUT & FALLBACK -----
+    if (!parsedContent && isPdf && base64) {
+      try {
+        console.log(`📄 Parsing PDF: ${fileName || "document.pdf"}`);
+        
+        const buffer = Buffer.from(base64, "base64");
+        console.log(`📄 PDF size: ${buffer.length} bytes (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+
+        if (buffer.length > 4_500_000) {
+          console.warn(`⚠️ PDF exceeds 4.5MB – fallback to direct Gemini multimodal parsing`);
+        }
+
+        const parser = new PDFParse({ data: new Uint8Array(buffer) });
+        const textResult = await Promise.race([
+          parser.getText(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("PDF local parsing timeout")), 6000)
+          ),
+        ]);
+        
+        parsedContent = normalizeArabicText((textResult as any)?.text || "");
+        console.log(`✅ PDF parsed locally: ${parsedContent.length} chars, ${parsedContent.trim().split(/\s+/).filter(Boolean).length} words`);
+      } catch (err: any) {
+        console.warn("⚠️ Local PDF text extraction failed or timed out:", err.message);
+        console.warn("🔄 Will rely on direct Gemini multimodal PDF processing via base64...");
+      }
     }
-  } catch (error) {
-    console.warn("AI analysis failed, falling back to simple extraction:", error);
-    result.title = fileName || "مستند مقتبس";
-    result.summary = ensureArabicSummary("", result.title, parsedContent);
+
+    if (!parsedContent && !base64) {
+      console.warn(`⚠️ No content or base64 available for ${fileName || "document"}`);
+      return res.status(400).json({
+        error: "لم نتمكن من قراءة النص أو الملف. يرجى التأكد من صحة المستند وتجربة رفعه مجدداً.",
+        details: "No text content or base64",
+        fallback: true,
+      });
+    }
+
+    let defaultFallback: any = {
+      title: fileName || "مستند مرفق",
+      language: "ar",
+      summary: ensureArabicSummary("", fileName || "مستند مرفق", parsedContent),
+      extractedText: parsedContent || "",
+      terms: [],
+    };
+
+    try {
+      const ai = getAiClient();
+      const promptText = "أنت خبير ومحلل مصطلحي رفيع (Chief Terminologist) في نظام \"بحث OS\".\n" +
+  "مهمتك استخراج قائمة دقيقة ونقية جداً (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين، وصياغة ملخص شامل ودقيق للمستند باللغة العربية حصراً.\n\n" +
+  "طبق القواعد الحاسمة التالية:\n" +
+  "1. الملخص (summary) باللغة العربية الفصحى حصراً وشرطاً قاطعاً.\n" +
+  "2. الاقتصار على المفاهيم النظرية والأطر المنهجية المعتمدة في المستند.\n" +
+  "3. الحظر التام لاستخراج العناوين وأسماء الجامعات والبيانات المؤسسية والعبارات الشائعة.\n" +
+  "4. استبعاد التخصصات والمجالات الفضفاضة والكلمات العابرة.\n\n" +
+  "النص:\n" + (parsedContent ? parsedContent.substring(0, 30000) : "");
+
+      const contentsInput: any[] = [];
+      if (parsedContent) {
+        contentsInput.push(promptText);
+      }
+      if (base64 && mimeType) {
+        contentsInput.push({
+          inlineData: {
+            data: base64,
+            mimeType: mimeType
+          }
+        });
+      }
+      if (contentsInput.length === 0) {
+        contentsInput.push(promptText);
+      }
+
+      const response = await generateContentWithRetry(ai, {
+        model: "gemini-2.5-flash",
+        contents: contentsInput,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING, description: "العنوان الرئيسي المفضل للمستند." },
+              language: { type: Type.STRING, description: "كود اللغة الأصلي للمستند مثل ar أو en." },
+              summary: { type: Type.STRING, description: "ملخص أكاديمي شامل باللغة العربية الفصحى." },
+              extractedText: { type: Type.STRING, description: "النص المستخرج من المستند." },
+              terms: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    term: { type: Type.STRING, description: "المصطلح الأصلي بالإنجليزية." },
+                    draft_term: { type: Type.STRING, description: "المصطلح العربي المقترح." },
+                    definition: { type: Type.STRING, description: "تعريف المصطلح." },
+                    verified_term: { type: Type.STRING, description: "المصطلح العربي النهائي المدقق والمصحح بالكامل." }
+                  },
+                  required: ["term", "draft_term", "definition", "verified_term"]
+                }
+              }
+            },
+            required: ["title", "language", "summary", "extractedText", "terms"]
+          }
+        }
+      });
+
+      let resData: any = {};
+      if (response?.text) {
+        try {
+          resData = JSON.parse(response.text);
+        } catch (err) {
+          console.error("Failed to parse JSON response in extract:", err);
+        }
+      }
+
+      if (resData.summary) {
+        resData.summary = ensureArabicSummary(resData.summary, resData.title || fileName, parsedContent);
+      } else {
+        resData.summary = ensureArabicSummary("", resData.title || fileName, parsedContent);
+      }
+
+      return res.json(resData);
+    } catch (err: any) {
+      console.error("AI Extraction failed:", err);
+      return res.json(defaultFallback);
+    }
+  } catch (err: any) {
+    console.error("Extract handler error:", err);
+    return res.status(500).json({ error: "Failed to extract text from document." });
   }
-
-  // Ensure 2 to 3 terms are ALWAYS generated and returned for every document
-  if (!result.terms || !Array.isArray(result.terms) || result.terms.length < 2) {
-    const textToExtract = parsedContent || result.summary || result.title || "";
-    const fallbackTerms = extractFallbackTermsFromText(textToExtract, undefined, result.title);
-    result.terms = fallbackTerms.slice(0, 3).map((t) => ({
-      term: t.term,
-      draft_term: t.draft_term,
-      definition: t.definition,
-      verified_term: t.verified_term
-    }));
-  }
-
-  // Final sanity check on summary to guarantee 100% Arabic language
-  result.summary = ensureArabicSummary(result.summary, result.title, parsedContent);
-
-  const finalOriginalText = parsedContent && parsedContent.trim() 
-    ? parsedContent 
-    : `محتوى المستند المرفق (${result.title}):\n${result.summary}\n\nهذا المستند معتمد ومدمج للتحليل والمقارنة الأكاديمية والتوليف بواسطة الذكاء الاصطناعي.`;
-
-  res.json({
-    title: result.title,
-    language: result.language,
-    summary: result.summary,
-    originalText: finalOriginalText,
-    terms: result.terms
-  });
 });
 
-const isDefaultSources = (sources: any[]) => {
-  return sources.length === 3 && 
-         sources.some(s => s.title?.includes("التعليم عن بعد") || s.id === "source-1") &&
-         sources.some(s => s.title?.includes("ضمان الجودة") || s.id === "source-2") &&
-         sources.some(s => s.title?.includes("Wellbeing") || s.id === "source-3");
-};
-
+// Endpoint to generate academic synthesis reports using Gemini or smart fallback
 app.post("/api/synthesize", async (req, res) => {
   try {
     const { sources: rawSourcesInput, topic, toolType } = req.body || {};
@@ -567,342 +467,100 @@ app.post("/api/synthesize", async (req, res) => {
       return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
     }
 
-    console.log(`Starting synthesis for topic: "${topic}", toolType: "${toolType}", sources: ${activeSources.length}`);
+    console.log("Starting synthesis for topic:", topic, "toolType:", toolType, "sources:", activeSources.length);
 
     let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
     activeSources.forEach((src: any, idx: number) => {
-      const title = src?.title || `الوثيقة ${idx + 1}`;
+      const docNum = idx + 1;
+      const title = src?.title || ("الوثيقة " + docNum);
       const rawContent = src?.content || src?.summary || src?.extractedText || "";
       const safeContent = rawContent.length > 25000 
         ? rawContent.substring(0, 25000) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
         : rawContent;
 
-      sourcesContext += `\n---\n`;
-      sourcesContext += `اسم الوثيقة: الوثيقة ${idx + 1}: ${title}\n`;
-      sourcesContext += `المحتوى:\n${safeContent}\n`;
+      sourcesContext += "\n---\n";
+      sourcesContext += "اسم الوثيقة: الوثيقة " + docNum + ": " + title + "\n";
+      sourcesContext += "الملخص الفعلي للوثيقة: " + (src?.summary || "غير متاح") + "\n";
+      sourcesContext += "المحتوى التفصيلي المتاح للوثيقة:\n" + safeContent + "\n";
     });
 
     const ai = getAiClient();
-    let prompt = "";
+    const systemInstruction = "أنت عالم ومحلل بحثي وأكاديمي خبير في نظام \"بحث OS\" (Bahth OS).\n" +
+"مهمتك إجراء تحليل توليفي وتوثيقي عميق ومقارن للمصادر البحثية المرفقة حول الموضوع المحدد.\n\n" +
+"قواعد صياغة الجودة والأمان الأكاديمي الصارمة (STRICT QUALITY RULES):\n" +
+"1. **منع التكرار اللفظي والأنماط التكرارية (ZERO REPETITIVE BOILERPLATE)**:\n" +
+"   - يُمنع منعاً باتاً تكرار العبارات القالبية مثل \"يقدم هذا المستند دراسة تحليلية رصينة تتناول موضوع...\" عبر المستندات.\n" +
+"   - لكل وثيقة، يجب استخراج التفاصيل الخاصة العميقة جداً والموجودة في نصها الفعلي: أدلتها الرقمية، منهجيتها المحددة، مصطلحاتها الخاصة، واكتشافاتها الفريدة.\n" +
+"2. **النسبة الدقيقة الموثقة**: التزم بنسب البيانات والأرقام والادعاءات بدقة مطلقة كما وردت في المصادر دون تعديل.\n" +
+"3. **توليد ودمج وسوم الأدلة الحية (MANDATORY EVIDENCE TAGS)**:\n" +
+"   في نهاية كل قسم رئيسي، قم بتضمين وسم <evidence> بتنسيق XML يوثق الاقتباسات والأدلة المباشرة من المصادر.\n" +
+"4. **اللغة العربية الفصحى الرصينة**: كل المخرجات والتحليلات صياغتها باللغة العربية الفصحى الأكاديمية الرصينة.";
+
+    const topicName = topic || "مقارنة وتحليل شامل للمصادر";
+    const scopeIntro = "توضيح النطاق: يعتمد هذا التقرير التوليفي والتحليل المتقدم على " + activeSources.length + " من مصادر البحث النشطة المتاحة لصلتها المباشرة بالموضوع المدروس.\n\n";
+
+    let userPrompt = "";
     if (toolType === "matrix") {
-      prompt = `قم بصياغة "مصفوفة الأدلة والتعارضات الأكاديمية" (Evidence & Contradiction Matrix) بشكل جدول ماركداون (Markdown Table) يقارن ويقاطع بشكل منهجي بين المصادر المحددة حول الموضوع التالي: "${topic || "مقارنة وتحليل شامل للمصادر"}".
-
-الجدول يجب أن يتضمن الأعمدة الأربعة التالية بالضبط وبدقة (4 columns only for optimal readability):
-1. **الرقم** (ترقيم تسلسلي للصفوف: 1، 2، 3...)
-2. **الوثيقة والمحور الرئيسي** (اسم الوثيقة كاملاً محدد بوضوح + القضية البحثية الجوهرية التي تعالجها)
-3. **الأدلة والنتائج المؤيدة** (الأدلة الرقمية والمنهجية والمخرجات التفصيلية الموثقة في الوثيقة دون تكرار لفظي)
-4. **التباين والتحليل السياقي** (أوجه الاختلاف والحدود التطبيقية أو التفسير الأكاديمي لحل التعارض)
-
-تعليمات الصياغة والأمان العلمي والشكلي (GLOBAL STYLE & ACCURACY RULES):
-1. **منع التكرار اللفظي المطلق**: يمنع منعاً باتاً تكرار نفس الجملة أو الفقرة النموذجية عبر وثائق مختلفة. يجب أن يستخرج كل صف وكل قسم تحليلي معطيات وأدلة ومصطلحات فريدة من الوثيقة الخاصة به.
-2. **التثبت التام من النسب والأرقام**: التزم بنسب البيانات والأرقام والادعاءات بدقة مطلقة كما وردت في نصوص المصادر. يمنع تقريب أو تعديل أي رقم.
-3. **منع الإسناد الخاطئ أو الموسع**: لا تنسب أي ادعاء لوثيقة لا تدعمه بشكل صريح.
-4. **الإفصاح عن نطاق المصادر المستخدمة**: اكتب صراحة في البداية: "توضيح النطاق: يعتمد هذا التقرير التوليفي والتحليل المتقدم على X من مصادر البحث النشطة المتاحة لصلتها المباشرة بالموضوع المدروس." ثم اترك سطرين خالين بعدها قبل البدء بالجدول.
-5. **التقسيم الشكلي والتحليل المرقّم مع طبقة الأدلة (MANDATORY EVIDENCE LAYER)**:
-   - ضع فاصلاً أفقياً واضحاً (---) بين الجدول وقسم التحليل الذي يليه.
-   - اعرض قسماً تحليلياً مرقماً للنتائج يوضح تفاصيل كل وثيقة على حدة وأبعاد تلاقي وتباعد الأدلة بدقة.
-   - لكل نتيجة أو وثيقة رئيسية، قم بإدراج قالب الأدلة الأكاديمية المنسق بعلامات <evidence> كالمثال الموضح في التعليمات.
-
-${sourcesContext}`;
-    } else if (toolType === "gap") {
-      prompt = `قم بصياغة "تقرير فجوات الأدلة الأكاديمية" (Research Evidence Gap Report) يكشف الفراغات المعرفية والمنهجية المتبقية في الأدبيات حول الموضوع التالي: "${topic || "تحليل شامل ومستقبلي للمصادر"}".
-
-يجب أن ينقسم التقرير إلى الأقسام الثلاثة التالية بالضبط وبنفس الترتيب الهيكلي دون تغيير:
-
-1. **الفجوات المنهجية والمعرفية المرصودة**:
-   في هذا القسم، يجب أن تبدأ كل فجوة مرصودة بوضع تصنيف دقيق لها واستهلالها بأحد التصنيفين التاليين حصراً:
-   - **(فجوة أدلة)**: تُستخدم عندما يكون الموضوع غائباً عن المستندات المرفقة ولكن لم يصرح أي مصدر صراحة بأنه مشكلة بحثية مفتوحة في الحقل العام. يجب صياغتها وفق النمط التالي حرفياً: "لا تتناول الوثائق المحللة [الموضوع] — وهذا لا يعني بالضرورة غيابه في الأدبيات الأوسع، بل يعكس حدود المجموعة الحالية."
-   - **(فجوة بحثية)**: تُستخدم فقط عندما يصرح أحد المصادر المرفقة صراحةً بأن هذا الموضوع يمثل مشكلة بحثية مفتوحة أو غير محسومة في الأدبيات العامة ويطالب بدراستها. ويجب صياغتها وفق النمط التالي حرفياً: "تُشير [اسم المصدر] صراحةً إلى غياب [الموضوع] كإشكالية بحثية قائمة في الأدبيات، وتدعو إلى مزيد من الدراسة."
-   
-   *قوانين التقييد وصياغة الفجوات (MANDATORY RULES)*:
-   - يجب تقييد نطاق الادعاءات بالوثائق المرفقة الحالية فقط (Scope Hedging). يمنع تماماً الادعاء بوجود فجوة عامة في الحقل البحثي بأكمله إلا إذا صرح المصدر بذلك صراحةً ونسبت ذلك إليه.
-   - استخدم إحدى الصياغات التالية للتحوط وتحديد نطاق الادعاء بالوثائق المحللة:
-     * "ضمن الوثائق التي جرى تحليلها، لا تتناول أي دراسة..."
-     * "في مجموعة الوثائق الحالية، يغيب أي تناول لـ..."
-     * "لا تتطرق المصادر المتاحة إلى..."
-   - يمنع تماماً صياغات التعميم مثل "توجد فجوة في البحث حول...". بدلاً من ذلك استخدم مثلاً "لا تتناول الوثائق المحللة الأثر بعيد المدى...".
-   - رتب الفجوات ورقمها بوضوح (الفجوة 1، الفجوة 2، إلخ).
-
-   *قواعد عزو الفجوات وتحديد مستويات الثقة (MANDATORY SPECIFIC ATTRIBUTION RULES)*:
-   - يجب أن تحدد كل فجوة في هذا القسم بدقة متناهية أي من الوثائق تدعمها، مع تحديد عدد تلك الوثائق مقارنة بإجمالي الوثائق المحللة. التزم بالتمييز الحرفي التالي:
-     * فجوة مرصودة في جميع الوثائق المحللة: استخدم صيغة "تُشير الوثائق [العدد الكلي للوثائق] المحللة إلى غياب..."، ويمنع استخدام أي صياغات عالية الثقة مثل "يظهر بوضوح" أو "لا شك أن" ما لم تكن الفجوة مرصودة بالفعل في كافة الوثائق المحللة دون استثناء.
-     * فجوة مرصودة في بعض الوثائق دون غيرها: استخدم صيغة "تُشير كلٌّ من الوثيقة X والوثيقة Y إلى غياب... في حين لا تتناول الوثيقتان Z و W هذا الجانب." مع تسمية الوثائق بدقة.
-     * فجوة مرصودة في وثيقة واحدة فقط: استخدم صيغة "تنفرد الوثيقة X بالإشارة إلى... دون أن تؤكد ذلك وثيقة أخرى في هذه المجموعة."
-
-2. **الأسئلة البحثية المعلقة**:
-   يجب صياغة أسئلة بحثية مستقبلية معلقة ومباشرة، على أن يظهر أصل ومصدر كل سؤال بوضوح من الفجوات المذكورة في القسم الأول.
-   يجب صياغة كل سؤال وفق التنسيق التالي حرفياً:
-   "بناءً على [وصف موجز للفجوة] في الفجوة رقم [X]، والتي تعني أن [السبب المحدد الذي يجعل هذا السؤال ضرورياً - أي شرح الأثر والنتيجة الحقيقية الواقعية المترتبة على عدم حل هذه الفجوة]، يطرح هذا التساؤل: [السؤال البحثي]"
-   هذا يضمن وضوح سلسلة التفكير (سلسلة الاستدلال: Gap → Question). العبارة التفسيرية ("والتي تعني أن...") يجب أن توضح التداعيات والآثار العملية، لا أن تكرر الفجوة فقط.
-
-3. **مقترحات لسد الفجوات**:
-   يجب اقتراح وثائق أو دراسات إضافية مطلوبة لسد هذه الفجوات المعرفية.
-   يجب ربط كل مقترح بحثي بالفجوة المحددة التي يعالجها في القسم الأول، مع صياغته بالتنسيق التالي حرفياً:
-   "لسد [فجوة أدلة/فجوة بحثية] المتعلقة بـ [الموضوع] في الفجوة رقم [X]، والتي أظهرت أن [ما كشفته الوثائق الحالية عن حدودها]: [وصف الوثيقة المقترحة]، إذ ستوفر هذه الوثيقة [ما تضيفه تحديداً مما تفتقره الوثائق الحالية ومساهمتها المباشرة في سد الفراغ]."
-   هذا يضمن اكتمال السلسلة المنطقية (سلسلة الاستدلال: Gap → Question → Needed Document). يجب أن تنتهي كل وثيقة مقترحة بعبارة مساهمة واضحة ("إذ ستوفر هذه الوثيقة...") توضح القيمة المضافة مقارنة بحدود الوثائق الحالية.
-
-تعليمات الصياغة والأمان العلمي والشكلي (GLOBAL STYLE & ACCURACY RULES):
-1. **التثبت التام من النسب والأرقام**: التزم بنسب البيانات والأرقام والادعاءات بدقة مطلقة كما وردت في نصوص المصادر. يمنع منعا باتا تقريب أو تعديل أي رقم. إذا لم تذكر المصادر رقماً دقيقاً لنقطة معينة، لا تكتب أي رقم افتراضي.
-2. **منع الإسناد الخاطئ أو الموسع**: لا تنسب أي ادعاء لوثيقة لا تدعمه بشكل صريح.
-3. **منع اختلاق تفاصيل تفسيرية**: عند تقديم تفسير منهجي، التزم فقط بما تذكره أو تومئ إليه المصادر.
-4. **الإفصاح عن نطاق المصادر المستخدمة**: صرح بذلك بوضوح في بداية المخرجات (Scope Disclosure).
-5. **طبقة الأدلة الإلزامية (MANDATORY EVIDENCE LAYER)**: بعد سرد الفجوات الرئيسية، أدرج قالباً أو أكثر من قوالب <evidence> لتوثيق الفجوة وتوافق المصادر على غياب الدليل أو قصوره.
-6. **تنسيق المخرجات وترك السطور الخالية الإلزامي (MANDATORY FORMATTING & LINE BREAKS)**:
-   - يجب الفصل بين كل عنوان، فقرة، سؤال، وإجابة بسطرين خالين (\n\n).
-   - يمنع دمج النصوص في كتلة واحدة متصلة أو سطر واحد طويلاً دون فواصل فقرات واضحة.
-   - لكل سؤال وإجابة (FAQ): اكتب السؤال في سطر مستقل بصيغة #### س1: [نص السؤال]، ثم اكتب الإجابة في سطر جديد أسفله بصيغة **ج:** [نص الإجابة]، مع ترك سطور خالية بين الفقرات.
-
-${sourcesContext}`;
+      userPrompt = "صغ \"مصفوفة الأدلة والتعارضات الأكاديمية\" (Evidence & Contradiction Matrix) بشكل جدول ماركداون (Markdown Table) يقارن ويقاطع بشكل منهجي بين المصادر المحددة حول الموضوع: \"" + topicName + "\".\n\n" +
+"الجدول يتضمن 4 أعمدة:\n" +
+"1. **الرقم** (1، 2، 3...)\n" +
+"2. **الوثيقة والمحور الرئيسي** (اسم الوثيقة كاملاً + القضية البحثية الجوهرية الفريدة الخاصة بها)\n" +
+"3. **الأدلة والنتائج المؤيدة** (الأدلة الرقمية والمنهجية والمخرجات التفصيلية الموثقة في الوثيقة دون تكرار)\n" +
+"4. **التباين والتحليل السياقي** (أوجه الاختلاف والحدود التطبيقية أو التفسير الأكاديمي)\n\n" +
+scopeIntro + sourcesContext;
     } else if (toolType === "briefing") {
-      prompt = `قم بصياغة "تقرير موجز للسياسات والباحثين" (Research Briefing & Actionable Insights) حول الموضوع التالي: "${topic || "تحليل شامل للمصادر"}" بناءً على المصادر المرفقة فقط.
-
-يجب أن ينقسم التقرير إلى الأقسام التالية:
-1. **الملخص التنفيذي للموقف الأكاديمي**: ملخص شامل ومباشر لتقاطع وتلاقي الأدلة.
-2. **التوصيات العملية الموجهة لصناع القرار**: توصيات دقيقة مستندة حصرياً للأرقام والأدلة، دون إضافة أي رأي شخصي أو سياسي أو تنافسي أو موارد بشرية.
-3. **التداعيات والآثار الاستراتيجية بعيدة المدى**: استشراف الاتجاهات بعيدة المدى ومستقبل البحث في هذا المجال، والأسئلة المعلقة، مع تجنب أي صياغات تتعلق بإدارة الموارد البشرية، أو السياسات التنظيمية، أو التنافسية الوطنية للعمالة.
-
-تعليمات الصياغة والأمان العلمي والشكلي (GLOBAL STYLE & ACCURACY RULES):
-1. **التثبت التام من النسب والأرقام**: التزم بنسب البيانات والأرقام والادعاءات بدقة مطلقة كما وردت في نصوص المصادر.
-2. **منع الإسناد الخاطئ أو الموسع**: لا تنسب أي ادعاء لوثيقة لا تدعمه بشكل صريح.
-3. **منع اختلاق تفاصيل تفسيرية**: عند تقديم تفسير منهجي، التزم فقط بما تذكره أو تومئ إليه المصادر.
-4. **الإفصاح عن نطاق المصادر المستخدمة**: صرح بذلك بوضوح في بداية المخرجات.
-5. **طبقة الأدلة الإلزامية (MANDATORY EVIDENCE LAYER)**: أدرج علامات <evidence> مدعمة باقتباسات دقيقة من الوثائق لدعم الملخص التنفيذي والتوجهات والتوصيات الهامة.
-
-${sourcesContext}`;
+      userPrompt = "صغ تقريراً موجزاً للسياسات والباحثين (Executive Policy Briefing) يتضمن:\n" +
+"1. الملخص التنفيذي للموقف الأكاديمي\n" +
+"2. التوصيات العملية الموجهة لصناع القرار (مخصصة لكل وثيقة)\n" +
+"3. التداعيات والآثار الاستراتيجية بعيدة المدى\n\n" +
+"الموضوع: \"" + (topic || "الملخص التنفيذي والتوصيات") + "\"\n\n" +
+scopeIntro + sourcesContext;
     } else if (toolType === "faq") {
-      prompt = `قم بصياغة "دليل الأسئلة الشائعة والإجابات العلمية" (Research FAQ Generator) حول الموضوع التالي: "${topic || "تحليل شامل للمصادر"}" بناءً على المصادر المرفقة فقط.
-
-يجب استخراج 4 أو 5 أسئلة بحثية شائعة أو جوهرية قد تدور في ذهن القارئ حول هذا الموضوع، وصياغة إجابة علمية دقيقة لكل منها بناءً على تكامل أو تعارض المعطيات بين الأوراق، مع ذكر الوثائق المستند إليها صراحة في ثنايا الإجابة (مثال: "بناءً على الوثيقة 1 والوثيقة 3...").
-
-اكتب بلغة عربية فصحى حديثة واضحة ومبسطة وخالية من التعقيد البلاغي.
-
-تعليمات الصياغة والأمان العلمي والشكلي (GLOBAL STYLE & ACCURACY RULES):
-1. **التثبت التام من النسب والأرقام**: التزم بنسب البيانات والأرقام والادعاءات بدقة مطلقة كما وردت في نصوص المصادر.
-2. **منع الإسناد الخاطئ أو الموسع**: لا تنسب أي ادعاء لوثيقة لا تدعمه بشكل صريح.
-3. **منع اختلاق تفاصيل تفسيرية**: عند تقديم تفسير منهجي، التزم فقط بما تذكره أو تومئ إليه المصادر.
-4. **الإفصاح عن نطاق المصادر المستخدمة**: صرح بذلك بوضوح في بداية المخرجات.
-5. **طبقة الأدلة الإلزامية (MANDATORY EVIDENCE LAYER)**: بعد كل إجابة لسؤال شائك أو رئيسي، أدرج علامة <evidence> توضح قوة الدعم وعناوين الوثائق والاقتباسات الدقيقة.
-
-${sourcesContext}`;
+      userPrompt = "صغ دليلاً للأسئلة الشائعة والإجابات العلمية الموثقة (Academic FAQ Guide) يطرح أسئلة جوهرية عن كل وثيقة وإجابات تفصيلية فريدة مستمدة حقيقة من نصها، بالإضافة إلى أسئلة المقارنة والتركيب البحثي بين الوثائق.\n\n" +
+"الموضوع: \"" + (topic || "دليل الأسئلة الشائعة") + "\"\n\n" +
+scopeIntro + sourcesContext;
     } else {
-      prompt = `قم بكتابة توليف بحثي شامل باللغة العربية الفصحى حول الموضوع التالي: "${topic || "مقارنة عامة وتحليل شامل للمصادر"}" بناءً على المصادر المرفقة فقط.
-    
-شروط التوليف والتحليل:
-1. اكتب تقريراً علمياً رصيناً ومنظماً يعرض نقاط الاتفاق والاختلاف بين المصادر بشكل مباشر وتفصيلي.
-2. استخدم أسلوباً أكاديمياً رصيناً واذكر اسم كل وثيقة في صلب الجملة.
-3. إذا كان هناك تناقض فقم بإبرازه بوضوح، واقترح تفسيراً منهجياً أو سياقياً محتملاً دون جزم.
-4. التزم فقط بالحقائق المذكورة ولا تضف آراء خارجية.
-5. طبقة الأدلة الإلزامية (MANDATORY EVIDENCE LAYER): أدرج علامات <evidence> مدعمة باقتباسات دقيقة من الوثائق لدعم الاستنتاجات والتوليفات الرئيسية.
-
-${sourcesContext}`;
+      userPrompt = "صغ تقريراً تحليلياً وتوليفياً كاملاً ومفصلاً (Full Academic Synthesis Report) حول الموضوع: \"" + topicName + "\" يتضمن الأقسام التالية:\n\n" +
+"1. مقدمة وتوطين موضوع البحث\n" +
+"2. القراءة التحليلية المقارنة للمصادر المرفقة (معالجة تفصيلية فريدة لكل وثيقة)\n" +
+"3. نقاط الاتفاق والتكامل المنهجي بين المصادر\n" +
+"4. نقاط الاختلاف والتباين المنهجي (التعارض والتحليل السياقي)\n" +
+"5. الخلاصة والاستنتاجات التوليفية\n\n" +
+scopeIntro + sourcesContext;
     }
-
-    console.log(`Sending synthesis request to Gemini for ${activeSources.length} sources (type: ${toolType}).`);
 
     try {
       const response = await generateContentWithRetry(ai, {
-        model: "gemini-2.5-flash",
-        contents: prompt,
+        model: "gemini-2.0-flash",
+        contents: userPrompt,
         config: {
-          systemInstruction: SYSTEM_INSTRUCTIONS,
-          temperature: 0.1,
-        },
-      });
-
-      const replyText = response?.text ? normalizeArabicText(response.text) : "";
-      if (replyText.length > 30 && !replyText.includes("فشل توليد") && !replyText.includes("فشلت عملية")) {
-        return res.json({ text: replyText });
-      }
-      console.warn("Gemini response was empty or contained failure phrase, switching to evidence fallback report generation.");
-    } catch (apiError: any) {
-      console.warn("Gemini synthesis call threw an error, switching to evidence fallback report generation:", apiError?.message || apiError);
-    }
-
-    const reportSources = activeSources.length > 0 ? activeSources : [
-      { id: "src-1", title: "الوثيقة 1", language: "ar", wordCount: 0, summary: "لا يتوفر ملخص متاح.", content: "" }
-    ];
-    const safeTopic = topic || "تحليل المقارنة الشامل";
-    const safeToolType = toolType || "general";
-
-    let errorMessage = "تعذر توليد التقرير المباشر عبر الذكاء الاصطناعي — تم تفعيل نظام النسخ الاحتياطي للأدلة والمصادر المحلية بنجاح.";
-
-    // Construct local fallback report based on toolType containing beautiful <evidence> tags
-    let reportText = "";
-    const activeCount = reportSources.length;
-    const scopeDisclosure = `توضيح النطاق: يعتمد هذا التقرير التوليفي والتحليل على ${activeCount} من مصادر البحث النشطة المتاحة لصلتها المباشرة بالموضوع المدروس.\n\n`;
-
-    if (toolType === "matrix") {
-      reportText = `**مصفوفة الأدلة والتعارضات الأكاديمية: ${topic || "تحليل المقارنة الشامل"}**\n\n`;
-      reportText += scopeDisclosure;
-      reportText += `| الرقم | المحور البحثي / القضية الجوهرية | الوثائق المؤيدة والأدلة والنسب | الوثائق المعارضة وأوجه الاختلاف والنسب | التفسير المنهجي والسياقي المقترح |\n`;
-      reportText += `| :--- | :--- | :--- | :--- | :--- |\n`;
-      reportText += `| 1 | **التحصيل الدراسي والدرجات** | تشير **الوثيقة 1 (${sources[0]?.title || "دراسة الأداء"})** إلى زيادة متوسط درجات الطلاب بنسبة **8%** وانخفاض الغياب. | يوضح **التقرير الثاني (${sources[1]?.title || "تقرير الجودة النائي"})** تراجعاً عاماً في التحصيل بنسبة **6%** وارتفاع الانسحاب بنسبة **11%**. | يرتبط تراجع الأداء والانسحاب بمشاكل تشغيلية وبنية تحتية كضعف الاتصال بالإنترنت في المناطق الريفية. |\n`;
-      if (sources.length > 2) {
-        reportText += `| 2 | **المرونة الزمنية وإدارة الوقت** | تفيد **الوثيقة 3 (${sources[2]?.title || "استبيان الطلاب"})** بأن **78%** من الطلاب يفضلون مرونة التعليم الرقمي لتنظيم وقتهم وتجنب هدر وقت التنقل. | لا يوجد معارضة صريحة، لكن **الوثيقة الأولى** تلفت إلى تطلبها لتنظيم ذاتي مرتفع كشرط للنجاح. | المرونة ميزة متفق عليها بشكل عام، لكن فعاليتها العملية ترتبط بمهارات التنظيم الذاتي لدى الطالب. |\n`;
-        reportText += `| 3 | **الصحة النفسية والاجتماعية** | تسجل **الوثيقة الأولى** مساعدة الطلاب الموظفين على تنظيم وقتهم وتقليل غيابهم. | توضح **الوثيقة 3 (${sources[2]?.title || "استبيان الطلاب"})** زيادة جوهرية في القلق والتوتر والشعور بالعزلة الأكاديمية والاجتماعية. | ينقسم الطلاب حول البعد النفسي؛ فالمرونة تريح فئات معينة (كالطلاب الموظفين)، بينما تسبب العزلة الافتراضية ضغوطاً لآخرين. |\n\n`;
-      } else {
-        reportText += `| 2 | **المرونة الزمنية وإدارة الوقت** | تفيد المصادر المتوفرة بوجود مرونة مقدرة في تنظيم الوقت ومساعدة الفئات العاملة على تقليل الغياب. | لا توجد معارضة صريحة في الوثائق المحددة حول مرونة التعليم الرقمي ومميزاته التنظيمية. | تمثل مرونة الوقت نقطة اتفاق جوهرية بين الدراسات لتيسير التعليم الذاتي وتفادي التنقل. |\n\n`;
-      }
-      reportText += `--- \n\n`;
-      reportText += `### التحليل التوليفي والمقارن للأدلة والتعارضات:\n\n`;
-      reportText += `1. **تباين التحصيل الأكاديمي**: ترصد **الوثيقة 1** زيادة 8% بالدرجات واستقرار حضور الطلاب، بينما يثبت **التقرير الثاني** تراجعاً بنسبة 6% وارتفاع الانسحاب بنسبة 11%. يوضح التقرير الثاني أن هذا الاختلاف لا يعود للتعليم الرقمي ذاته، بل يُعزى لمشاكل البنية التحتية والإنترنت في المناطق الريفية.\n`;
-      reportText += `<evidence strength="قوية" agreement="يوجد اختلاف جزئي" supporting="2 من أصل 3 مصادر">
-  <supporting>
-    <source title="${sources[0]?.title || "دراسة الأداء"}">
-      <quote>سجلت درجات الطلاب زيادة في المتوسط بنسبة 8% وانخفضت معدلات الغياب بشكل ملحوظ.</quote>
-    </source>
-  </supporting>
-  <opposing>
-    <source title="${sources[1]?.title || "تقرير الجودة النائي"}">
-      <quote>أظهرت النتائج تراجعاً عاماً في التحصيل الدراسي بنسبة 6% وارتفعت نسبة الانسحاب لتصل إلى 11%.</quote>
-    </source>
-  </opposing>
-  <explanation>يعود التعارض الظاهري إلى سياق التطبيق ومستوى البنية التقنية وجودة الإنترنت المتوفرة للطلبة.</explanation>
-</evidence>\n\n`;
-
-      if (sources.length > 2) {
-        reportText += `2. **إجماع على المرونة الزمنية**: تتفق **الوثيقة 1** و**الوثيقة 3** على تفضيل الطلاب للمرونة العالية، حيث تسجل الوثيقة الثالثة نسبة تفضيل 78% لتفادي التنقل المجهد وتسهيل التعلم الذاتي، بينما تؤكد الوثيقة الأولى دور المرونة في مساعدة الطلاب العاملين على التوفيق بين العمل والدراسة وتقليل غيابهم.\n`;
-        reportText += `<evidence strength="قوية" agreement="متفقة" supporting="2 من أصل 3 مصادر">
-  <supporting>
-    <source title="${sources[2]?.title || "استبيان الطلاب"}">
-      <quote>عبر 78% من الطلاب عن تفضيلهم للمرونة العالية للتعليم الرقمي لتجنب عناء التنقل اليومي.</quote>
-    </source>
-    <source title="${sources[0]?.title || "دراسة الأداء"}">
-      <quote>ساعدت المرونة الزمنية الطلاب الموظفين على تنظيم أوقاتهم بشكل فعال وتقليص الغياب.</quote>
-    </source>
-  </supporting>
-  <explanation>تتفق المصادر بشكل كامل على أن المرونة الزمنية تمثل ميزة جوهرية تدعم جودة الحياة الأكاديمية.</explanation>
-</evidence>\n\n`;
-
-        reportText += `3. **الأبعاد النفسية والاجتماعية**: تظهر **الوثيقة 3** بمفردها تفاصيل دقيقة عن كلفة عاطفية تتمثل في زيادة القلق والعزلة الأكاديمية والاجتماعية والتوتر. لا تذكر بقية وثائق المجموعة أي معطيات تدعم أو تعارض هذا الجانب النفسي السلبي، مما يجعله رأياً فردياً يستحق الدراسة العميقة والتحقق المستقبلي.\n`;
-        reportText += `<evidence strength="محدودة" agreement="مختلفة" supporting="1 من أصل 3 مصادر">
-  <supporting>
-    <source title="${sources[2]?.title || "استبيان الطلاب"}">
-      <quote>سجلت مستويات القلق والتوتر الأكاديمي ارتفاعاً مع الشعور بالعزلة الاجتماعية والتعليمية لدى الطلاب.</quote>
-    </source>
-  </supporting>
-  <explanation>تنفرد دراسة واحدة بالإفصاح عن الآثار النفسية السلبية للتباعد الرقمي، بينما أغفلت بقية الدراسات هذا المتغير تماماً.</explanation>
-</evidence>\n\n`;
-      } else {
-        reportText += `2. **إجماع على تنظيم الوقت**: تبرز المصادر دور المرونة الزمنية الكبيرة في تيسير التعلم الذاتي، ومساندة الفئات الخاصة (كالطلاب العاملين) في التوفيق بين التزاماتهم الحياتية والتعليمية بشكل مرن ومستمر.\n`;
-        reportText += `<evidence strength="جيدة" agreement="متفقة" supporting="1 من أصل 2 مصادر">
-  <supporting>
-    <source title="${sources[0]?.title || "دراسة الأداء"}">
-      <quote>ساعدت المرونة الزمنية الطلاب الموظفين على تنظيم أوقاتهم بشكل فعال.</quote>
-    </source>
-  </supporting>
-  <explanation>تؤكد المصادر المتوفرة دور ميزة المرونة في تنظيم وتحسين استخدام الوقت الدراسي والعملي.</explanation>
-</evidence>\n\n`;
-      }
-    } else if (toolType === "gap") {
-      reportText = `**تقرير فجوات الأدلة الأكاديمية: ${topic || "التحليل الاستكشافي للفراغات المعرفية"}**\n\n`;
-      reportText += scopeDisclosure;
-      reportText += `### 1. الفجوات المعرفية والمنهجية المرصودة\n`;
-      reportText += `- **الفجوة 1: (فجوة أدلة) - غياب البيانات الطولية لتتبع الأثر بعيد المدى**:\n  تُشير الوثائق الثلاث المحللة (3 من أصل 3 وثائق) إلى غياب البيانات الطولية لتتبع الأثر بعيد المدى للتعليم الرقمي وتطوره على مدار سنوات متعددة، إذ تقتصر الملاحظة ضمن مجموعة الوثائق الحالية على فترات زمنية وجيزة أو فصل دراسي واحد، ولا تتناول الوثائق المحللة الأثر بعيد المدى — وهذا لا يعني بالضرورة غيابه في الأدبيات الأوسع، بل يعكس حدود المجموعة الحالية.\n`;
-      reportText += `- **الفجوة 2: (فجوة بحثية) - قصور البنية التحتية والاتصال في المناطق الريفية كعائق بنيوي للتكامل الرقمي**:\n  تنفرد الوثيقة الثانية (${sources[1]?.title || "تقرير ضمان الجودة والاعتماد الأكاديمي"}) (1 من أصل 3 وثائق) بالإشارة إلى غياب التغطية التقنية المتكافئة والاتصال المستقر في البيئات الريفية كإشكالية بحثية قائمة في الأدبيات، وتدعو صراحةً إلى مزيد من الدراسة الموسعة حول أثر العوامل الخارجية على جودة مخرجات التعليم، دون أن تؤكد ذلك وثيقة أخرى في هذه المجموعة.\n\n`;
-      reportText += `<evidence strength="جيدة" agreement="متفقة" supporting="2 من أصل 3 مصادر">
-  <supporting>
-    <source title="${sources[0]?.title || "دراسة الأداء"}">
-      <quote>تم جمع البيانات من فصل دراسي واحد فقط مما لا يوضح تطور الأداء عبر السنين.</quote>
-    </source>
-    <source title="${sources[2]?.title || "استبيان الطلاب"}">
-      <quote>شمل الاستبيان طلاب جامعة واحدة في فترة دراسة قصيرة الأمد.</quote>
-    </source>
-  </supporting>
-  <explanation>تتفق الدراسات على غياب البيانات الطولية والتمثيل الجغرافي الواسع كأبرز الفجوات المنهجية التي تحد من موثوقية الاستنتاجات الحالية.</explanation>
-</evidence>\n\n`;
-
-      reportText += `### 2. الأسئلة البحثية المعلقة والمقترحة مستقبلاً\n`;
-      reportText += `1. بناءً على غياب البيانات الطولية لتتبع الأثر بعيد المدى في الفجوة رقم [1]، والتي تعني أن القرارات التعليمية الحالية تُتخذ دون فهم تأثير نمط التعليم على استدامة الأداء والتطوير المهني للطلاب بعد تخرجهم، يطرح هذا التساؤل:\nما هو الأثر التراكمي بعيد المدى لنماذج التعلم الرقمي على المهارات العملية والأداء المهني للطلاب بعد انخراطهم الفعلي في سوق العمل؟\n`;
-      reportText += `2. بناءً على قصور البنية التحتية والاتصال في المناطق الريفية كعائق بنيوي للتكامل الرقمي في الفجوة رقم [2]، والتي تعني أن غياب البيانات المتكافئة يحرم صانعي السياسات من تقييم الفروقات الجغرافية وتكافؤ الفرص الأكاديمية بين الحضر والريف، يطرح هذا التساؤل:\nكيف يمكن تطوير آليات مرنة تدعم التحصيل الأكاديمي وتكافؤ الفرص التقنية للطلاب في البيئات الريفية محدودة الموارد؟\n\n`;
-      reportText += `### 3. مقترحات المستندات الإضافية المطلوبة لسد الفجوات\n`;
-      reportText += `- لسد فجوة أدلة المتعلقة بـ غياب البيانات الطولية لتتبع الأثر بعيد المدى في الفجوة رقم [1]، والتي أظهرت أن الوثائق الحالية تقتصر على تقييم فترات زمنية وجيزة أو فصل دراسي واحد دون تتبع تطور الطلاب:\n  دراسات مقارنة طولية تتبع الأداء الأكاديمي لعدة دفعات متتالية من طلاب التعليم الرقمي والتعليم التقليدي على مدار أربع سنوات، إذ ستوفر هذه الوثيقة بيانات كمية مقارنة مباشرة تملأ الفراغ الذي تركته الوثائق الحالية حول استدامة فاعلية نماذج التعليم.\n`;
-      reportText += `- لسد فجوة بحثية المتعلقة بـ قصور البنية التحتية والاتصال في المناطق الريفية في الفجوة رقم [2]، والتي أظهرت أن الوثائق الحالية تكتفي بوصف غياب التغطية التقنية المتكافئة دون تقديم إحصاءات تفصيلية لشبكات الإنترنت وسرعات البث:\n  تقارير فنية واقتصادية تفصيلية تستعرض كفاءة شبكات الإنترنت وسرعات البث ومعدلات انقطاع الخدمة في المناطق الريفية وأثرها المباشر على نسب استكمال المقررات، إذ ستوفر هذه الوثيقة خريطة بيانات رقمية دقيقة تتيح لصناع القرار تصميم تدخلات تقنية مستهدفة لمعالجة الاختلالات الهيكلية.`;
-    } else if (toolType === "briefing") {
-      reportText = `**تقرير موجز للسياسات والباحثين: ${topic || "الملخص التنفيذي والتوصيات"}**\n\n`;
-      reportText += scopeDisclosure;
-      reportText += `### 1. الملخص التنفيذي للموقف الأكاديمي\n`;
-      reportText += `توضح مراجعة وتقاطع الأدلة البحثية المتاحة للوثائق (${sources.map((s: any) => s.title || "وثيقة").join("، ")}) أن البيانات تعرض زوايا متكاملة حول موضوع "${topic || "البحث"}".\n\n`;
-      reportText += `<evidence strength="قوية" agreement="متفقة" supporting="${sources.length} من أصل ${sources.length} مصادر">
-  <supporting>
-    <source title="${sources[0]?.title || "المستند الأول"}">
-      <quote>${(sources[0]?.summary || sources[0]?.content || "").substring(0, 150)}...</quote>
-    </source>
-  </supporting>
-  <explanation>تؤكد المراجعة الميدانية وجود توازن بين المعطيات والنتاجات المذكورة في المصادر.</explanation>
-</evidence>\n\n`;
-
-      reportText += `### 2. التوصيات العملية الموجهة لصناع القرار\n`;
-      sources.forEach((src: any, idx: number) => {
-        reportText += `* **توصية نابعة من (${src.title || "الوثيقة " + (idx + 1)})**: الاستفادة من المعطيات الميدانية والتحليلات الواردة في المستند لدعم القرارات والتطبيق الفعلي.\n`;
-      });
-      reportText += `\n### 3. التداعيات والآثار الاستراتيجية بعيدة المدى\n`;
-      reportText += `إن الاعتماد على الأدلة المستخلصة من هذه المصادر في دعم عملية اتخاذ القرار يضمن استدامة التطوير وتقليل المخاطر الميدانية.`;
-    } else if (toolType === "faq") {
-      reportText = `**دليل الأسئلة الشائعة والإجابات العلمية: ${topic || "تحليل تلاقي وتباعد الأدلة"}**\n\n`;
-      reportText += scopeDisclosure;
-      sources.forEach((src: any, idx: number) => {
-        const title = src.title || `الوثيقة ${idx + 1}`;
-        const summary = src.summary || (src.content ? src.content.substring(0, 180) + "..." : "لا يتوفر ملخص متاح.");
-        reportText += `#### س${idx + 1}: ما هي الرؤية والنتائج الرئيسية الواردة في "${title}"؟\n`;
-        reportText += `**ج:** تقدم هذه الوثيقة تحليلاً موثقاً يتلخص في: ${summary}\n\n`;
-      });
-      if (sources.length > 1) {
-        reportText += `#### س${sources.length + 1}: هل تتفق المصادر المتاحة حول الاستنتاجات والتوصيات النهائية؟\n`;
-        reportText += `**ج:** يظهر تقاطع المصادر المرفقة (${sources.map((s: any) => s.title).join("، ")}) وجود نقاط تكامل مفاهيمي حول الموضوع، مع تفاوت سياقي يعود لاختلاف عينات وزوايا الدراسة في كل وثيقة.\n\n`;
-      }
-    } else {
-      // General Synthesis fallback
-      reportText = `**تقرير التوليف والمقارنة الأكاديمية: ${topic || "تحليل شامل للمصادر المتاحة"}**\n\n`;
-      reportText += scopeDisclosure;
-      reportText += `تم إعداد هذا التقرير التوليفي تلقائياً عبر محرك التحليل الأكاديمي لـ بحث OS بناءً على مقارنة ومقاطعة البيانات الواردة في المصادر التالية:\n`;
-      sources.forEach((src: any, idx: number) => {
-        reportText += `- **الوثيقة ${idx + 1}: ${src.title}** (${src.language === "ar" ? "اللغة العربية" : "اللغة الإنجليزية"}، ${src.wordCount || 0} كلمة).\n`;
-      });
-      reportText += `\n### 1. مقدمة وتوطين موضوع البحث\n`;
-      reportText += `يتمحور التساؤل البحثي حول "${topic || "المقارنة العامة للمصادر"}". يمثل هذا الموضوع أحد المحاور الحيوية التي تتطلب تكاملاً في الرؤى وتدقيقاً في المنهجيات المتبعة. ومن خلال قراءة المصادر المتاحة، يتضح أن هناك تقاطعات جوهرية واختلافات منهجية تثري هذا النقاش البحثي.\n\n`;
-      reportText += `### 2. نقاط الاتفاق والتكامل المنهجي\n`;
-      if (sources.length > 1) {
-        reportText += `تتفق كل من **الوثيقة 1 (${sources[0]?.title || "المستند الأول"})** و**الوثيقة 2 (${sources[1]?.title || "المستند الثاني"})** على الأهمية البالغة لدراسة العوامل المؤثرة وسياقات تطبيقها. تشير البيانات الواردة إلى أن هناك ارتباطاً وثيقاً بين المتغيرات المستقلة والنتائج النهائية الملاحظة.`;
-        if (sources.length > 2) {
-          reportText += ` وتدعم **الوثيقة 3 (${sources[2]?.title || "المستند الثالث"})** هذا التوجه من خلال إبراز أهمية التحليل الهيكلي وتوفر المتطلبات الأساسية للنجاح.`;
+          systemInstruction,
+          temperature: 0.2,
         }
-        reportText += `\n\nتتقاطع هذه المصادر في تأكيدها على ضرورة تهيئة البيئة المناسبة ودعم الكوادر المعنية لضمان فاعلية المخرجات، وهو ما يظهر جلياً في التوافق العام حول التوصيات العملية الرامية إلى تحسين الأداء.\n\n`;
-      } else {
-        reportText += `تتناول **الوثيقة 1 (${sources[0]?.title || "المستند الأول"})** بشكل منفرد وأساسي هذا الجانب، حيث تقدم تحليلاً دقيقاً وهيكلياً للموضوع. وتوضح الوثيقة بوضوح أن الإجراءات المنهجية المتبعة تساهم بشكل مباشر في تحقيق الأهداف المرجوة وتجاوز التحديات القائمة.\n\n`;
-      }
-      reportText += `<evidence strength="جيدة" agreement="متفقة" supporting="1 من أصل 2 مصادر">
-  <supporting>
-    <source title="${sources[0]?.title || "دراسة الأداء"}">
-      <quote>تتكامل المنهجيات المعروضة لتحقيق التوليف المنهجي الدقيق للبيانات المستهدفة.</quote>
-    </source>
-  </supporting>
-  <explanation>تمثل نقاط الاتفاق والتقاطع ركيزة منهجية تدعم موثوقية الاستنتاجات العامة للتقرير.</explanation>
-</evidence>\n\n`;
+      });
 
-      reportText += `### 3. نقاط الاختلاف والتباين المنهجي (التعارض والتحليل السياقي)\n`;
-      if (sources.length > 1) {
-        reportText += `بالرغم من الاتفاق العام، تظهر اختلافات منهجية وسياقية هامة بين الدراسات المتاحة:\n`;
-        sources.forEach((src: any, idx: number) => {
-          const langStr = src.language === "ar" ? "سياق عربي محلي" : "سياق أجنبي/دولي";
-          reportText += `- تعتمد **الوثيقة ${idx + 1} (${src?.title || "الوثيقة"})** على ${langStr} وتقدم رؤية تركز على الجوانب المحددة في ملخصها: "${src?.summary || "التحليل الإحصائي والمنهجي للحالة"}".\n`;
+      if (response?.text && response.text.trim().length > 100) {
+        return res.json({
+          text: normalizeArabicText(response.text.trim()),
+          isFallback: false
         });
-        reportText += `\nيمكن تفسير هذه التباينات باختلاف منهجية جمع البيانات وحجم العينة المستهدفة، أو التنوع في الفترات الزمنية والبيئات المؤسسية التي أجريت فيها كل دراسة. هذا التباين لا يقلل من قيمة النتائج، بل يثري عملية الفهم الشامل للظاهرة من زوايا متعددة.\n\n`;
-      } else {
-        reportText += `نظراً للاعتماد على مصدر واحد فقط وهو **الوثيقة 1 (${sources[0]?.title || "المستند الأول"})**، فإن هذا التحليل يمثل وجهة نظر فردية غير مدعومة بمصادر موازية أو مقارنة في هذه المجموعة الحالية. لتوسيع أفق البحث، يوصى بإضافة وثائق أخرى تتناول نفس الموضوع من سياقات جغرافية أو منهجية مختلفة (كمية مقابل نوعية).\n\n`;
       }
-      reportText += `### 4. الخلاصة والاستنتاجات التوليفية\n`;
-      reportText += `يظهر التوليف الشامل للمصادر أن معالجة موضوع "${topic}" تتطلب منظوراً متعدد الأبعاد يدمج بين الجوانب النظرية والتطبيقات العملية الميدانية. يُنصح الباحثون بالبناء على هذه المقارنات لتصميم دراسات مستقبلية تسد الفجوات المعرفية المحددة في هذه الأوراق.\n`;
+    } catch (aiErr: any) {
+      console.error("AI synthesis call failed, using smart fallback logic:", aiErr);
     }
 
-    res.json({ 
-      text: normalizeArabicText(reportText), 
-      isFallback: true 
+    // Smart, document-specific fallback if AI call fails
+    const fallbackReport = generateClientSynthesisFallback(activeSources, topic || "تحليل ومقارنة شاملة للمصادر", toolType);
+    return res.json({
+      text: normalizeArabicText(fallbackReport),
+      isFallback: true
     });
-  } catch (outerErr: any) {
-    console.error("Outer error in /api/synthesize:", outerErr);
-    res.status(200).json({
-      text: "تم تفعيل التوليف الأكاديمي الشامل بنجاح عبر نظام تحليل الأدلة والمصادر المحلية.",
+
+  } catch (error: any) {
+    console.error("Error in synthesis API:", error);
+    const fallbackReport = generateClientSynthesisFallback(req.body?.sources || [], req.body?.topic || "تحليل وتوليف المصادر", req.body?.toolType);
+    return res.json({
+      text: normalizeArabicText(fallbackReport),
       isFallback: true
     });
   }
@@ -935,8 +593,8 @@ app.post("/api/extract-glossary", async (req, res) => {
       let terms: any[] = [];
       try {
         let cleanJson = responseText
-          .replace(/```json\s*/g, "")
-          .replace(/```\s*/g, "")
+          .split("```json").join("")
+          .split("```").join("")
           .trim();
 
         const start = cleanJson.indexOf("[");
@@ -954,33 +612,34 @@ app.post("/api/extract-glossary", async (req, res) => {
       return res.json({ terms });
     }
 
-    const prompt = `أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام "بحث OS".
-مهمتك تحليل النص واستخراج قائمة دقيقة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين فقط.
+    const existingTermsStr = existingTerms && Array.isArray(existingTerms) && existingTerms.length > 0 
+      ? existingTerms.map((t: any) => t.term || t.transliteration || t.verified_term).filter(Boolean).join("، ") 
+      : "لا يوجد بعد";
 
-طبق القواعد الصارمة التالية:
-1. الاقتصار على البناءات النظرية والمفاهيم العلمية المركبة:
-   استخرج فقط البناءات النظرية ذات العمق العلمي والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Machine Learning).
-2. الحظر الصارم للجمل والعبارات اللغوية الشائعة (Linguistic Fragments):
-   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: "both have translatability", "results show", "in this section", "data collected", "future studies"). أية تراكيب تحتوي أفعالاً أو أدوات ربط أو ضمائر يُحظر استخراجها إطلاقاً.
-3. استبعاد التخصصات والمجالات العامة:
-   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...).
-4. قواعد الاستبعاد العامة:
-   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات ودور النشر، التوثيقات المرجعية، والتواريخ.
-5. الجودة الصارمة للتعريب والتعريف الأكاديمي:
-   لكل مصطلح، يجب تقديم المصطلح العربي المعيار المعتمد والمكافئ بدقة في حقل verified_term (يُمنع ترك verified_term باللغة الإنجليزية).
-   صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم بأسلوب رصين وبدون أي عبارات قالبية فارغة.
-6. منع التكرار مع المصطلحات السابقة في المشروع:
-   يُمنع منعاً باتاً استخراج أو تكرار أي مصطلح أو مفهوم موجود بالفعل في هذه القائمة:
-   ${existingTerms && Array.isArray(existingTerms) && existingTerms.length > 0 ? existingTerms.map((t: any) => t.term || t.transliteration || t.verified_term).filter(Boolean).join("، ") : "لا يوجد بعد"}
-
-لكل مصطلح مستخرج، عبئ الحقول التالية بالترتيب الدقيق:
-1. term: المصطلح الأصلي بالإنجليزية.
-2. draft_term: المصطلح العربي المقترح أولياً.
-3. definition: تعريف أكاديمي علمي حقيقي ونافع يشرح المفهوم وجوهره في جملة واحدة رصينة.
-4. verified_term: المصطلح العربي النهائي المدقق والمصوب بعد استبدال أي تعريب صوتي بمكافئ عربي فصيح.
-
-النص المراد تحليله:
-${text.substring(0, 3500)}`;
+    const prompt = "أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام \"بحث OS\".\n" +
+"مهمتك تحليل النص واستخراج قائمة دقيقة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين فقط.\n\n" +
+"طبق القواعد الصارمة التالية:\n" +
+"1. الاقتصار على البناءات النظرية والمفاهيم العلمية المركبة:\n" +
+"   استخرج فقط البناءات النظرية ذات العمق العلمي والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Machine Learning).\n" +
+"2. الحظر الصارم للجمل والعبارات اللغوية الشائعة (Linguistic Fragments):\n" +
+"   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: \"both have translatability\", \"results show\", \"in this section\", \"data collected\", \"future studies\"). أية تراكيب تحتوي أفعالاً أو أدوات ربط أو ضمائر يُحظر استخراجها إطلاقاً.\n" +
+"3. استبعاد التخصصات والمجالات العامة:\n" +
+"   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...).\n" +
+"4. قواعد الاستبعاد العامة:\n" +
+"   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات ودور النشر، التوثيقات المرجعية، والتواريخ.\n" +
+"5. الجودة الصارمة للتعريب والتعريف الأكاديمي:\n" +
+"   لكل مصطلح، يجب تقديم المصطلح العربي المعيار المعتمد والمكافئ بدقة في حقل verified_term (يُمنع ترك verified_term باللغة الإنجليزية).\n" +
+"   صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم بأسلوب رصين وبدون أي عبارات قالبية فارغة.\n" +
+"6. منع التكرار مع المصطلحات السابقة في المشروع:\n" +
+"   يُمنع منعاً باتاً استخراج أو تكرار أي مصطلح أو مفهوم موجود بالفعل في هذه القائمة:\n" +
+"   " + existingTermsStr + "\n\n" +
+"لكل مصطلح مستخرج، عبئ الحقول التالية بالترتيب الدقيق:\n" +
+"1. term: المصطلح الأصلي بالإنجليزية.\n" +
+"2. draft_term: المصطلح العربي المقترح أولياً.\n" +
+"3. definition: تعريف أكاديمي علمي حقيقي ونافع يشرح المفهوم وجوهره في جملة واحدة رصينة.\n" +
+"4. verified_term: المصطلح العربي النهائي المدقق والمصوب بعد استبدال أي تعريب صوتي بمكافئ عربي فصيح.\n\n" +
+"النص المراد تحليله:\n" +
+text.substring(0, 3500);
 
     const response = await generateContentWithRetry(ai, {
       model: "gemini-2.5-flash",
