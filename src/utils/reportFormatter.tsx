@@ -33,6 +33,14 @@ export function normalizeReportStructure(text: string): string {
   // 5. Separate inline numbered research questions (e.g. "...موسعة؟ 2. بناءً على...") into double-spaced numbered lines
   result = result.replace(/(?:[ \t]*[•*-]?\s*)(\d+\.\s+بناءً\s+على|بناءً\s+على\s+الملاحظات)/gi, "\n\n$1");
 
+  // 6. Separate inline merged recommendation lines (e.g. "...الميدانية. توصية مستندة إلى...") into double-spaced bullet points
+  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+(?:مستندة|عملية|مباشرة|رقم)[^*]*:\*?\*?|\*?\*?توصية\s+مستندة\s+إلى|\*?\*?اعتماد\s+نتائج\s+دراسة)/gi, "\n\n- $1");
+  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+مستندة\s+إلى|\*?\*?توصية\s+عملية|\*?\*?اعتماد\s+نتائج)/gi, "$1\n\n- $2");
+
+  // 7. Separate inline merged strategic implications (e.g. "...التطبيق. التداعيات والآثار...") into double-spaced section headings/bullets
+  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية[^*]*:\*?\*?|\*?\*?التداعيات\s+والآثار)/gi, "\n\n### $1\n\n");
+  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية)/gi, "$1\n\n### $2\n\n");
+
   // Untangle all-bold lines where heading and body were wrapped in double asterisks
   // e.g., **1. تحليل الأدلة من المصادر: توثق الوثيقة نتائج...** -> **1. تحليل الأدلة من المصادر:** توثق الوثيقة نتائج...
   result = result.replace(/^(\s*)\*\*(\d+\.\s*[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
