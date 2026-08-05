@@ -34,12 +34,20 @@ export function normalizeReportStructure(text: string): string {
   result = result.replace(/(?:[ \t]*[•*-]?\s*)(\d+\.\s+بناءً\s+على|بناءً\s+على\s+الملاحظات)/gi, "\n\n$1");
 
   // 6. Separate inline merged recommendation lines (e.g. "...الميدانية. توصية مستندة إلى...") into double-spaced bullet points
-  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+(?:مستندة|عملية|مباشرة|رقم)[^*]*:\*?\*?|\*?\*?توصية\s+مستندة\s+إلى|\*?\*?اعتماد\s+نتائج\s+دراسة)/gi, "\n\n- $1");
-  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+مستندة\s+إلى|\*?\*?توصية\s+عملية|\*?\*?اعتماد\s+نتائج)/gi, "$1\n\n- $2");
+  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+(?:مستندة|عملية|مباشرة|رقم)[^*]*:\*?\*?|\*?\*?توصية\s+مستندة\s+إلى)/gi, "\n\n- $1");
+  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+مستندة\s+إلى|\*?\*?توصية\s+عملية)/gi, "$1\n\n- $2");
 
-  // 7. Separate inline merged strategic implications (e.g. "...التطبيق. التداعيات والآثار...") into double-spaced section headings/bullets
+  // Clean leading dots/punctuation in title parentheses: e.g. "توصية مستندة إلى (. Title)" -> "توصية مستندة إلى (Title)"
+  result = result.replace(/(توصية\s+مستندة\s+إلى\s*\(\s*)[\s.\-–—:؛"'\(\)]+([^)]+)/gi, "$1$2");
+
+  // 7. Separate inline merged strategic implications and subheadings (e.g. "...التطبيق. - **تطوير معايير...") into double-spaced section headings/bullets
   result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية[^*]*:\*?\*?|\*?\*?التداعيات\s+والآثار)/gi, "\n\n### $1\n\n");
   result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية)/gi, "$1\n\n### $2\n\n");
+
+  // Break up inline bullet points (e.g. "...المستهدفة. - **تطوير معايير..." or "...السياق. - **إدارة المخاطر...") into separate double-spaced bullet lines
+  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+(\*\*[\u0600-\u06FFa-zA-Z])/g, "$1\n\n- $2");
+  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+([\u0600-\u06FFa-zA-Z]{3,}\s*[:：])/g, "$1\n\n- $2");
+  result = result.replace(/\s+[-–—•*]\s+(\*\*[^*]+:\*\*)/g, "\n\n- $1");
 
   // Untangle all-bold lines where heading and body were wrapped in double asterisks
   // e.g., **1. تحليل الأدلة من المصادر: توثق الوثيقة نتائج...** -> **1. تحليل الأدلة من المصادر:** توثق الوثيقة نتائج...
@@ -445,7 +453,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
   const flushList = (keyPrefix: string) => {
     if (currentListItems.length > 0) {
       elements.push(
-        <ul key={`${keyPrefix}-ul`} className="my-4 space-y-2 pr-4 border-r-3 border-teal-600/40 bg-teal-50/30 p-3 rounded-l-xl">
+        <ul key={`${keyPrefix}-ul`} className="my-5 space-y-3 pr-4 border-r-4 border-[#094d4e] bg-teal-50/40 p-4 rounded-xl shadow-2xs">
           {currentListItems}
         </ul>
       );
@@ -591,7 +599,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     if (listMatch) {
       const itemContent = listMatch[2];
       currentListItems.push(
-        <li key={idx} className="text-xs md:text-sm text-gray-800 leading-relaxed flex items-start gap-2.5 py-0.5">
+        <li key={idx} className="text-xs md:text-sm text-gray-850 leading-relaxed flex items-start gap-3 py-1.5 border-b border-teal-100/60 last:border-0">
           <span className="text-[#094d4e] font-black shrink-0 mt-0.5 text-base">•</span>
           <span className="flex-1">{renderInlineMarkdown(itemContent)}</span>
         </li>

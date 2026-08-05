@@ -491,7 +491,11 @@ function deduplicateSources(sources: any[]): any[] {
 function deduplicateReportText(text: string): string {
   if (!text) return "";
 
-  const blocks = text.split(/\n{2,}/);
+  // Split inline merged bullets mid-paragraph (e.g. "...المستهدفة. - **تطوير معايير...")
+  let cleanedText = text.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+(\*\*[\u0600-\u06FFa-zA-Z])/g, "$1\n\n- $2");
+  cleanedText = cleanedText.replace(/(توصية\s+مستندة\s+إلى\s*\(\s*)[\s.\-–—:؛"'\(\)]+([^)]+)/gi, "$1$2");
+
+  const blocks = cleanedText.split(/\n{2,}/);
   const resultBlocks: string[] = [];
   
   const seenQAKeys = new Set<string>();

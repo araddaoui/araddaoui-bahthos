@@ -8,7 +8,8 @@ import { deduplicateSources, deduplicateReportBlocks } from "./reportFormatter";
 function extractDocSubstance(src: any, idx: number, safeTopic: string) {
   const rawTitle = src.title || `الوثيقة ${idx + 1}`;
   const title = rawTitle.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").trim();
-  const lowerTitle = title.toLowerCase();
+  const cleanTitle = title.replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "").trim() || `الوثيقة ${idx + 1}`;
+  const lowerTitle = cleanTitle.toLowerCase();
   
   // Clean up summary from any template residue
   let rawSummary = (src.summary || "").trim();
@@ -160,7 +161,7 @@ export function generateClientSynthesisFallback(
     reportText += `### 2. التوصيات العملية الموجهة لصناع القرار\n\n`;
     activeSources.forEach((src: any, idx: number) => {
       const details = extractDocSubstance(src, idx, safeTopic);
-      reportText += `- **توصية مستندة إلى (${details.title})**:\n  اعتماد نتائج دراسة ${details.coreIssue} لتحديث معايير الجودة والإجراءات التشغيلية الميدانية، مع تصميم أدلة ارشادية تطبيقية وتدريب الكفاءات البشرية على التعامل مع التحديات الميدانية المرصودة.\n\n`;
+      reportText += `- **توصية مستندة إلى (${details.title})**: اعتماد نتائج دراسة ${details.coreIssue} لتحديث معايير الجودة والإجراءات التشغيلية الميدانية، مع تصميم أدلة إرشادية تطبيقية وتدريب الكفاءات البشرية على التعامل مع التحديات الميدانية المرصودة.\n\n`;
     });
     
     reportText += `### 3. التداعيات والآثار الاستراتيجية بعيدة المدى\n\n`;
