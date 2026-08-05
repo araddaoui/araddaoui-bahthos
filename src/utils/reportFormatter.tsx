@@ -24,6 +24,16 @@ export function normalizeReportStructure(text: string): string {
   result = result.replace(/^(\s*)\*\*(تحليل الأدلة[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
   result = result.replace(/^(\s*)\*\*([^*:\n]+:)\s*([^*]{30,})\*\*/gm, "$1**$2** $3");
 
+  // Clean and preserve markdown tables: group consecutive | lines together without interior blank lines
+  result = result.replace(/(?:^[ \t]*\|[^\n]+\|[ \t]*$\n?)+/gm, (tableBlock) => {
+    const cleanRows = tableBlock
+      .split("\n")
+      .map((r) => r.trim())
+      .filter((r) => r.startsWith("|") && r.endsWith("|"));
+    if (cleanRows.length === 0) return "";
+    return "\n\n" + cleanRows.join("\n") + "\n\n";
+  });
+
   // Ensure double newlines before key meta headers
   result = result.replace(/(\s*)(عنوان تقرير التوليف:)/gi, "\n\n$2\n");
   result = result.replace(/(\s*)(محتوى التقرير الأكاديمي:)/gi, "\n\n$2\n");
@@ -35,8 +45,11 @@ export function normalizeReportStructure(text: string): string {
   // Ensure double newlines before markdown headings (####, ###, ##, #)
   result = result.replace(/([^\n])(#{1,6}\s+)/g, "$1\n\n$2");
 
-  // Ensure double newlines before markdown tables starting with |
-  result = result.replace(/([^\n|])\n*(\|[^\n]+\|)/g, "$1\n\n$2");
+  // Break up numbered points mid-paragraph (e.g. "...النتائج. 1. النقطة الأولى..." or "...أولاً: ...") into clean paragraph breaks
+  result = result.replace(/([.؛:!؟])\s+(\d+\.\s+[\u0600-\u06FFa-zA-Z*])/g, "$1\n\n$2");
+
+  // Break up structural bold subheaders inside paragraphs into separate lines
+  result = result.replace(/([.؛!؟])\s+(\*\*(?:منهجية|النتائج|الأدلة|القراءة|التباين|التوصية|المحور|الجدول|أولاً|ثانياً|ثالثاً|رابعاً|خامساً)[^*]*:\*\*)/g, "$1\n\n$2");
 
   // Ensure double newlines before questions like #### س1: or س1: or سؤال 1: or **س1:**
   result = result.replace(/([^\n])\s*(#{1,6}\s*)?(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*)/gi, "$1\n\n$2$3");
@@ -267,12 +280,12 @@ function renderMarkdownTableHtml(tableLines: string[]): string {
     ? ["10%", "42%", "48%"]
     : ["8%", "28%", "34%", "30%"];
 
-  let html = `<table style="width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 16pt; margin-bottom: 20pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt;" dir="rtl">\n`;
+  let html = `<table style="width: 100%; border-collapse: collapse; margin-top: 18pt; margin-bottom: 22pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; mso-table-lspace: 0pt; mso-table-rspace: 0pt;" dir="rtl">\n`;
   if (headerCells.length > 0) {
     html += `  <thead>\n    <tr style="background-color: #094d4e; color: #ffffff;">\n`;
     headerCells.forEach((h, i) => {
       const w = colWidths[i] || "auto";
-      html += `      <th style="width: ${w}; padding: 10pt 10pt; border: 1pt solid #094d4e; font-weight: bold; text-align: right; font-size: 10.5pt; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(h)}</th>\n`;
+      html += `      <th style="width: ${w}; padding: 11pt 12pt; border: 1.5pt solid #094d4e; background-color: #094d4e; color: #ffffff; font-weight: bold; text-align: right; font-size: 10.5pt; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(h)}</th>\n`;
     });
     html += `    </tr>\n  </thead>\n`;
   }
@@ -283,7 +296,7 @@ function renderMarkdownTableHtml(tableLines: string[]): string {
     html += `    <tr style="background-color: ${bgColor};">\n`;
     rowCells.forEach((cell, cIdx) => {
       const w = colWidths[cIdx] || "auto";
-      html += `      <td style="width: ${w}; padding: 10pt 10pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.6; color: #1e293b; vertical-align: top; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(cell)}</td>\n`;
+      html += `      <td style="width: ${w}; padding: 10pt 12pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.6; color: #1e293b; vertical-align: top; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(cell)}</td>\n`;
     });
     html += `    </tr>\n`;
   });
@@ -485,7 +498,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     flushList(`line-${idx}`);
 
     elements.push(
-      <p key={idx} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-800 my-3 font-sans">
+      <p key={idx} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 my-4 md:my-5 font-sans tracking-normal">
         {renderInlineMarkdown(trimmed)}
       </p>
     );
@@ -648,7 +661,7 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
     }
 
     // Standard paragraph
-    bodyHtml += `<p style="margin-bottom: 12pt; font-size: 11pt; line-height: 1.8; color: #1e293b; font-family: 'Segoe UI', Arial, sans-serif; text-align: justify;">${formatInlineHtml(trimmed)}</p>\n`;
+    bodyHtml += `<p style="margin-top: 8pt; margin-bottom: 14pt; font-size: 11pt; line-height: 1.8; color: #1e293b; font-family: 'Segoe UI', Arial, sans-serif; text-align: justify;">${formatInlineHtml(trimmed)}</p>\n`;
   });
 
   if (inList) {
@@ -671,19 +684,36 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
 </xml>
 <![endif]-->
 <style>
+  @page {
+    size: A4;
+    margin: 2.5cm;
+  }
   body {
     font-family: 'Segoe UI', 'Traditional Arabic', 'Arial', sans-serif;
     direction: rtl;
     text-align: right;
-    line-height: 1.8;
+    line-height: 1.85;
     color: #1e293b;
-    margin: 30pt;
+    margin: 25pt;
   }
-  h1, h2, h3, h4 { font-family: 'Segoe UI', 'Traditional Arabic', sans-serif; }
+  h1, h2, h3, h4 {
+    font-family: 'Segoe UI', 'Traditional Arabic', 'Arial', sans-serif;
+    direction: rtl;
+  }
+  h1 { font-size: 20pt; color: #094d4e; font-weight: bold; margin-top: 0; margin-bottom: 16pt; border-bottom: 2.5pt solid #094d4e; padding-bottom: 8pt; text-align: center; }
+  h2 { font-size: 15pt; color: #094d4e; font-weight: bold; margin-top: 22pt; margin-bottom: 10pt; border-bottom: 1.5pt solid #094d4e; padding-bottom: 4pt; page-break-after: avoid; }
+  h3 { font-size: 13pt; color: #094d4e; font-weight: bold; margin-top: 18pt; margin-bottom: 8pt; page-break-after: avoid; }
+  h4 { font-size: 11.5pt; color: #0f766e; font-weight: bold; margin-top: 14pt; margin-bottom: 6pt; page-break-after: avoid; }
+  p { margin-top: 8pt; margin-bottom: 14pt; font-size: 11pt; line-height: 1.85; color: #1e293b; text-align: justify; }
+  ul, ol { margin-top: 8pt; margin-bottom: 14pt; padding-right: 22pt; }
+  li { margin-bottom: 8pt; line-height: 1.85; color: #1e293b; }
+  table { width: 100%; border-collapse: collapse; margin-top: 18pt; margin-bottom: 22pt; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  th { background-color: #094d4e !important; color: #ffffff !important; font-weight: bold; border: 1.5pt solid #094d4e; padding: 11pt 12pt; text-align: right; font-size: 10.5pt; }
+  td { border: 1pt solid #cbd5e1; padding: 10pt 12pt; text-align: right; font-size: 10pt; line-height: 1.6; vertical-align: top; }
 </style>
 </head>
-<body>
-  ${title ? `<h1 style="color: #094d4e; font-size: 20pt; font-weight: bold; margin-bottom: 14pt; border-bottom: 2pt solid #094d4e; padding-bottom: 8pt;">${title}</h1>` : ""}
+<body dir="rtl">
+  ${title ? `<h1 style="color: #094d4e; font-size: 20pt; font-weight: bold; margin-bottom: 16pt; border-bottom: 2.5pt solid #094d4e; padding-bottom: 8pt; text-align: center;">${title}</h1>` : ""}
   ${bodyHtml}
 </body>
 </html>`.trim();
