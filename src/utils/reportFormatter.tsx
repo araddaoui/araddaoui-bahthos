@@ -18,11 +18,20 @@ export function normalizeReportStructure(text: string): string {
   if (!text) return "";
   let result = stripEvidenceTags(text);
 
+  // 0. Fix common Arabic typos, grammar agreement issues, and garbled BiDi parentheses
+  result = result
+    .replace(/\bقراءة\s+نقدي\b/g, "قراءة نقدية")
+    .replace(/\bمستقبيلة\b/g, "مستقبلية")
+    .replace(/\bباعتماها\b/g, "باعتمادها")
+    .replace(/\bصناع\s+القرا\s*\n\s*ر\b/g, "صناع القرار")
+    .replace(/توصية\s+مستندة\s+إلى\s*[\(\[«]\s*[\s.\-–—:؛"'\(\)]*([^)\n]+?)[\s.\-–—:؛"'\(\)]*[\)\]»]\s*[:：]?/gi, 'توصية مستندة إلى "$1":')
+    .replace(/توصية\s+مستندة\s+إلى\s*[-–—•*]?\s*\(\s*([^)]+)\s*\)\s*[:：]?/gi, 'توصية مستندة إلى "$1":');
+
   // 1. Clean leading bullets/dots/numbers before pipes '|' on table lines
   result = result.replace(/^[ \t]*[•*.\d\s]+(?=\|)/gm, "");
 
   // 2. Convert bullet-prefixed section headings (e.g., "• الفجوات المعرفية والمنهجية المرصودة") to proper markdown h3
-  result = result.replace(/^[ \t]*[•*-]\s*(الفجوات المعرفية|الأسئلة البحثية|مقترحات المستندات|التوصيات العملية|الملخص التنفيذي|القراءة التحليلية|نقاط الاتفاق|نقاط الاختلاف|الخلاصة والاستنتاجات)/gm, "### $1");
+  result = result.replace(/^[ \t]*[•*-]\s*(الفجوات المعرفية[^\n]*|الأسئلة البحثية[^\n]*|مقترحات المستندات[^\n]*|التوصيات العملية[^\n]*|الملخص التنفيذي[^\n]*|القراءة التحليلية[^\n]*|نقاط الاتفاق[^\n]*|نقاط الاختلاف[^\n]*|الخلاصة والاستنتاجات[^\n]*)/gm, "### $1");
 
   // 3. Separate inline merged gap blocks (e.g. "...حالياً. - الفجوة 2: ..." or "• الفجوة 1: ...") into double-spaced standalone bullet lines
   result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?الفجوة\s*(?:رقم\s*)?[:\[]?\s*\d+\s*\]?:?)/gi, "\n\n- $1");
@@ -34,19 +43,19 @@ export function normalizeReportStructure(text: string): string {
   result = result.replace(/(?:[ \t]*[•*-]?\s*)(\d+\.\s+بناءً\s+على|بناءً\s+على\s+الملاحظات)/gi, "\n\n$1");
 
   // 6. Separate inline merged recommendation lines (e.g. "...الميدانية. توصية مستندة إلى...") into double-spaced bullet points
-  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+(?:مستندة|عملية|مباشرة|رقم)[^*]*:\*?\*?|\*?\*?توصية\s+مستندة\s+إلى)/gi, "\n\n- $1");
-  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+مستندة\s+إلى|\*?\*?توصية\s+عملية)/gi, "$1\n\n- $2");
+  // Ensure we NEVER match lines that are already Markdown headings (e.g. ### 2. التوصيات العملية...)
+  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+مستندة\s+إلى[^*]*:\*?\*?|\*?\*?توصية\s+مستندة\s+إلى)/gim, "\n\n- $1");
+  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+مستندة\s+إلى)/gi, "$1.\n\n- $2");
 
-  // Clean leading dots/punctuation in title parentheses: e.g. "توصية مستندة إلى (. Title)" -> "توصية مستندة إلى (Title)"
-  result = result.replace(/(توصية\s+مستندة\s+إلى\s*\(\s*)[\s.\-–—:؛"'\(\)]+([^)]+)/gi, "$1$2");
+  // Clean leading dots/punctuation in title quotes/parentheses
+  result = result.replace(/(توصية\s+مستندة\s+إلى\s*["«\(\s]*)[\s.\-–—:؛"'\(\)]+([^"»\)\n]+)/gi, "$1$2");
 
   // 7. Separate inline merged strategic implications and subheadings (e.g. "...التطبيق. - **تطوير معايير...") into double-spaced section headings/bullets
-  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية[^*]*:\*?\*?|\*?\*?التداعيات\s+والآثار)/gi, "\n\n### $1\n\n");
-  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية)/gi, "$1\n\n### $2\n\n");
+  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية[^*]*:\*?\*?|\*?\*?التداعيات\s+والآثار)/gim, "\n\n### $1\n\n");
 
   // Break up inline bullet points (e.g. "...المستهدفة. - **تطوير معايير..." or "...السياق. - **إدارة المخاطر...") into separate double-spaced bullet lines
-  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+(\*\*[\u0600-\u06FFa-zA-Z])/g, "$1\n\n- $2");
-  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+([\u0600-\u06FFa-zA-Z]{3,}\s*[:：])/g, "$1\n\n- $2");
+  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+(\*\*[\u0600-\u06FFa-zA-Z])/g, "$1.\n\n- $2");
+  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+([\u0600-\u06FFa-zA-Z]{3,}\s*[:：])/g, "$1.\n\n- $2");
   result = result.replace(/\s+[-–—•*]\s+(\*\*[^*]+:\*\*)/g, "\n\n- $1");
 
   // Untangle all-bold lines where heading and body were wrapped in double asterisks
