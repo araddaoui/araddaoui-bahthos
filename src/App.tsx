@@ -1577,6 +1577,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           {activeTab === "history" && (
             <SynthesisHistory
               syntheses={syntheses}
+              sources={sources}
               onDeleteSynthesis={handleDeleteSynthesis}
             />
           )}

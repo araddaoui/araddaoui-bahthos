@@ -473,7 +473,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
               <label className="text-[10px] text-gray-400 font-bold">محتوى التقرير الأكاديمي:</label>
               {viewMode === "preview" ? (
                 <div className="w-full text-sm p-5 border border-[#e2e2dd] rounded-xl bg-white leading-relaxed min-h-[400px]">
-                  <SynthesisReportView text={generatedText} />
+                  <SynthesisReportView text={generatedText} reportTitle={reportTitle} sources={sources} />
                 </div>
               ) : (
                 <textarea

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Message, Source } from "../types";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView";
+import ReportFollowUp from "./ReportFollowUp";
 import { parseDocumentFile } from "../utils/documentParser";
 import { ensureArabicSummary, extractFallbackTermsFromText } from "../utils/termExtractor";
 
@@ -457,6 +458,14 @@ export default function ChatWindow({
                             })()}
                           </div>
                         )}
+
+                        {/* Dedicated Follow-up Inquiry Dialog under assistant responses */}
+                        <ReportFollowUp
+                          reportContext={msg.text}
+                          reportTitle="رد واستجابة نظام بحث OS"
+                          sources={activeSources}
+                          className="mt-4"
+                        />
                       </>
                     )}
                   </div>

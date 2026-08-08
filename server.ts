@@ -7,7 +7,7 @@ import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent } from "./src/utils/termExtractor";
-import { generateClientSynthesisFallback } from "./src/utils/synthesisFallback";
+import { generateClientSynthesisFallback, generateReportFollowUpFallback } from "./src/utils/synthesisFallback";
 
 // Load environment variables BEFORE anything else
 dotenv.config();
@@ -711,6 +711,99 @@ scopeIntro + sourcesContext;
       isFallback: true
     });
   }
+});
+
+// Endpoint to answer report follow-up questions grounded deeply in report context and sources
+app.post("/api/report-followup", async (req, res) => {
+  const { question, reportContext, reportTitle, sources, history } = req.body;
+
+  if (!question || typeof question !== "string" || question.trim().length === 0) {
+    return res.status(400).json({ error: "الرجاء توفير سؤال الاستفسار أو المتابعة." });
+  }
+
+  const activeSources = Array.isArray(sources) ? sources : [];
+
+  try {
+    const ai = getAiClient();
+
+    let sourcesFormatted = "";
+    if (activeSources.length > 0) {
+      sourcesFormatted = activeSources.map((s, idx) => {
+        const title = (s.title || `المستند ${idx + 1}`).replace(/\.[a-z0-9]+$/i, "");
+        const summary = s.summary || s.content || "";
+        return `[المصدر ${idx + 1}: ${title}]\nالملخص والبيانات: ${summary.substring(0, 3000)}`;
+      }).join("\n\n");
+    } else {
+      sourcesFormatted = "لا توجد مستندات مصدرية منفصلة مرفقة سوى نص التقرير المتاح.";
+    }
+
+    let historyFormatted = "";
+    if (Array.isArray(history) && history.length > 0) {
+      historyFormatted = history.map((h) => `سؤال الباحث: ${h.question}\nإجابة النظام: ${h.answer}`).join("\n\n");
+    }
+
+    const systemInstruction = `أنت عالم ومحلل بحثي خبير في نظام "بحث OS" (Bahth OS).
+مهمتك تقديم إجابة دقيقة ومفصلة وشفافة وواضحة جداً عن سؤال المتابعة والاستفسار الذي يطرحه الباحث حول التقرير المرفق وأقسامه (مثل التوصيات، الفجوات، النتائج، الأسئلة الشائعة، الآثار الاستراتيجية).
+
+قواعد الإجابة الحاسمة والصرامة المطلوبة (CRITICAL RULES):
+1. **الارتباط الوثيق والمباشر بالمصادر والتقرير (DEEP SOURCE GROUNDING)**:
+   - يجب أن تكون إجابتك مستندة ومبنية مباشرة على التقرير المرفق والمصادر العلمية النشطة المتاحة.
+   - إذا كان قسم التقرير أو المصادر يحتوي أدلة ذات صلة بسؤال الباحث، فقم بتفكيكها وتشريحها بأسلوب أكاديمي عميق ومبسط وغير غامض إطلاقاً (Clear, Direct & Unambiguous).
+   - إذا سأل الباحث عن استدامة البناء المعرفي أو سد الفجوات الميدانية أو تنفيذ توصيات معينة: اشرح الآليات التشغيلية والأدوار المؤسسية والمنهجيات الموثقة بالخطوات والأدلة المباشرة.
+
+2. **الاعترف الصريح والواضح عند عدم توفر الإجابة في المصادر (EXPLICIT ACKNOWLEDGMENT)**:
+   - إذا كان سؤال الباحث يتناول تفصيلاً أو موضوعاً خارج نطاق التقرير والمصادر المتاحة الحالية، يجب عليك **التصريح فوراً وبوضوح** بأن السؤال لا يمكن الإجابة عنه مباشرة من واقع المصادر الحالية.
+   - صيغة الاعتراف الموصى بها:
+     "هذا الاستفسار يتجاوز المعطيات المباشرة الموثقة في المصادر الحالية المتاحة. المصادر الموجودة تركز على [ملخص نطاق المصادر]، بينما لا تتوفر أدلة تفصيلية حول [موضوع سؤال الباحث]. يوصى بإرفاق مستندات إضافية تغطي هذا الجانب."
+   - يُحظر حظراً تاماً اختلاق معلومات (Hallucinations) أو تقديم إجابات عامة إنشائية غير مبرهنة.
+
+3. **الوضوح والنقاء اللغوي (NO CRYPTIC OR AMBIGUOUS TEXT)**:
+   - صغ إجابتك بلغة عربية فصيحة، واضحة، ومباشرة.
+   - استعن بالنقاط المحررة والعناوين الفرعية الجليّة والأمثلة العملية من واقع المصادر لشرح المطلوب بدقة.
+   - يمنع الحشو أو الإجابات المبهمة أو المفرغة من الأدلة.
+`;
+
+    const userPrompt = `[عنوان التقرير الحالي]: ${reportTitle || "تقرير توليفي بحثي"}
+
+[نص التقرير أو الجزء المحدد]:
+${(reportContext || "").substring(0, 8000)}
+
+[المصادر البحثية النشطة المتاحة]:
+${sourcesFormatted}
+
+${historyFormatted ? `[سجل الاستفسارات المباشرة السابقة حول هذا التقرير]:\n${historyFormatted}\n` : ""}
+
+[سؤال المتابعة الحالي من الباحث]:
+"${question}"
+
+قدم إجابة أكاديمية موثقة ودقيقة وشاملة وغير غامضة تجيب عن هذا السؤال بناءً على التقرير والمصادر.`;
+
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-2.5-flash",
+      contents: userPrompt,
+      config: {
+        systemInstruction,
+        temperature: 0.2,
+      }
+    });
+
+    if (response?.text && response.text.trim().length > 30) {
+      const cleanAnswer = deduplicateReportText(normalizeArabicText(response.text.trim()));
+      return res.json({
+        answer: cleanAnswer,
+        isFallback: false
+      });
+    }
+  } catch (aiErr: any) {
+    console.error("AI report follow-up call failed, using smart fallback:", aiErr);
+  }
+
+  // Fallback response generator if AI call fails or offline
+  const fallbackAnswer = generateReportFollowUpFallback(question, reportContext || "", activeSources);
+  return res.json({
+    answer: deduplicateReportText(normalizeArabicText(fallbackAnswer)),
+    isFallback: true
+  });
 });
 
 // Endpoint to passively extract academic/technical terms from a text snippet

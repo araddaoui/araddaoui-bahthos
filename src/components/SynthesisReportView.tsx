@@ -7,6 +7,8 @@ import {
   BookOpen 
 } from "lucide-react";
 import { parseMarkdownToReact, stripEvidenceTags } from "../utils/reportFormatter";
+import { Source } from "../types";
+import ReportFollowUp from "./ReportFollowUp";
 
 export { stripEvidenceTags };
 
@@ -249,11 +251,19 @@ export function EvidenceLayer({ data }: { data: EvidenceNode }) {
   );
 }
 
-interface SynthesisReportViewProps {
+export interface SynthesisReportViewProps {
   text: string;
+  reportTitle?: string;
+  sources?: Source[];
+  allowFollowUp?: boolean;
 }
 
-export default function SynthesisReportView({ text }: SynthesisReportViewProps) {
+export default function SynthesisReportView({
+  text,
+  reportTitle,
+  sources = [],
+  allowFollowUp = true,
+}: SynthesisReportViewProps) {
   if (!text) return null;
 
   const parsedItems = parseReportText(text);
@@ -271,6 +281,14 @@ export default function SynthesisReportView({ text }: SynthesisReportViewProps) 
           return <div key={index}><EvidenceLayer data={item.data} /></div>;
         }
       })}
+
+      {allowFollowUp && (
+        <ReportFollowUp
+          reportContext={text}
+          reportTitle={reportTitle}
+          sources={sources}
+        />
+      )}
     </div>
   );
 }

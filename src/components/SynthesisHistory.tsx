@@ -10,16 +10,17 @@ import {
   Sparkles,
   Download
 } from "lucide-react";
-import { Synthesis } from "../types";
+import { Synthesis, Source } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
 import { copyReportToClipboard, exportToWordDocument } from "../utils/reportFormatter";
 
 interface SynthesisHistoryProps {
   syntheses: Synthesis[];
+  sources?: Source[];
   onDeleteSynthesis: (id: string) => void;
 }
 
-export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: SynthesisHistoryProps) {
+export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynthesis }: SynthesisHistoryProps) {
   const [selectedSynId, setSelectedSynId] = useState<string | null>(
     syntheses.length > 0 ? syntheses[0].id : null
   );
@@ -156,7 +157,7 @@ export default function SynthesisHistory({ syntheses, onDeleteSynthesis }: Synth
 
             {/* Document Content */}
             <div className="flex-1 bg-[#fafaf8] p-6 rounded-2xl border border-[#e2e2dd] overflow-y-auto">
-              <SynthesisReportView text={activeSyn.text} />
+              <SynthesisReportView text={activeSyn.text} reportTitle={activeSyn.title} sources={sources} />
             </div>
           </div>
         ) : (
