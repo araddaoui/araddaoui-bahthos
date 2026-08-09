@@ -658,9 +658,18 @@ export default function SourcesList({
                   <span className="text-xs font-bold text-gray-950 text-right">
                     {stripArabicParticlesAndNumbers(spellcheckAndRepairArabicAndEnglishText(termItem.transliteration || termItem.verified_term || termItem.draft_term || termItem.term))}
                   </span>
-                  <span className="font-mono text-[10px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200" dir="ltr">
-                    {termItem.term}
-                  </span>
+                  {(() => {
+                    const mainTitle = stripArabicParticlesAndNumbers(spellcheckAndRepairArabicAndEnglishText(termItem.transliteration || termItem.verified_term || termItem.draft_term || termItem.term));
+                    const cleanTerm = stripArabicParticlesAndNumbers(spellcheckAndRepairArabicAndEnglishText(termItem.term || ""));
+                    if (cleanTerm && cleanTerm !== mainTitle && !cleanTerm.includes(mainTitle) && !mainTitle.includes(cleanTerm)) {
+                      return (
+                        <span className="font-mono text-[10px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200" dir="ltr">
+                          {cleanTerm}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 <p className="text-[11px] text-gray-600 leading-relaxed font-medium">
                   {spellcheckAndRepairArabicAndEnglishText(termItem.definition || "")}

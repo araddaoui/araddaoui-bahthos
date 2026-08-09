@@ -2,13 +2,15 @@ import { GlossaryTerm } from "../types";
 
 export function collapseSpacedArabicLetters(text: string): string {
   if (!text) return "";
+  let res = text;
   // Match sequences of isolated single Arabic letters separated by spaces e.g. "ك ا ل ك ا ل" or "ا ل ظ و ا ه ر"
-  return text.replace(/(?:^|[\s"'(«،;؛:!؟\-\[])(?:[\u0600-\u06FF]\s+){2,}[\u0600-\u06FF](?=[\s"').!»«،;؛:!؟\]]|$)/g, (match) => {
+  res = res.replace(/(?:^|[\s"'(«،;؛:!؟\-\[])(?:[\u0600-\u06FF]\s+){2,}[\u0600-\u06FF](?=[\s"').!»«،;؛:!؟\]]|$)/g, (match) => {
     const leadingMatch = match.match(/^[^\u0600-\u06FF]+/);
     const leading = leadingMatch ? leadingMatch[0] : "";
     const lettersOnly = match.substring(leading.length).replace(/\s+/g, "");
     return leading + lettersOnly;
   });
+  return res.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -20,6 +22,7 @@ export function normalizeArabicText(text?: string): string {
   let res = collapseSpacedArabicLetters(text);
 
   // 0. Fix repeated prefix loops e.g. "الكالكالكفاءة" -> "الكفاءة", "الالترجمة" -> "الترجمة"
+  res = res.replace(/(?:كالك){2,}/g, "الك");
   res = res.replace(/(?:الك){2,}/g, "الك");
   res = res.replace(/(?:ال){2,}/g, "ال");
 
@@ -28,12 +31,15 @@ export function normalizeArabicText(text?: string): string {
   res = res.replace(/\bآل([اأإؤئب-ي]+)/g, "ال$1");
 
   // Fix common OCR typos, broken prefix fragments, and mangled word forms
+  res = res.replace(/\bالفاءة\b/g, "الكفاءة");
   res = res.replace(/\bفاءة\b/g, "كفاءة");
   res = res.replace(/\bملترجمة\b/g, "المترجمة");
   res = res.replace(/\bلترجمة\b/g, "الترجمة");
 
   // 2. Fix specific corrupted PDF words commonly seen in OCR/CID font tables
   const replacements: Record<string, string> = {
+    "الفاءة البشرية": "الكفاءة البشرية",
+    "الفاءة": "الكفاءة",
     "آلوآضيع": "المواضيع",
     "آلرآهنة": "الراهنة",
     "آلوآسع": "الواسع",
@@ -65,9 +71,16 @@ export function normalizeArabicText(text?: string): string {
     "هذآ": "هذا",
     "تعليمية ملترجمة": "تعليمية الترجمة",
     "الظوآهر": "الظواهر",
+    "آلظوآهر": "الظواهر",
     "آلتتعليمية": "التعليمية",
     "آلتتتعليمية": "التعليمية",
+    "التتعليمية": "التعليمية",
+    "التتتعليمية": "التعليمية",
     "تتعليمية": "تعليمية",
+    "آلتعليمية": "التعليمية",
+    "تحليل الظوآهر آلتتعليمية": "تحليل الظواهر التعليمية",
+    "تحليل آلظوآهر آلتتعليمية": "تحليل الظواهر التعليمية",
+    "تحليل الظواهر التتعليمية": "تحليل الظواهر التعليمية",
     "اتطبيقية": "التطبيقية",
     "الآليية": "الآلية",
     "الإصطناعي": "الاصطناعي",
@@ -249,7 +262,7 @@ export function stripArabicParticlesAndNumbers(term: string): string {
   if (!term) return "";
   let res = term.trim();
 
-  // 1. Collapse spaced single OCR letters e.g. "ك ا ل ك ا ل" -> "الكالك"
+  // 1. Collapse spaced single OCR letters e.g. "ك ا ل ك ا ل" -> "الكالك" or "ك ا ل ك ف ا ء ة ا ل ب ش ر ي ة" -> "كالكفاءة البشرية"
   res = collapseSpacedArabicLetters(res);
 
   // 2. Strip trailing numbers (e.g. " 2,", " 567", " 10"), page markers, and citations
@@ -267,18 +280,25 @@ export function stripArabicParticlesAndNumbers(term: string): string {
   res = res.replace(/(?:ال){2,}/g, "ال");
 
   // 5. Strip prepended particle prepositions (كـ، بـ، فـ، و، لـ، كالـ، بالـ، فالـ، والـ، للـ، وللـ) from the start of Arabic terms
-  res = res.replace(/^(?:وكال|فكال|وبال|فبال|كالك|كال|بال|فال|وال|ولل|فلل|لل)(?=[\u0600-\u06FF]{3,})/g, "ال");
+  // CRITICAL FIX: "كالك" -> "الك" (e.g. "كالكفاءة" -> "الكفاءة", "كالكتاب" -> "الكتاب"). Never replace "كالك" with "ال"!
+  res = res.replace(/^(?:وكالك|فكالك|كالك)/g, "الك");
+  res = res.replace(/^(?:وكال|فكال|وبال|فبال|كال|بال|فال|وال|ولل|فلل|لل)(?=[\u0600-\u06FF]{3,})/g, "ال");
   res = res.replace(/^(?:وك|فك|وب|فب|ك|ب|ف|و)(?=ال[\u0600-\u06FF]{3,})/g, "");
 
-  // 6. Normalization of common OCR mangles or indefinites
-  if (res === "كفاءة البشرية" || res === "فاءة البشرية" || res === "كفاءة بشرية") {
+  // 6. Normalization of common OCR mangles, root truncation, or indefinites
+  if (res.includes("الفاءة") || res.includes("فاءة")) {
+    res = res.replace(/الفاءة/g, "الكفاءة").replace(/\bفاءة\b/g, "كفاءة");
+  }
+  if (res === "كفاءة البشرية" || res === "فاءة البشرية" || res === "الفاءة البشرية" || res === "كفاءة بشرية") {
     res = "الكفاءة البشرية";
   }
   if (res === "نظرية اتطبيقية للفعل" || res === "نظرية تطبيقية للفعل" || res === "اتطبيقية للفعل") {
     res = "النظرية التطبيقية للفعل";
   }
-  if (res === "تحليل الظوآهر آلتتعليمية" || res === "تحليل الظواهر آلتتعليمية" || res === "تحليل الظوآهر التعليمية") {
-    res = "تحليل الظواهر التعليمية";
+  if (res.includes("الظوآهر") || res.includes("آلتتعليمية") || res.includes("آلظوآهر") || res.includes("التتعليمية")) {
+    res = res
+      .replace(/آلظوآهر|الظوآهر/g, "الظواهر")
+      .replace(/آلتتعليمية|آلتتتعليمية|التتعليمية|التتتعليمية|تتعليمية/g, "التعليمية");
   }
 
   return res.replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "").trim();
@@ -313,12 +333,16 @@ export function spellcheckAndRepairArabicAndEnglishText(text: string): string {
   res = normalizeArabicText(res);
 
   // 3. Fix standalone particle loops & OCR phrases
+  res = res.replace(/(?<![\u0600-\u06FF])(?:كالك|الك|ك)*الفاءة\s+البشرية(?![ا-ي])/g, "الكفاءة البشرية");
   res = res.replace(/(?<![\u0600-\u06FF])(?:كالك|الك|ك)*كفاءة\s+البشرية(?![ا-ي])/g, "الكفاءة البشرية");
+  res = res.replace(/(?<![\u0600-\u06FF])الفاءة\s+البشرية(?![ا-ي])/g, "الكفاءة البشرية");
+  res = res.replace(/(?<![\u0600-\u06FF])الفاءة(?![ا-ي])/g, "الكفاءة");
   res = res.replace(/(?<![\u0600-\u06FF])نظرية\s+اتطبيقية(\s+للفعل)?(?![ا-ي])/g, "النظرية التطبيقية$1");
   res = res.replace(/(?<![\u0600-\u06FF])اتطبيقية(?![ا-ي])/g, "التطبيقية");
-  res = res.replace(/الظوآهر\s+(آلتتتعليمية|آلتتعليمية|تتعليمية|التعليمية)/g, "الظواهر التعليمية");
+  res = res.replace(/الظوآهر\s+(آلتتتعليمية|آلتتعليمية|التتعليمية|التتتعليمية|تتعليمية|التعليمية)/g, "الظواهر التعليمية");
+  res = res.replace(/الظواهر\s+(آلتتتعليمية|آلتتعليمية|التتعليمية|التتتعليمية|تتعليمية)/g, "الظواهر التعليمية");
   res = res.replace(/الظوآهر/g, "الظواهر");
-  res = res.replace(/(آلتتتعليمية|آلتتعليمية)/g, "التعليمية");
+  res = res.replace(/(آلتتتعليمية|آلتتعليمية|التتعليمية|التتتعليمية)/g, "التعليمية");
 
   // 4. Additional phrase repairs
   const phraseRepairs: [RegExp, string][] = [
