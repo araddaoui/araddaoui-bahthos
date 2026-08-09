@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent, cleanAndSanitizeAcademicTerm } from "./src/utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent, cleanAndSanitizeAcademicTerm, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "./src/utils/termExtractor";
 import { generateClientSynthesisFallback, generateReportFollowUpFallback } from "./src/utils/synthesisFallback";
 
 // Load environment variables BEFORE anything else
@@ -365,9 +365,9 @@ app.post("/api/extract-text", async (req, res) => {
     }
 
     let defaultFallback: any = {
-      title: fileName || "مستند مرفق",
-      language: "ar",
-      summary: ensureArabicSummary("", fileName || "مستند مرفق", parsedContent),
+      title: spellcheckAndRepairArabicAndEnglishText(fileName || "مستند مرفق"),
+      language: detectSourceLanguage(parsedContent || "", fileName || ""),
+      summary: spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", fileName || "مستند مرفق", parsedContent)),
       extractedText: parsedContent || "",
       terms: [],
     };
@@ -445,6 +445,11 @@ app.post("/api/extract-text", async (req, res) => {
         resData.summary = ensureArabicSummary("", resData.title || fileName, parsedContent);
       }
 
+      // Detect true source language (ar/en/fr) and repair spellings
+      resData.language = detectSourceLanguage(resData.extractedText || parsedContent || "", resData.title || fileName, resData.language);
+      resData.title = spellcheckAndRepairArabicAndEnglishText(resData.title || fileName || "");
+      resData.summary = spellcheckAndRepairArabicAndEnglishText(resData.summary);
+
       if (resData.terms && Array.isArray(resData.terms)) {
         resData.terms = resData.terms
           .map((t: any) => {
@@ -455,7 +460,7 @@ app.post("/api/extract-text", async (req, res) => {
               draft_term: sanitized.draft_term,
               verified_term: sanitized.verified_term,
               transliteration: sanitized.verified_term,
-              definition: t.definition
+              definition: spellcheckAndRepairArabicAndEnglishText(t.definition),
             };
           })
           .filter(Boolean);

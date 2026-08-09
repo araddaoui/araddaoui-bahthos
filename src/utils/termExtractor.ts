@@ -182,6 +182,91 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
 }
 
 /**
+ * Accurately detects the primary source language of a document ("ar", "en", or "fr")
+ * based on character script frequency and vocabulary markers, overriding inaccurate AI labels.
+ */
+export function detectSourceLanguage(
+  text: string,
+  title?: string,
+  modelLang?: string
+): "ar" | "en" | "fr" {
+  const sample = ((text || "") + " " + (title || "")).trim();
+  if (!sample) return "ar";
+
+  const arabicChars = (sample.match(/[\u0600-\u06FF]/g) || []).length;
+  const latinChars = (sample.match(/[a-zA-Z]/g) || []).length;
+
+  if (latinChars > arabicChars && latinChars > 15) {
+    const lower = sample.toLowerCase();
+    const frenchKeywords = [
+      " les ", " des ", " une ", " est ", " dans ", " pour ", " avec ",
+      "traduction", "erreur", "intelligibilité", "automatique", "humaine", "sur "
+    ];
+    const frenchMatchCount = frenchKeywords.filter((kw) => lower.includes(kw)).length;
+    if (frenchMatchCount >= 2) return "fr";
+    return "en";
+  }
+
+  if (arabicChars > latinChars && arabicChars > 15) {
+    return "ar";
+  }
+
+  if (modelLang === "en" || modelLang === "fr" || modelLang === "ar") {
+    return modelLang;
+  }
+
+  return "ar";
+}
+
+/**
+ * Comprehensive spellchecker and word repair function.
+ * Repairs OCR typos, truncated words, missing final letters, and mangled file names across all outputs.
+ */
+export function spellcheckAndRepairArabicAndEnglishText(text: string): string {
+  if (!text) return "";
+  let res = text;
+
+  // 1. Repair truncated English words & filenames
+  const englishRepairs: [RegExp, string][] = [
+    [/\bPerspectiv\b/gi, "Perspective"],
+    [/\bPerspecti\b/gi, "Perspective"],
+    [/\bTranslati\b/gi, "Translation"],
+    [/\bMachi\b/gi, "Machine"],
+    [/\bTechnolog\b/gi, "Technology"],
+    [/\bEvaluat\b/gi, "Evaluating"],
+    [/\bCompetenc\b/gi, "Competence"],
+    [/\bIntelligibilit\b/gi, "Intelligibility"],
+    [/\bAgenc\b/gi, "Agency"],
+  ];
+  for (const [pattern, replacement] of englishRepairs) {
+    res = res.replace(pattern, replacement);
+  }
+
+  // 2. Repair Arabic OCR typos, broken prefix fragments, and truncated words
+  res = normalizeArabicText(res);
+
+  const arabicRepairs: [RegExp, string][] = [
+    [/\bكفاءة البشرية\b/g, "الكفاءة البشرية"],
+    [/\bفاءة البشرية\b/g, "الكفاءة البشرية"],
+    [/\bتعليمية إشكالية إجمالية\b/g, "الإشكالية التعليمية الإجمالية"],
+    [/\bإشكالية إجمالية\b/g, "الإشكالية الإجمالية"],
+    [/\bالآليية\b/g, "الآلية"],
+    [/\bالإصطناعي\b/g, "الاصطناعي"],
+    [/\bأوتوماتي\b/g, "أوتوماتيكي"],
+    [/\bترجمة آلي\b/g, "ترجمة آلية"],
+    [/\bتوصية مستند\b/g, "توصية مستندة"],
+    [/\bفجوة معرفي\b/g, "فجوة معرفية"],
+    [/\bالمترجمي\b/g, "المترجمين"],
+    [/\bالدراسا\b/g, "الدراسات"],
+  ];
+  for (const [pattern, replacement] of arabicRepairs) {
+    res = res.replace(pattern, replacement);
+  }
+
+  return res;
+}
+
+/**
  * Rigorously cleans, repairs, and validates academic terms and concepts.
  * Rejects sentence fragments, truncated words, OCR bugs, trailing adverbs, or nonsensical strings.
  */
@@ -198,29 +283,39 @@ export function cleanAndSanitizeAcademicTerm(
   let termEng = (rawTerm || "").trim();
   let termAr = normalizeArabicText(rawVerified || rawDraft || rawTerm || "").trim();
 
-  // 1. Fix common OCR typos, broken prefix fragments, and mangled word forms
-  termAr = termAr
-    .replace(/\bفاءة\b/g, "كفاءة")
-    .replace(/\bملترجمة\b/g, "المترجمة")
-    .replace(/\bلترجمة\b/g, "الترجمة")
-    .replace(/تعليمية ملترجمة/g, "تعليمية الترجمة")
-    .replace(/فاءة البشرية/g, "الكفاءة البشرية");
+  // 1. Spellcheck & repair words
+  termEng = spellcheckAndRepairArabicAndEnglishText(termEng);
+  termAr = spellcheckAndRepairArabicAndEnglishText(termAr);
 
-  // 2. Strip surrounding quotes, brackets, colons, or dashes
+  // 2. Strip trailing adverbs, conjunctions, or conversational suffixes
   termAr = termAr
+    .replace(/[\s,،;؛:!?؟–—-]+(خصوصا|خصوصاً|خاصة|سيما|لا سيما|وفقا|وفقاً|بناء|بناءً|أيضا|أيضاً|كذلك|مع ذلك|منها|إلخ)+/gi, "")
     .replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "")
     .trim();
   termEng = termEng
     .replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "")
     .trim();
 
-  // 3. Strip trailing adverbs, conjunctions, or conversational suffixes
-  // e.g. "فاءة البشرية، خصوصا" -> "الكفاءة البشرية"
-  termAr = termAr
-    .replace(/[\s,،;؛]+(خصوصا|خصوصاً|خاصة|سيما|لا سيما|وفقا|وفقاً|بناء|بناءً|أيضا|أيضاً|كذلك|مع ذلك|منها|إلخ)$/gi, "")
-    .trim();
+  // 3. Fix leading "كفاءة" without al- if followed by "البشرية"
+  if (termAr === "كفاءة البشرية" || termAr === "فاءة البشرية") {
+    termAr = "الكفاءة البشرية";
+  }
 
-  // 4. Reject if term contains clause-separating internal punctuation
+  // Reject nonsensical/gibberish terms
+  const nonsensicalList = [
+    "تعليمية إشكالية إجمالية",
+    "إشكالية إجمالية",
+    "تعليمية إشكالية",
+    "دراسة تحليلية",
+    "خصوصا",
+    "خاصة",
+    "مستند مرفق",
+  ];
+  if (nonsensicalList.some(ns => termAr.includes(ns) || termAr === ns)) {
+    return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
+  }
+
+  // 4. Reject if term still contains internal commas or punctuation
   if (/[,،;؛:!?؟]/.test(termAr) || /[,;:!?]/.test(termEng)) {
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
@@ -228,7 +323,7 @@ export function cleanAndSanitizeAcademicTerm(
   // 5. Ensure word count bounds (Concepts are nominal phrases of 1 to 4 words max)
   const arWords = termAr.split(/\s+/).filter(Boolean);
   const engWords = termEng.split(/\s+/).filter(Boolean);
-  if (arWords.length > 5 || (termEng && engWords.length > 5)) {
+  if (arWords.length > 4 || (termEng && engWords.length > 5)) {
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 

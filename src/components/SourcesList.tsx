@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Source, GlossaryTerm } from "../types";
 import { parseDocumentFile } from "../utils/documentParser";
-import { ensureArabicSummary, extractFallbackTermsFromText } from "../utils/termExtractor";
+import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
 
 interface SourcesListProps {
   sources: Source[];
@@ -177,22 +177,26 @@ export default function SourcesList({
         throw new Error("تلقى التطبيق استجابة غير صالحة من خادم التحليل.");
       }
       
-      const finalArabicSummary = ensureArabicSummary(data.summary, data.title, data.originalText || content);
-      onAddSource(data.title, data.originalText || content, data.language || "ar", finalArabicSummary, undefined, data.terms);
+      const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, data.originalText || content));
+      const detectedLang = detectSourceLanguage(data.originalText || content, data.title, data.language);
+      const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
+      onAddSource(cleanTitle, data.originalText || content, detectedLang, finalArabicSummary, undefined, data.terms);
       setNewContent("");
       setErrorMsg("");
       setShowAddForm(false);
     } catch (err: any) {
       console.warn("Server analysis unavailable or failed, using client-side fallback:", err);
       
-      const fallbackTitle = fileName || `مستند مضاف ${sources.length + 1}`;
+      const rawTitle = fileName || `مستند مضاف ${sources.length + 1}`;
+      const cleanTitle = spellcheckAndRepairArabicAndEnglishText(rawTitle);
       const textContent = (content && content.trim()) 
         ? content 
-        : `محتوى المستند المرفق (${fallbackTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-      const autoSummary = ensureArabicSummary("", fallbackTitle, textContent);
+        : `محتوى المستند المرفق (${cleanTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
+      const autoSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, textContent));
+      const detectedLang = detectSourceLanguage(textContent, cleanTitle);
       
-      const fallbackTerms = extractFallbackTermsFromText(textContent, undefined, fallbackTitle);
-      onAddSource(fallbackTitle, textContent, "ar", autoSummary, undefined, fallbackTerms);
+      const fallbackTerms = extractFallbackTermsFromText(textContent, undefined, cleanTitle);
+      onAddSource(cleanTitle, textContent, detectedLang, autoSummary, undefined, fallbackTerms);
       setNewContent("");
       setErrorMsg("");
       setShowAddForm(false);

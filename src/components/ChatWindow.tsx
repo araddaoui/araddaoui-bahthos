@@ -17,7 +17,8 @@ import { Message, Source } from "../types";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView";
 import ReportFollowUp from "./ReportFollowUp";
 import { parseDocumentFile } from "../utils/documentParser";
-import { ensureArabicSummary, extractFallbackTermsFromText } from "../utils/termExtractor";
+import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
+import { parseMarkdownToReact } from "../utils/reportFormatter";
 
 // Helper function to calculate the agreement score based on academic keyword matches
 const calculateAgreementMeter = (text: string) => {
@@ -128,23 +129,29 @@ export default function ChatWindow({
 
         if (response.ok) {
           const data = await response.json();
-          const cleanSummary = ensureArabicSummary(data.summary, data.title, data.originalText || parsed.text);
-          onAddSource(data.title, data.originalText || parsed.text, data.language || "ar", cleanSummary, undefined, data.terms);
+          const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, data.originalText || parsed.text));
+          const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
+          const detectedLang = detectSourceLanguage(data.originalText || parsed.text, cleanTitle, data.language);
+          onAddSource(cleanTitle, data.originalText || parsed.text, detectedLang, cleanSummary, undefined, data.terms);
         } else {
+          const cleanTitle = spellcheckAndRepairArabicAndEnglishText(file.name);
           const fallbackText = (parsed.text && parsed.text.trim()) 
             ? parsed.text 
-            : `محتوى المستند المرفق (${file.name}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-          const cleanSummary = ensureArabicSummary("", file.name, fallbackText);
-          const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, file.name);
-          onAddSource(file.name, fallbackText, "ar", cleanSummary, undefined, fallbackTerms);
+            : `محتوى المستند المرفق (${cleanTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
+          const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText));
+          const detectedLang = detectSourceLanguage(fallbackText, cleanTitle);
+          const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, cleanTitle);
+          onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms);
         }
       } catch (netErr: any) {
+        const cleanTitle = spellcheckAndRepairArabicAndEnglishText(file.name);
         const fallbackText = (parsed.text && parsed.text.trim()) 
           ? parsed.text 
-          : `محتوى المستند المرفق (${file.name}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-        const cleanSummary = ensureArabicSummary("", file.name, fallbackText);
-        const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, file.name);
-        onAddSource(file.name, fallbackText, "ar", cleanSummary, undefined, fallbackTerms);
+          : `محتوى المستند المرفق (${cleanTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
+        const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText));
+        const detectedLang = detectSourceLanguage(fallbackText, cleanTitle);
+        const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, cleanTitle);
+        onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms);
       }
 
       setIsUploading(false);
@@ -210,52 +217,12 @@ export default function ChatWindow({
     }
   }, [activeSources]);
 
-  // Simple rendering of text with citation highlights
+  // Rich Markdown rendering of message text with citation highlights and spellchecking
   const renderMessageTextWithCitations = (text: string) => {
-    // Regex matches "الوثيقة 1" through "الوثيقة 10" or "الوثيقة الأولى/الثانية/الثالثة" or "Document 1-10" or "Source 1-10"
-    const regex = /(الوثيقة \d+|الوثيقة الأولى|الوثيقة الثانية|الوثيقة الثالثة|Document \d+|Source \d+)/g;
-    const parts = text.split(regex);
-    if (parts.length === 1) {
-      return <div className="whitespace-pre-line leading-relaxed text-[13.5px] text-[#1f1f1f]">{text}</div>;
-    }
-
+    const cleanText = spellcheckAndRepairArabicAndEnglishText(text || "");
     return (
-      <div className="whitespace-pre-line leading-relaxed text-[13.5px] text-[#1f1f1f]">
-        {parts.map((part, index) => {
-          if (regex.test(part)) {
-            // Figure out source ID based on keyword dynamically from current sources
-            let matchedSourceId: string | null = null;
-            if (part.includes("1") || part.includes("الأولى")) {
-              matchedSourceId = sources[0]?.id || null;
-            } else if (part.includes("2") || part.includes("الثانية")) {
-              matchedSourceId = sources[1]?.id || null;
-            } else if (part.includes("3") || part.includes("الثالثة")) {
-              matchedSourceId = sources[2]?.id || null;
-            }
-
-            return (
-              <span
-                key={index}
-                onClick={() => {
-                  if (matchedSourceId) {
-                    onSourceClick(matchedSourceId);
-                  }
-                }}
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold mx-0.5 cursor-pointer transition-all duration-150 ${
-                  matchedSourceId 
-                    ? "bg-teal-50 text-[#094d4e] border border-teal-200 hover:bg-teal-100" 
-                    : "bg-gray-100 text-gray-700 border border-gray-200"
-                }`}
-                title={matchedSourceId ? "انقر لقراءة محتوى المصدر بالكامل" : undefined}
-                id={`citation-tag-${index}`}
-              >
-                <BookOpen className="w-3 h-3 flex-shrink-0" />
-                {part}
-              </span>
-            );
-          }
-          return part;
-        })}
+      <div className="leading-relaxed text-[13.5px] text-[#1f1f1f] space-y-2">
+        {parseMarkdownToReact(cleanText)}
       </div>
     );
   };

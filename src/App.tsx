@@ -11,7 +11,7 @@ import SettingsView from "./components/SettingsView";
 import LandingPage from "./components/LandingPage";
 import TermsOfService from "./components/TermsOfService";
 import PrivacyPolicy from "./components/PrivacyPolicy";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, areTermsEquivalent } from "./utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText } from "./utils/termExtractor";
 import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { 
   auth, 
@@ -42,15 +42,14 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
 
   const validTerms = terms.filter((t) => {
     if (!t) return false;
-    // Must belong to a valid active source if sourceId is defined and sources are provided
     if (validSourceIds && t.sourceId && !validSourceIds.has(t.sourceId)) {
       return false;
     }
-    const eng = t.term || "";
-    const arabic = t.transliteration || t.verified_term || t.draft_term || "";
-    if (isTrivialOrCitationTerm(eng, t.definition)) return false;
-    if (isTrivialOrCitationTerm(arabic, t.definition)) return false;
-    // Safety check against page ranges in definitions (e.g., 567-580)
+    const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
+    if (!sanitized.isValid) return false;
+
+    if (isTrivialOrCitationTerm(sanitized.term, t.definition)) return false;
+    if (isTrivialOrCitationTerm(sanitized.verified_term, t.definition)) return false;
     if (t.definition && (/\b\d{1,4}\s*[-–]\s*\d{1,4}\b/.test(t.definition) || t.definition.includes("جامعة") || t.definition.includes("أنموذجا"))) {
       return false;
     }
@@ -64,9 +63,10 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     const sId = t.sourceId || fallbackSourceId || "default";
     const currentCount = sourceCounts[sId] || 0;
     if (currentCount < 3) {
-      // Strict global duplicate check across ALL sources
-      const eng = t.term || "";
-      const ar = t.transliteration || t.verified_term || t.draft_term || eng;
+      const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
+      const eng = sanitized.term;
+      const ar = sanitized.verified_term;
+
       const isDuplicate = cappedTerms.some(
         (ex) =>
           areTermsEquivalent(ex.term, eng) ||
@@ -80,22 +80,18 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
         sourceCounts[sId] = currentCount + 1;
         cappedTerms.push({
           ...t,
-          sourceId: sId
+          sourceId: sId,
+          term: eng,
+          draft_term: sanitized.draft_term,
+          verified_term: ar,
+          transliteration: ar,
+          definition: spellcheckAndRepairArabicAndEnglishText(t.definition || ""),
         });
       }
     }
   }
 
-  return cappedTerms.map((t) => {
-    const currentTransliteration = t.transliteration || t.verified_term || t.draft_term || t.term;
-    return {
-      ...t,
-      term: t.term || currentTransliteration,
-      transliteration: currentTransliteration || t.term,
-      draft_term: t.draft_term || currentTransliteration || t.term,
-      verified_term: t.verified_term || currentTransliteration || t.term,
-    };
-  });
+  return cappedTerms;
 }
 
 // Helper to ensure EVERY source in sources has between 2 and 3 concepts

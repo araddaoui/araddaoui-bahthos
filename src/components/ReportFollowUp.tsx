@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { Source } from "../types";
 import { MessageSquare, Send, Sparkles, Loader2, HelpCircle, ShieldCheck, CornerDownLeft, AlertCircle } from "lucide-react";
 import { generateReportFollowUpFallback } from "../utils/synthesisFallback";
+import { parseMarkdownToReact } from "../utils/reportFormatter";
+import { spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
 
 interface ReportFollowUpProps {
   reportContext: string;
@@ -190,8 +192,8 @@ export default function ReportFollowUp({
                   )}
                 </div>
 
-                <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap font-medium">
-                  {item.answer}
+                <div className="text-xs text-slate-700 leading-relaxed font-medium space-y-2">
+                  {parseMarkdownToReact(spellcheckAndRepairArabicAndEnglishText(item.answer))}
                 </div>
               </div>
             </div>

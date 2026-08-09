@@ -48,8 +48,14 @@ export function normalizeReportStructure(text: string): string {
 
   // 6. Separate inline merged recommendation lines (e.g. "...الميدانية. توصية مستندة إلى...") into double-spaced bullet points
   // Ensure we NEVER match lines that are already Markdown headings (e.g. ### 2. التوصيات العملية...)
-  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+مستندة\s+إلى[^*]*:\*?\*?|\*?\*?توصية\s+مستندة\s+إلى)/gim, "\n\n- $1");
-  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+مستندة\s+إلى)/gi, "$1.\n\n- $2");
+  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+(?:تنفيذية|مستندة|عملية|من\s+مستند)[^*]*:\*?\*?|\*?\*?توصية\s+(?:تنفيذية|مستندة|عملية|من\s+مستند))/gim, "\n\n- $1");
+  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+(?:تنفيذية|مستندة|عملية|من\s+مستند))/gi, "$1.\n\n- $2");
+
+  // Separate evidence network source lines e.g. - **توصية تنفيذية من مستند "..."**: or - **مستند "..."**:
+  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?مستند\s*["«])/gim, "\n\n- $1");
+
+  // Ensure double newlines between consecutive bullet items so list items never compress into dense blocks
+  result = result.replace(/([^\n])\n[ \t]*[-–—•*]\s+/g, "$1\n\n- ");
 
   // Clean leading dots/punctuation in title quotes/parentheses
   result = result.replace(/(توصية\s+مستندة\s+إلى\s*["«\(\s]*)[\s.\-–—:؛"'\(\)]+([^"»\)\n]+)/gi, "$1$2");
@@ -483,7 +489,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
   const flushList = (keyPrefix: string) => {
     if (currentListItems.length > 0) {
       elements.push(
-        <ul key={`${keyPrefix}-ul`} className="my-5 space-y-3 pr-4 border-r-4 border-[#094d4e] bg-teal-50/40 p-4 rounded-xl shadow-2xs">
+        <ul key={`${keyPrefix}-ul`} className="my-6 space-y-3 pr-2 md:pr-3 border-r-4 border-[#094d4e] bg-teal-50/30 p-3 md:p-4 rounded-xl shadow-2xs">
           {currentListItems}
         </ul>
       );
@@ -629,9 +635,11 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     if (listMatch) {
       const itemContent = listMatch[2];
       currentListItems.push(
-        <li key={idx} className="text-xs md:text-sm text-gray-850 leading-relaxed flex items-start gap-3 py-1.5 border-b border-teal-100/60 last:border-0">
-          <span className="text-[#094d4e] font-black shrink-0 mt-0.5 text-base">•</span>
-          <span className="flex-1">{renderInlineMarkdown(itemContent)}</span>
+        <li key={idx} className="text-xs md:text-sm text-gray-850 leading-relaxed md:leading-loose flex items-start gap-3 p-3.5 md:p-4 bg-white/90 border border-teal-200/80 rounded-xl shadow-2xs hover:bg-teal-50/30 transition-all my-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#094d4e] shrink-0 mt-2 shadow-2xs" />
+          <div className="flex-1 leading-relaxed md:leading-loose space-y-1">
+            {renderInlineMarkdown(itemContent)}
+          </div>
         </li>
       );
       continue;
