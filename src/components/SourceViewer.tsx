@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Source, GlossaryTerm } from "../types";
 import { BookOpen } from "lucide-react";
+import { spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
 
 interface SourceViewerProps {
   source: Source;
@@ -168,7 +169,7 @@ export default function SourceViewer({
                   <div key={idx} className="bg-white p-3 rounded-lg border border-teal-100 shadow-2xs space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-[#1f1f1f]">
-                        {t.transliteration || t.verified_term || t.draft_term || t.term}
+                        {spellcheckAndRepairArabicAndEnglishText(t.transliteration || t.verified_term || t.draft_term || t.term)}
                       </span>
                       {t.term && t.term !== t.transliteration && (
                         <span className="text-[10px] text-teal-700 font-sans font-semibold bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200">
@@ -178,7 +179,7 @@ export default function SourceViewer({
                     </div>
                     {t.definition && (
                       <p className="text-[11px] text-gray-600 leading-relaxed">
-                        {t.definition}
+                        {spellcheckAndRepairArabicAndEnglishText(t.definition)}
                       </p>
                     )}
                   </div>

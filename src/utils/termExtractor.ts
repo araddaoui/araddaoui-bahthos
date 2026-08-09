@@ -1,12 +1,27 @@
 import { GlossaryTerm } from "../types";
 
+export function collapseSpacedArabicLetters(text: string): string {
+  if (!text) return "";
+  // Match sequences of isolated single Arabic letters separated by spaces e.g. "ك ا ل ك ا ل" or "ا ل ظ و ا ه ر"
+  return text.replace(/(?:^|[\s"'(«،;؛:!؟\-\[])(?:[\u0600-\u06FF]\s+){2,}[\u0600-\u06FF](?=[\s"').!»«،;؛:!؟\]]|$)/g, (match) => {
+    const leadingMatch = match.match(/^[^\u0600-\u06FF]+/);
+    const leading = leadingMatch ? leadingMatch[0] : "";
+    const lettersOnly = match.substring(leading.length).replace(/\s+/g, "");
+    return leading + lettersOnly;
+  });
+}
+
 /**
  * Normalizes Arabic text to repair PDF font extraction artifacts (such as 'آل' instead of 'ال'
  * or alif-madda 'آ' replacing standard alif 'ا' / 'أ'), removes OCR ligature bugs, and standardizes punctuation.
  */
 export function normalizeArabicText(text?: string): string {
   if (!text) return "";
-  let res = text;
+  let res = collapseSpacedArabicLetters(text);
+
+  // 0. Fix repeated prefix loops e.g. "الكالكالكفاءة" -> "الكفاءة", "الالترجمة" -> "الترجمة"
+  res = res.replace(/(?:الك){2,}/g, "الك");
+  res = res.replace(/(?:ال){2,}/g, "ال");
 
   // 1. Fix PDF font extraction mapping of "الألف واللام" to "آل" at word boundaries
   // Examples: "آلترجمة" -> "الترجمة", "آلذكاء" -> "الذكاء", "آلداآت" -> "الأدوات", "آلوآضيع" -> "المواضيع", etc.
@@ -49,7 +64,19 @@ export function normalizeArabicText(text?: string): string {
     "اقد ": "لقد ",
     "هذآ": "هذا",
     "تعليمية ملترجمة": "تعليمية الترجمة",
-    "فاءة البشرية": "الكفاءة البشرية",
+    "الظوآهر": "الظواهر",
+    "آلتتعليمية": "التعليمية",
+    "آلتتتعليمية": "التعليمية",
+    "تتعليمية": "تعليمية",
+    "اتطبيقية": "التطبيقية",
+    "الآليية": "الآلية",
+    "الإصطناعي": "الاصطناعي",
+    "أوتوماتي": "أوتوماتيكي",
+    "ترجمة آلي": "ترجمة آلية",
+    "توصية مستند": "توصية مستندة",
+    "فجوة معرفي": "فجوة معرفية",
+    "المترجمي": "المترجمين",
+    "الدراسا": "الدراسات",
   };
   for (const [corrupted, fixed] of Object.entries(replacements)) {
     res = res.split(corrupted).join(fixed);
@@ -242,12 +269,24 @@ export function spellcheckAndRepairArabicAndEnglishText(text: string): string {
     res = res.replace(pattern, replacement);
   }
 
-  // 2. Repair Arabic OCR typos, broken prefix fragments, and truncated words
+  // 2. Collapse spaced OCR letters and normalize Arabic text
+  res = collapseSpacedArabicLetters(res);
   res = normalizeArabicText(res);
 
-  const arabicRepairs: [RegExp, string][] = [
-    [/\bكفاءة البشرية\b/g, "الكفاءة البشرية"],
-    [/\bفاءة البشرية\b/g, "الكفاءة البشرية"],
+  // 3. Fix standalone "كفاءة البشرية" or "فاءة البشرية" without "ال" (preventing "الكالك" loop)
+  res = res.replace(/(?<![\u0600-\u06FF])(?:الك)*(?:كفاءة|فاءة)\s+البشرية(?![ا-ي])/g, "الكفاءة البشرية");
+
+  // 4. Fix "نظرية اتطبيقية للفعل" -> "النظرية التطبيقية للفعل"
+  res = res.replace(/(?<![\u0600-\u06FF])نظرية\s+اتطبيقية(\s+للفعل)?(?![ا-ي])/g, "النظرية التطبيقية$1");
+  res = res.replace(/(?<![\u0600-\u06FF])اتطبيقية(?![ا-ي])/g, "التطبيقية");
+
+  // 5. Fix "تحليل الظوآهر آلتتعليمية" -> "تحليل الظواهر التعليمية"
+  res = res.replace(/الظوآهر\s+(آلتتتعليمية|آلتتعليمية|تتعليمية|التعليمية)/g, "الظواهر التعليمية");
+  res = res.replace(/الظوآهر/g, "الظواهر");
+  res = res.replace(/(آلتتتعليمية|آلتتعليمية)/g, "التعليمية");
+
+  // 6. Additional phrase repairs
+  const phraseRepairs: [RegExp, string][] = [
     [/\bتعليمية إشكالية إجمالية\b/g, "الإشكالية التعليمية الإجمالية"],
     [/\bإشكالية إجمالية\b/g, "الإشكالية الإجمالية"],
     [/\bالآليية\b/g, "الآلية"],
@@ -259,11 +298,15 @@ export function spellcheckAndRepairArabicAndEnglishText(text: string): string {
     [/\bالمترجمي\b/g, "المترجمين"],
     [/\bالدراسا\b/g, "الدراسات"],
   ];
-  for (const [pattern, replacement] of arabicRepairs) {
+  for (const [pattern, replacement] of phraseRepairs) {
     res = res.replace(pattern, replacement);
   }
 
-  return res;
+  // 7. Ensure prefix loops are purged
+  res = res.replace(/(?:الك){2,}/g, "الك");
+  res = res.replace(/(?:ال){2,}/g, "ال");
+
+  return res.trim();
 }
 
 /**
@@ -296,7 +339,10 @@ export function cleanAndSanitizeAcademicTerm(
     .replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "")
     .trim();
 
-  // 3. Fix leading "كفاءة" without al- if followed by "البشرية"
+  // 3. Purge repeated prefixes again
+  termAr = termAr.replace(/(?:الك){2,}/g, "الك").replace(/(?:ال){2,}/g, "ال");
+
+  // Fix leading "كفاءة" without al- if followed by "البشرية"
   if (termAr === "كفاءة البشرية" || termAr === "فاءة البشرية") {
     termAr = "الكفاءة البشرية";
   }
