@@ -27,6 +27,10 @@ export function normalizeReportStructure(text: string): string {
     .replace(/توصية\s+مستندة\s+إلى\s*[\(\[«]\s*[\s.\-–—:؛"'\(\)]*([^)\n]+?)[\s.\-–—:؛"'\(\)]*[\)\]»]\s*[:：]?/gi, 'توصية مستندة إلى "$1":')
     .replace(/توصية\s+مستندة\s+إلى\s*[-–—•*]?\s*\(\s*([^)]+)\s*\)\s*[:：]?/gi, 'توصية مستندة إلى "$1":');
 
+  // 0. Detach table headers from preceding non-table text (e.g. "توضيح النطاق: ... | الرقم | ...")
+  result = result.replace(/([^\n|]+)\s*(\|[ \t]*الرقم[ \t]*\|)/gi, "$1\n\n$2");
+  result = result.replace(/([^\n|]+)\s*(\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|)/g, "$1\n\n$2");
+
   // 1. Clean leading bullets/dots/numbers before pipes '|' on table lines
   result = result.replace(/^[ \t]*[•*.\d\s]+(?=\|)/gm, "");
 
@@ -306,7 +310,9 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
  */
 function parseTableBlock(tableLines: string[]) {
   const parseRow = (rowStr: string): string[] => {
-    let trimmed = rowStr.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+    // Remove BiDi formatting characters first
+    let cleaned = rowStr.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "");
+    let trimmed = cleaned.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
     if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
     if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
     
@@ -321,11 +327,14 @@ function parseTableBlock(tableLines: string[]) {
     return cells;
   };
 
-  // Filter out pure delimiter/alignment rows (e.g. | :--- | :--- | or : | or | --- |)
+  // Filter out pure delimiter/alignment rows (e.g. | :--- | :--- | or : | or | --- | or empty cells)
   const contentRowsStr = tableLines.filter((line) => {
     const cells = parseRow(line);
     if (cells.length === 0) return false;
-    const isAllDelimiters = cells.every((c) => /^[:\-]*$/.test(c.trim()));
+    const isAllDelimiters = cells.every((c) => {
+      const stripped = c.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s:\-|_]/g, "");
+      return stripped.length === 0;
+    });
     return !isAllDelimiters;
   });
 
@@ -335,6 +344,14 @@ function parseTableBlock(tableLines: string[]) {
 
   // The first non-delimiter row is ALWAYS the header row!
   let headerCells = parseRow(contentRowsStr[0]);
+  
+  // Clean header cells from any disclosure banner text residue
+  headerCells = headerCells.map((hCell) => {
+    return hCell
+      .replace(/^.*?(توضيح النطاق:|نطاق التقرير:)[^|]*?(?=\bالرقم\b|\bالوثيقة\b|\bالمستند\b|\bالمحور\b|$)/gi, "")
+      .trim() || hCell;
+  });
+
   let dataRowsStr = contentRowsStr.slice(1);
 
   if (headerCells.length > 4) {
@@ -352,7 +369,11 @@ function parseTableBlock(tableLines: string[]) {
       }
       return rowCells;
     })
-    .filter((rowCells) => rowCells.some((cell) => cell.replace(/[:\s-]/g, "").length > 0));
+    .filter((rowCells) =>
+      rowCells.some((cell) =>
+        cell.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s:\-|_]/g, "").length > 0
+      )
+    );
 
   return { headerCells, rows };
 }
