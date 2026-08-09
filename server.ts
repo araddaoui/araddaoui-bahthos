@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent } from "./src/utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent, cleanAndSanitizeAcademicTerm } from "./src/utils/termExtractor";
 import { generateClientSynthesisFallback, generateReportFollowUpFallback } from "./src/utils/synthesisFallback";
 
 // Load environment variables BEFORE anything else
@@ -445,6 +445,22 @@ app.post("/api/extract-text", async (req, res) => {
         resData.summary = ensureArabicSummary("", resData.title || fileName, parsedContent);
       }
 
+      if (resData.terms && Array.isArray(resData.terms)) {
+        resData.terms = resData.terms
+          .map((t: any) => {
+            const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
+            if (!sanitized.isValid) return null;
+            return {
+              term: sanitized.term,
+              draft_term: sanitized.draft_term,
+              verified_term: sanitized.verified_term,
+              transliteration: sanitized.verified_term,
+              definition: t.definition
+            };
+          })
+          .filter(Boolean);
+      }
+
       return res.json(resData);
     } catch (err: any) {
       console.error("AI Extraction failed:", err);
@@ -612,9 +628,10 @@ app.post("/api/synthesize", async (req, res) => {
 "   - اكتب بلغة عربية فصيحة سليمة مع مراعاة قواعد المطابقة اللغوية الكاملة.\n" +
 "   - يُحظر حظراً تاماً نقل ملخصات الإنجليزية أو الفرنسية بشكل حرفي أو مقتطع مبتور (مثل \"pays pa...\"). يجب ترجمة وتوليف كافة الأفكار والأدلة والمفاهيم الأجنبية إلى جمل عربية رصينة ومكتملة تماماً.\n" +
 "   - عند ذكر عناوين الوثائق الأجنبية، ضع العنوان بين علامتي تنصيص مثل `\"Title\"` لتفادي انعكاس الأقواس والرموز.\n" +
-"2. **منع التكرار اللفظي والقوالب النمطية (ZERO REPETITIVE BOILERPLATE)**:\n" +
-"   - يُحظر حظراً تاماً تكرار الجمل القالبية.\n" +
-"   - لكل وثيقة، استخرج النتائج الرقمية والمنهجية والتنفيذية الفريدة المذكورة في نص هذه الوثيقة تحديداً.\n" +
+"2. **منع التكرار اللفظي والأسلوب الميكانيكي القالبي (ZERO REPETITIVE BOILERPLATE & HUMAN VARIATION)**:\n" +
+"   - يُحظر حظراً تاماً تكرار الجمل والعبارات القالبية الميكانيكية مثل: (\"غير أن الفجوة المنهجية تتمثل في...\"، \"توصية مستندة إلى...\"، \"توسيع نطاق التغطية البحثية...\").\n" +
+"   - يجب تنويع التراكيب الأسلوبية والتعبيرية في بداية ونهاية كل نقطة وفجوة وتوصية، واستخدام أدوات ربط لغوية متنوعة ليكون التقرير بشري التناغم وسلس القراءة (مثل: \"بيدَ أن القصور المنهجي ينكشف في...\"، \"على أن الحدود العلمية تتجلى في...\"، \"في المقابل، تتأكد الحاجة الميدانية إلى...\"، \"ويتبيّن القصور التحليلي عند...\").\n" +
+"   - لكل وثيقة، استخرج الأدلة والنتائج الرقمية والمنهجية والتنفيذية الفريدة الخاصة بملخص ونص هذه الوثيقة تحديداً وبصياغة متجددة.\n" +
 "3. **عدم ترك التوصيات أو النقاط معلقة دون دليل وشرح (FULL EXPANSION & PROOF)**:\n" +
 "   - يجب ألا تترك أي توصية أو نقطة معلقة دون شرح واستدلال وافٍ وجمل كليّة مكتملة المعنى.\n" +
 "4. **الفصل الكامل وإعطاء مساحة للقراءة (STRICT ITEM ISOLATION & PARAGRAPH BREAKS)**:\n" +
@@ -928,28 +945,26 @@ text.substring(0, 3500);
     const jsonText = replyText.trim();
     const data = JSON.parse(jsonText);
     let normalizedTerms = (data.terms || [])
-      .filter((t: any) => {
-        const mainTerm = t.term || "";
-        const verified = t.verified_term || t.draft_term || "";
-        if (isTrivialOrCitationTerm(mainTerm, t.definition)) return false;
-        if (isTrivialOrCitationTerm(verified, t.definition)) return false;
-        if (/^[a-zA-Z\s\-]+$/.test(verified) && /^[a-zA-Z\s\-]+$/.test(mainTerm)) return false;
+      .map((t: any) => {
+        const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
+        if (!sanitized.isValid) return null;
+        if (/^[a-zA-Z\s\-]+$/.test(sanitized.verified_term) && /^[a-zA-Z\s\-]+$/.test(sanitized.term)) return null;
         if (existingTerms && Array.isArray(existingTerms) && existingTerms.some((ex: any) =>
-          areTermsEquivalent(ex.term || "", mainTerm) ||
-          areTermsEquivalent(ex.verified_term || ex.transliteration || "", verified || mainTerm)
+          areTermsEquivalent(ex.term || "", sanitized.term) ||
+          areTermsEquivalent(ex.verified_term || ex.transliteration || "", sanitized.verified_term)
         )) {
-          return false;
+          return null;
         }
-        return true;
+        return {
+          term: sanitized.term,
+          draft_term: sanitized.draft_term,
+          verified_term: sanitized.verified_term,
+          transliteration: sanitized.verified_term,
+          definition: t.definition,
+        };
       })
-      .slice(0, 3)
-      .map((t: any) => ({
-        term: t.term,
-        draft_term: t.draft_term,
-        verified_term: t.verified_term,
-        transliteration: t.verified_term || t.draft_term,
-        definition: t.definition,
-      }));
+      .filter(Boolean)
+      .slice(0, 3);
 
     if (!normalizedTerms || normalizedTerms.length === 0) {
       normalizedTerms = extractFallbackTermsFromText(text, undefined, undefined, existingTerms).slice(0, 3).map((t) => ({
@@ -1047,14 +1062,18 @@ ${JSON.stringify(terms, null, 2)}`;
     const replyText = response.text || "";
     const data = JSON.parse(replyText.trim());
     const normalizedTerms = (data.terms || [])
-      .filter((t: any) => !isTrivialOrCitationTerm(t.term || t.verified_term || t.draft_term, t.definition))
-      .map((t: any) => ({
-        term: t.term,
-        draft_term: t.draft_term,
-        verified_term: t.verified_term,
-        transliteration: t.verified_term || t.draft_term,
-        definition: t.definition,
-      }));
+      .map((t: any) => {
+        const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
+        if (!sanitized.isValid) return null;
+        return {
+          term: sanitized.term,
+          draft_term: sanitized.draft_term,
+          verified_term: sanitized.verified_term,
+          transliteration: sanitized.verified_term,
+          definition: t.definition,
+        };
+      })
+      .filter(Boolean);
     res.json({ terms: normalizedTerms });
   } catch (error: any) {
     console.warn("Glossary sweep backend failed:", error);

@@ -12,6 +12,11 @@ export function normalizeArabicText(text?: string): string {
   // Examples: "آلترجمة" -> "الترجمة", "آلذكاء" -> "الذكاء", "آلداآت" -> "الأدوات", "آلوآضيع" -> "المواضيع", etc.
   res = res.replace(/\bآل([اأإؤئب-ي]+)/g, "ال$1");
 
+  // Fix common OCR typos, broken prefix fragments, and mangled word forms
+  res = res.replace(/\bفاءة\b/g, "كفاءة");
+  res = res.replace(/\bملترجمة\b/g, "المترجمة");
+  res = res.replace(/\bلترجمة\b/g, "الترجمة");
+
   // 2. Fix specific corrupted PDF words commonly seen in OCR/CID font tables
   const replacements: Record<string, string> = {
     "آلوآضيع": "المواضيع",
@@ -43,6 +48,8 @@ export function normalizeArabicText(text?: string): string {
     "كبيرآ": "كبيراً",
     "اقد ": "لقد ",
     "هذآ": "هذا",
+    "تعليمية ملترجمة": "تعليمية الترجمة",
+    "فاءة البشرية": "الكفاءة البشرية",
   };
   for (const [corrupted, fixed] of Object.entries(replacements)) {
     res = res.split(corrupted).join(fixed);
@@ -172,6 +179,80 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
   }
 
   return false;
+}
+
+/**
+ * Rigorously cleans, repairs, and validates academic terms and concepts.
+ * Rejects sentence fragments, truncated words, OCR bugs, trailing adverbs, or nonsensical strings.
+ */
+export function cleanAndSanitizeAcademicTerm(
+  rawTerm: string,
+  rawDraft?: string,
+  rawVerified?: string,
+  definition?: string
+): { term: string; verified_term: string; draft_term: string; isValid: boolean } {
+  if (!rawTerm && !rawVerified && !rawDraft) {
+    return { term: "", verified_term: "", draft_term: "", isValid: false };
+  }
+
+  let termEng = (rawTerm || "").trim();
+  let termAr = normalizeArabicText(rawVerified || rawDraft || rawTerm || "").trim();
+
+  // 1. Fix common OCR typos, broken prefix fragments, and mangled word forms
+  termAr = termAr
+    .replace(/\bفاءة\b/g, "كفاءة")
+    .replace(/\bملترجمة\b/g, "المترجمة")
+    .replace(/\bلترجمة\b/g, "الترجمة")
+    .replace(/تعليمية ملترجمة/g, "تعليمية الترجمة")
+    .replace(/فاءة البشرية/g, "الكفاءة البشرية");
+
+  // 2. Strip surrounding quotes, brackets, colons, or dashes
+  termAr = termAr
+    .replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "")
+    .trim();
+  termEng = termEng
+    .replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "")
+    .trim();
+
+  // 3. Strip trailing adverbs, conjunctions, or conversational suffixes
+  // e.g. "فاءة البشرية، خصوصا" -> "الكفاءة البشرية"
+  termAr = termAr
+    .replace(/[\s,،;؛]+(خصوصا|خصوصاً|خاصة|سيما|لا سيما|وفقا|وفقاً|بناء|بناءً|أيضا|أيضاً|كذلك|مع ذلك|منها|إلخ)$/gi, "")
+    .trim();
+
+  // 4. Reject if term contains clause-separating internal punctuation
+  if (/[,،;؛:!?؟]/.test(termAr) || /[,;:!?]/.test(termEng)) {
+    return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
+  }
+
+  // 5. Ensure word count bounds (Concepts are nominal phrases of 1 to 4 words max)
+  const arWords = termAr.split(/\s+/).filter(Boolean);
+  const engWords = termEng.split(/\s+/).filter(Boolean);
+  if (arWords.length > 5 || (termEng && engWords.length > 5)) {
+    return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
+  }
+
+  // 6. Check if term matches SCHOLARLY_CONCEPTS_REGISTRY
+  const lowerEng = termEng.toLowerCase();
+  for (const [key, meta] of Object.entries(SCHOLARLY_CONCEPTS_REGISTRY)) {
+    if (lowerEng === key || termAr === meta.ar) {
+      termEng = key;
+      termAr = meta.ar;
+      break;
+    }
+  }
+
+  // 7. Final trivial/citation check
+  if (isTrivialOrCitationTerm(termEng, definition) || isTrivialOrCitationTerm(termAr, definition)) {
+    return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
+  }
+
+  return {
+    term: termEng || termAr,
+    verified_term: termAr,
+    draft_term: termAr,
+    isValid: termAr.length >= 3 && termAr.length <= 60,
+  };
 }
 
 // Authoritative dictionary of genuine scholarly theoretical concepts, frameworks, and methodological paradigms
@@ -550,20 +631,25 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
       }
     }
 
-    if (isTrivialOrCitationTerm(termClean, authoritativeDef) || isTrivialOrCitationTerm(verifiedArabic || "", authoritativeDef)) {
+    const sanitized = cleanAndSanitizeAcademicTerm(termClean, verifiedArabic, verifiedArabic, authoritativeDef);
+    if (!sanitized.isValid) return;
+
+    const finalEng = sanitized.term;
+    const cleanAr = sanitized.verified_term;
+
+    if (isTrivialOrCitationTerm(finalEng, authoritativeDef) || isTrivialOrCitationTerm(cleanAr, authoritativeDef)) {
       return;
     }
 
     // Zero-duplicate check across English and Arabic equivalents globally
-    if (isAlreadyPresent(termClean, verifiedArabic || termClean, extracted)) {
+    if (isAlreadyPresent(finalEng, cleanAr, extracted)) {
       return;
     }
-    if (isAlreadyPresent(termClean, verifiedArabic || termClean, existingGlossary)) {
+    if (isAlreadyPresent(finalEng, cleanAr, existingGlossary)) {
       return;
     }
 
-    const cleanAr = normalizeArabicText(verifiedArabic || termClean);
-    const cleanDef = normalizeArabicText(authoritativeDef || buildContextDefinition(termClean, cleanText, cleanAr));
+    const cleanDef = normalizeArabicText(authoritativeDef || buildContextDefinition(finalEng, cleanText, cleanAr));
 
     // Final safety check against numbers or page ranges in definition
     if (/[0-9]{3,}/.test(cleanDef) || cleanDef.includes("جامعة") || cleanDef.includes("أنموذجا")) {
@@ -571,7 +657,7 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
 
     extracted.push({
-      term: termClean,
+      term: finalEng,
       transliteration: cleanAr,
       draft_term: cleanAr,
       verified_term: cleanAr,
