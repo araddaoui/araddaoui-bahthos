@@ -245,6 +245,45 @@ export function detectSourceLanguage(
   return "ar";
 }
 
+export function stripArabicParticlesAndNumbers(term: string): string {
+  if (!term) return "";
+  let res = term.trim();
+
+  // 1. Collapse spaced single OCR letters e.g. "ك ا ل ك ا ل" -> "الكالك"
+  res = collapseSpacedArabicLetters(res);
+
+  // 2. Strip trailing numbers (e.g. " 2,", " 567", " 10"), page markers, and citations
+  res = res.replace(/[\s,،;؛:!?؟–—\-\d]+$/g, "");
+
+  // 3. Strip trailing conversational adverbs, conjunctions, or suffixes
+  res = res.replace(/[\s,،;؛:!?؟–—-]+(خصوصا|خصوصاً|خاصة|سيما|لا سيما|وفقا|وفقاً|بناء|بناءً|أيضا|أيضاً|كذلك|مع ذلك|منها|إلخ)+$/gi, "");
+
+  // Repeat trailing punctuation and number purge
+  res = res.replace(/[\s,،;؛:!?؟–—\-\d]+$/g, "");
+
+  // 4. Purge repeated prefixes e.g. "كالكالكالكفاءة", "الكالكفاءة", "الالترجمة"
+  res = res.replace(/(?:كالك){2,}/g, "الك");
+  res = res.replace(/(?:الك){2,}/g, "الك");
+  res = res.replace(/(?:ال){2,}/g, "ال");
+
+  // 5. Strip prepended particle prepositions (كـ، بـ، فـ، و، لـ، كالـ، بالـ، فالـ، والـ، للـ، وللـ) from the start of Arabic terms
+  res = res.replace(/^(?:وكال|فكال|وبال|فبال|كالك|كال|بال|فال|وال|ولل|فلل|لل)(?=[\u0600-\u06FF]{3,})/g, "ال");
+  res = res.replace(/^(?:وك|فك|وب|فب|ك|ب|ف|و)(?=ال[\u0600-\u06FF]{3,})/g, "");
+
+  // 6. Normalization of common OCR mangles or indefinites
+  if (res === "كفاءة البشرية" || res === "فاءة البشرية" || res === "كفاءة بشرية") {
+    res = "الكفاءة البشرية";
+  }
+  if (res === "نظرية اتطبيقية للفعل" || res === "نظرية تطبيقية للفعل" || res === "اتطبيقية للفعل") {
+    res = "النظرية التطبيقية للفعل";
+  }
+  if (res === "تحليل الظوآهر آلتتعليمية" || res === "تحليل الظواهر آلتتعليمية" || res === "تحليل الظوآهر التعليمية") {
+    res = "تحليل الظواهر التعليمية";
+  }
+
+  return res.replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "").trim();
+}
+
 /**
  * Comprehensive spellchecker and word repair function.
  * Repairs OCR typos, truncated words, missing final letters, and mangled file names across all outputs.
@@ -273,19 +312,15 @@ export function spellcheckAndRepairArabicAndEnglishText(text: string): string {
   res = collapseSpacedArabicLetters(res);
   res = normalizeArabicText(res);
 
-  // 3. Fix standalone "كفاءة البشرية" or "فاءة البشرية" without "ال" (preventing "الكالك" loop)
-  res = res.replace(/(?<![\u0600-\u06FF])(?:الك)*(?:كفاءة|فاءة)\s+البشرية(?![ا-ي])/g, "الكفاءة البشرية");
-
-  // 4. Fix "نظرية اتطبيقية للفعل" -> "النظرية التطبيقية للفعل"
+  // 3. Fix standalone particle loops & OCR phrases
+  res = res.replace(/(?<![\u0600-\u06FF])(?:كالك|الك|ك)*كفاءة\s+البشرية(?![ا-ي])/g, "الكفاءة البشرية");
   res = res.replace(/(?<![\u0600-\u06FF])نظرية\s+اتطبيقية(\s+للفعل)?(?![ا-ي])/g, "النظرية التطبيقية$1");
   res = res.replace(/(?<![\u0600-\u06FF])اتطبيقية(?![ا-ي])/g, "التطبيقية");
-
-  // 5. Fix "تحليل الظوآهر آلتتعليمية" -> "تحليل الظواهر التعليمية"
   res = res.replace(/الظوآهر\s+(آلتتتعليمية|آلتتعليمية|تتعليمية|التعليمية)/g, "الظواهر التعليمية");
   res = res.replace(/الظوآهر/g, "الظواهر");
   res = res.replace(/(آلتتتعليمية|آلتتعليمية)/g, "التعليمية");
 
-  // 6. Additional phrase repairs
+  // 4. Additional phrase repairs
   const phraseRepairs: [RegExp, string][] = [
     [/\bتعليمية إشكالية إجمالية\b/g, "الإشكالية التعليمية الإجمالية"],
     [/\bإشكالية إجمالية\b/g, "الإشكالية الإجمالية"],
@@ -302,7 +337,8 @@ export function spellcheckAndRepairArabicAndEnglishText(text: string): string {
     res = res.replace(pattern, replacement);
   }
 
-  // 7. Ensure prefix loops are purged
+  // 5. Ensure prefix loops are purged
+  res = res.replace(/(?:كالك){2,}/g, "الك");
   res = res.replace(/(?:الك){2,}/g, "الك");
   res = res.replace(/(?:ال){2,}/g, "ال");
 
@@ -326,26 +362,15 @@ export function cleanAndSanitizeAcademicTerm(
   let termEng = (rawTerm || "").trim();
   let termAr = normalizeArabicText(rawVerified || rawDraft || rawTerm || "").trim();
 
-  // 1. Spellcheck & repair words
+  // 1. Strip dangling prepositional particles and trailing numbers/citations
+  termAr = stripArabicParticlesAndNumbers(termAr);
+
+  // 2. Spellcheck & repair words
   termEng = spellcheckAndRepairArabicAndEnglishText(termEng);
   termAr = spellcheckAndRepairArabicAndEnglishText(termAr);
 
-  // 2. Strip trailing adverbs, conjunctions, or conversational suffixes
-  termAr = termAr
-    .replace(/[\s,،;؛:!?؟–—-]+(خصوصا|خصوصاً|خاصة|سيما|لا سيما|وفقا|وفقاً|بناء|بناءً|أيضا|أيضاً|كذلك|مع ذلك|منها|إلخ)+/gi, "")
-    .replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "")
-    .trim();
-  termEng = termEng
-    .replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "")
-    .trim();
-
-  // 3. Purge repeated prefixes again
-  termAr = termAr.replace(/(?:الك){2,}/g, "الك").replace(/(?:ال){2,}/g, "ال");
-
-  // Fix leading "كفاءة" without al- if followed by "البشرية"
-  if (termAr === "كفاءة البشرية" || termAr === "فاءة البشرية") {
-    termAr = "الكفاءة البشرية";
-  }
+  // 3. Re-apply particle stripping on final term string
+  termAr = stripArabicParticlesAndNumbers(termAr);
 
   // Reject nonsensical/gibberish terms
   const nonsensicalList = [
@@ -361,8 +386,8 @@ export function cleanAndSanitizeAcademicTerm(
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
-  // 4. Reject if term still contains internal commas or punctuation
-  if (/[,،;؛:!?؟]/.test(termAr) || /[,;:!?]/.test(termEng)) {
+  // 4. Reject if term still contains internal commas or punctuation or numbers
+  if (/[,،;؛:!?؟]/.test(termAr) || /[,;:!?]/.test(termEng) || /\d/.test(termAr) || /\d/.test(termEng)) {
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
@@ -373,10 +398,10 @@ export function cleanAndSanitizeAcademicTerm(
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
-  // 6. Check if term matches SCHOLARLY_CONCEPTS_REGISTRY
+  // 6. Check if term matches SCHOLARLY_CONCEPTS_REGISTRY (English key or Arabic phrase)
   const lowerEng = termEng.toLowerCase();
   for (const [key, meta] of Object.entries(SCHOLARLY_CONCEPTS_REGISTRY)) {
-    if (lowerEng === key || termAr === meta.ar) {
+    if (lowerEng === key || termAr === meta.ar || areTermsEquivalent(termAr, meta.ar)) {
       termEng = key;
       termAr = meta.ar;
       break;
@@ -404,6 +429,18 @@ export interface ScholarlyConceptMeta {
 
 export const SCHOLARLY_CONCEPTS_REGISTRY: Record<string, ScholarlyConceptMeta> = {
   // Translation Studies & Didactics
+  "human competence": {
+    ar: "الكفاءة البشرية",
+    def: "مجموع الكفايات الذهنية واللغوية والتحليلية والتأويلية التي يمتلكها المترجم البشري لفهم السياقات الثقافية والدلالية المعقدة للنصوص والتمييز عن المخرجات الآلية."
+  },
+  "applied action theory": {
+    ar: "النظرية التطبيقية للفعل",
+    def: "إطار نظري ومنهجي يدرس الأفعال والممارسات التواصلية والترجمية في بيئتها الميدانية، موجهاً القرارات التنفيذية نحو الاستجابة المباشرة لمتطلبات الموقف."
+  },
+  "analysis of educational phenomena": {
+    ar: "تحليل الظواهر التعليمية",
+    def: "منهجية بحثية تفكيكية تعنى برصد ودراسة المتغيرات البيداغوجية والأنماط السلوكية والتفاعلية داخل المنظومة التعليمية للارتقاء بنواتج التعلم والتقويم."
+  },
   "pedagogical translation": {
     ar: "الترجمة البيداغوجية",
     def: "إستراتيجية تعليمية ومنهجية توظف الترجمة كأداة لاكتساب الكفايات اللغوية والمهارات المعرفية في تعليم اللغات والترجمة."
@@ -928,8 +965,59 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   return extracted.slice(0, 3);
 }
 
-function buildContextDefinition(term: string, fullText: string, arabicTerm: string): string {
-  // Always return clean, authoritative scholarly Arabic definition without page numbers or title quotes
-  return `مفهوم تحليلي وإطار نظري يُعنى بدراسة وتحليل أبعاد (${arabicTerm}) وتطبيقاته المنهجية في السياق الأكاديمي.`;
+export function buildContextDefinition(term: string, fullText: string, arabicTerm: string): string {
+  const cleanAr = (arabicTerm || term || "").trim();
+  const cleanEng = (term || "").toLowerCase().trim();
+
+  // 1. Check SCHOLARLY_CONCEPTS_REGISTRY for exact or fuzzy match
+  for (const [key, meta] of Object.entries(SCHOLARLY_CONCEPTS_REGISTRY)) {
+    if (cleanEng === key || cleanAr === meta.ar || areTermsEquivalent(cleanAr, meta.ar)) {
+      return meta.def;
+    }
+  }
+
+  // 2. Keyword-driven concept definitions based on domain terminology
+  if (cleanAr.includes("كفاءة بشرية") || cleanAr.includes("الكفاءة البشرية")) {
+    return "مجموع الكفايات الذهنية واللغوية والتحليلية والتأويلية التي يتفوق بها المترجم البشري في فهم السياقات الثقافية والدلالية المعقدة للنصوص والتمييز عن المخرجات الآلية.";
+  }
+  if (cleanAr.includes("نظرية") && (cleanAr.includes("تطبيقية") || cleanAr.includes("فعل"))) {
+    return "إطار نظري ومنهجي يدرس الأفعال والممارسات التواصلية والترجمية في بيئتها الميدانية، موجهاً القرارات التنفيذية نحو الاستجابة المباشرة لمتطلبات الموقف.";
+  }
+  if (cleanAr.includes("ظواهر") || cleanAr.includes("ظوآهر") || cleanAr.includes("ظاهرة")) {
+    return "منهجية بحثية تفكيكية تعنى برصد ودراسة المتغيرات البيداغوجية والأنماط السلوكية والتفاعلية داخل المنظومة الميدانية للارتقاء بنواتج التعلم والتقويم.";
+  }
+  if (cleanAr.includes("كفاءة")) {
+    return "منظومة من القدرات والمهارات المعرفية واللغوية والعملية التي تمكن المترجم أو الباحث من إنجاز المهام التخصصية بدقة عالية وموثوقية.";
+  }
+  if (cleanAr.includes("نظرية")) {
+    return "إطار فكري ومعرفي نسقي يفسر العلاقات بين المفاهيم والمتغيرات الميدانية ويوجه الممارسات والقرارات التطبيقية في التخصص.";
+  }
+  if (cleanAr.includes("تحليل")) {
+    return "منهجية علمية تفكيكية تهدف إلى رصد المكونات والمتغيرات البنيوية وفهم آليات التشكل والتأثير في السياق الأكاديمي.";
+  }
+  if (cleanAr.includes("ترجمة") || cleanAr.includes("مترجم")) {
+    return "عملية نقل دلالي وثقافي ووظيفي للنصوص بين اللغات مع مراعاة المقاصد التواصلية وخصوصيات السياق الهدف.";
+  }
+  if (cleanAr.includes("تعليمية") || cleanAr.includes("بيداغوجيا") || cleanAr.includes("تعلم") || cleanAr.includes("تدريس")) {
+    return "حقل دراسي وبيداغوجي يركز على تطوير استراتيجيات التدريس المنهجية واكتساب الكفايات وتطوير أساليب التقويم العلمي.";
+  }
+  if (cleanAr.includes("ذكاء") || cleanAr.includes("آلية") || cleanAr.includes("خوارزم") || cleanAr.includes("حاسوب")) {
+    return "أنظمة وتقنيات حاسوبية عصبية متقدمة تعتمد على الخوارزميات والتعلم العميق لمعالجة البيانات اللغوية وتوليد المخرجات المعرفية.";
+  }
+  if (cleanAr.includes("خطاب") || cleanAr.includes("مضمون") || cleanAr.includes("نص")) {
+    return "منهج تحليلي ونقدي يدرس البنى اللغوية والدلالية والأيديولوجية وسياقات إنتاج النصوص وتلقيها في بيئتها الاجتماعية.";
+  }
+
+  // 3. Extract grounded sentence from source text if available
+  if (fullText && fullText.length > 50) {
+    const sentences = fullText.split(/[.\n;؛]/).map(s => s.trim()).filter(Boolean);
+    const matchingSentence = sentences.find(s => s.length >= 25 && s.length <= 200 && (s.includes(cleanAr) || s.includes(cleanAr.replace(/^ال/, ""))));
+    if (matchingSentence) {
+      const cleanSentence = spellcheckAndRepairArabicAndEnglishText(matchingSentence.replace(/^[^\u0600-\u06FF]+/, ""));
+      return `مفهوم أكاديمي يُقصد به في النص: "${cleanSentence}"`;
+    }
+  }
+
+  return `مفهوم علمي ومنهجي يدرس الآليات والأبعاد التطبيقية المتعلقة بـ (${cleanAr}) في أدبيات التخصص.`;
 }
 

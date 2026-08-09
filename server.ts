@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent, cleanAndSanitizeAcademicTerm, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "./src/utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, areTermsEquivalent, cleanAndSanitizeAcademicTerm, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./src/utils/termExtractor";
 import { generateClientSynthesisFallback, generateReportFollowUpFallback } from "./src/utils/synthesisFallback";
 
 // Load environment variables BEFORE anything else
@@ -884,24 +884,22 @@ app.post("/api/extract-glossary", async (req, res) => {
 "مهمتك تحليل النص واستخراج قائمة دقيقة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين فقط.\n\n" +
 "طبق القواعد الصارمة التالية:\n" +
 "1. الاقتصار على البناءات النظرية والمفاهيم العلمية المركبة:\n" +
-"   استخرج فقط البناءات النظرية ذات العمق العلمي والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Machine Learning).\n" +
-"2. الحظر الصارم للجمل والعبارات اللغوية الشائعة (Linguistic Fragments):\n" +
-"   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: \"both have translatability\", \"results show\", \"in this section\", \"data collected\", \"future studies\"). أية تراكيب تحتوي أفعالاً أو أدوات ربط أو ضمائر يُحظر استخراجها إطلاقاً.\n" +
-"3. استبعاد التخصصات والمجالات العامة:\n" +
-"   يُمنع استخراج أسماء العلوم العامة أو المجالات الفضفاضة (مثل: Computer Science, Marketing, Management, Economics, History, Law, Physics...).\n" +
-"4. قواعد الاستبعاد العامة:\n" +
-"   يُمنع استخراج أسماء الأشخاص والمفكرين، أسماء الدول والمدن والأقاليم، أسماء المجلات والجامعات ودور النشر، التوثيقات المرجعية، والتواريخ.\n" +
-"5. الجودة الصارمة للتعريب والتعريف الأكاديمي:\n" +
+"   استخرج فقط البناءات النظرية ذات العمق العلمي والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Human Competence, Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Machine Learning).\n" +
+"2. تجريد وحظر أدوات الربط والجسيمات الزائدة والأرقام:\n" +
+"   استخرج الاسم الأكاديمي المعرف السليم دائماً خاوياً من أي حروف زائدة ملتصقة (مثل: استخرج \"الكفاءة البشرية\" وليس \"كالكفاءة البشرية 2،\" ولا \"بالترجمة\" ولا \"للترجمة\"). أحظر تماماً أرقام الصفحات والعلامات الملحقة.\n" +
+"3. الحظر الصارم للجمل والعبارات اللغوية الشائعة (Linguistic Fragments):\n" +
+"   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: \"both have translatability\", \"results show\", \"in this section\", \"data collected\", \"future studies\").\n" +
+"4. الجودة الصارمة للتعريب والتعريف الأكاديمي:\n" +
 "   لكل مصطلح، يجب تقديم المصطلح العربي المعيار المعتمد والمكافئ بدقة في حقل verified_term (يُمنع ترك verified_term باللغة الإنجليزية).\n" +
-"   صغ تعريفاً إجرائياً أكاديمياً حقيقياً (من جملة واحدة) يوضح جوهر المفهوم بأسلوب رصين وبدون أي عبارات قالبية فارغة.\n" +
-"6. منع التكرار مع المصطلحات السابقة في المشروع:\n" +
+"   صغ تعريفاً إجرائياً أكاديمياً حقيقياً شارحاً لجوهره العلمي في جملة واحدة رصينة مفيدة، وتجنب العبارات القالبية الفارغة.\n" +
+"5. منع التكرار مع المصطلحات السابقة في المشروع:\n" +
 "   يُمنع منعاً باتاً استخراج أو تكرار أي مصطلح أو مفهوم موجود بالفعل في هذه القائمة:\n" +
 "   " + existingTermsStr + "\n\n" +
 "لكل مصطلح مستخرج، عبئ الحقول التالية بالترتيب الدقيق:\n" +
 "1. term: المصطلح الأصلي بالإنجليزية.\n" +
 "2. draft_term: المصطلح العربي المقترح أولياً.\n" +
 "3. definition: تعريف أكاديمي علمي حقيقي ونافع يشرح المفهوم وجوهره في جملة واحدة رصينة.\n" +
-"4. verified_term: المصطلح العربي النهائي المدقق والمصوب بعد استبدال أي تعريب صوتي بمكافئ عربي فصيح.\n\n" +
+"4. verified_term: المصطلح العربي النهائي المدقق والمصوب بعد استبدال أي تعريب صوتي بمكافئ عربي فصيح وتجريده من الحروف الزائدة.\n\n" +
 "النص المراد تحليله:\n" +
 text.substring(0, 3500);
 
@@ -960,12 +958,15 @@ text.substring(0, 3500);
         )) {
           return null;
         }
+        const cleanDef = (t.definition && !t.definition.includes("مفهوم تحليلي وإطار نظري") && t.definition.length > 25)
+          ? spellcheckAndRepairArabicAndEnglishText(t.definition)
+          : buildContextDefinition(sanitized.term, text || "", sanitized.verified_term);
         return {
           term: sanitized.term,
           draft_term: sanitized.draft_term,
           verified_term: sanitized.verified_term,
           transliteration: sanitized.verified_term,
-          definition: t.definition,
+          definition: cleanDef,
         };
       })
       .filter(Boolean)
@@ -1070,12 +1071,15 @@ ${JSON.stringify(terms, null, 2)}`;
       .map((t: any) => {
         const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
         if (!sanitized.isValid) return null;
+        const cleanDef = (t.definition && !t.definition.includes("مفهوم تحليلي وإطار نظري") && t.definition.length > 25)
+          ? spellcheckAndRepairArabicAndEnglishText(t.definition)
+          : buildContextDefinition(sanitized.term, "", sanitized.verified_term);
         return {
           term: sanitized.term,
           draft_term: sanitized.draft_term,
           verified_term: sanitized.verified_term,
           transliteration: sanitized.verified_term,
-          definition: t.definition,
+          definition: cleanDef,
         };
       })
       .filter(Boolean);

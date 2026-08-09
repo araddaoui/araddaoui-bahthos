@@ -11,7 +11,7 @@ import SettingsView from "./components/SettingsView";
 import LandingPage from "./components/LandingPage";
 import TermsOfService from "./components/TermsOfService";
 import PrivacyPolicy from "./components/PrivacyPolicy";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText } from "./utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./utils/termExtractor";
 import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { 
   auth, 
@@ -85,7 +85,9 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
           draft_term: sanitized.draft_term,
           verified_term: ar,
           transliteration: ar,
-          definition: spellcheckAndRepairArabicAndEnglishText(t.definition || ""),
+          definition: (t.definition && !t.definition.includes("مفهوم تحليلي وإطار نظري") && t.definition.length > 25)
+            ? spellcheckAndRepairArabicAndEnglishText(t.definition)
+            : buildContextDefinition(eng, "", ar),
         });
       }
     }

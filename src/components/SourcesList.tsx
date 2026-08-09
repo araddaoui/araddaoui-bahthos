@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Source, GlossaryTerm } from "../types";
 import { parseDocumentFile } from "../utils/documentParser";
-import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
+import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor";
 
 interface SourcesListProps {
   sources: Source[];
@@ -656,7 +656,7 @@ export default function SourcesList({
               >
                 <div className="flex flex-wrap items-center gap-2 justify-between mb-2 pb-1.5 border-b border-gray-100/50">
                   <span className="text-xs font-bold text-gray-950 text-right">
-                    {spellcheckAndRepairArabicAndEnglishText(termItem.transliteration || termItem.verified_term || termItem.draft_term || termItem.term)}
+                    {stripArabicParticlesAndNumbers(spellcheckAndRepairArabicAndEnglishText(termItem.transliteration || termItem.verified_term || termItem.draft_term || termItem.term))}
                   </span>
                   <span className="font-mono text-[10px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200" dir="ltr">
                     {termItem.term}
