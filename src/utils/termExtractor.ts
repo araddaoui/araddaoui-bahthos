@@ -13,6 +13,25 @@ export function collapseSpacedArabicLetters(text: string): string {
   return res.replace(/\s+/g, " ").trim();
 }
 
+// Remove journal metadata, publication headers, ProQuest IDs, volume/issue numbers, and copyright lines
+export function cleanBibliographicNoise(text: string): string {
+  if (!text) return "";
+  let res = text;
+  res = res.replace(/(?:MILLENNIUM\s+)?Journal\s+of\s+[A-Za-z\s]+(?:\d{2,}\(\d+\)\s*\d+[\s–-]+\d+)?/gi, "");
+  res = res.replace(/ProQuest\s+pg\.\s*\d+/gi, "");
+  res = res.replace(/The\s+Journal\s+of\s+Military\s+History[^\n;.]*/gi, "");
+  res = res.replace(/Paret,\s*Peter[^\n;.]*/gi, "");
+  res = res.replace(/Ramy\s+Jabbour[^\n;.]*/gi, "");
+  res = res.replace(/December\s+2015\s+Gulf\s+Office[^\n;.]*/gi, "");
+  res = res.replace(/©\s*The\s+Author\(s\)[^\n;.]*/gi, "");
+  res = res.replace(/Reprints\s+and\s+permissions[^\n;.]*/gi, "");
+  res = res.replace(/uk\/journalsPermissions[^\n;.]*/gi, "");
+  res = res.replace(/All\s+rights\s+reserved[^\n;.]*/gi, "");
+  res = res.replace(/\b\d{2,}\(\d+\)\s*\d+[\s–-]+\d+\b/g, "");
+  res = res.replace(/\b(Vol|Volume|Issue|pp|pg)\.?\s*\d+/gi, "");
+  return res.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Normalizes Arabic text to repair PDF font extraction artifacts (such as 'آل' instead of 'ال'
  * or alif-madda 'آ' replacing standard alif 'ا' / 'أ'), removes OCR ligature bugs, and standardizes punctuation.
@@ -1151,37 +1170,25 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   };
 
   // 1. Scan against SCHOLARLY_CONCEPTS_REGISTRY sorted by key length descending
-  // Add concepts that actually appear in the search scope or full text
+  // Add concepts ONLY if the full concept or full Arabic equivalent appears in searchScope or cleanText
   const sortedKeys = Object.keys(SCHOLARLY_CONCEPTS_REGISTRY).sort((a, b) => b.length - a.length);
+  const cleanTextLower = cleanText.toLowerCase();
+
   for (const engKey of sortedKeys) {
     if (extracted.length >= 3) break;
     const meta = SCHOLARLY_CONCEPTS_REGISTRY[engKey];
     const lowerKey = engKey.toLowerCase();
     const lowerAr = meta.ar.toLowerCase();
-    if (
+
+    // STRICT CHECK: The FULL English key or FULL Arabic concept MUST appear in title, summary, or cleanText
+    const isExactMatch =
       searchScope.includes(lowerKey) ||
       searchScope.includes(lowerAr) ||
-      (lowerKey.length > 4 && cleanText.toLowerCase().includes(lowerKey))
-    ) {
+      cleanTextLower.includes(lowerKey) ||
+      cleanTextLower.includes(lowerAr);
+
+    if (isExactMatch) {
       addTerm(engKey, meta.ar, meta.def);
-    }
-  }
-
-  // 2. Secondary scan against SCHOLARLY_CONCEPTS_REGISTRY with field-level keyword affinity
-  if (extracted.length < 3) {
-    for (const engKey of sortedKeys) {
-      if (extracted.length >= 3) break;
-      const meta = SCHOLARLY_CONCEPTS_REGISTRY[engKey];
-      const lowerKey = engKey.toLowerCase();
-      const lowerAr = meta.ar.toLowerCase();
-
-      // Check if key words of the concept appear in searchScope or cleanText
-      const keyWords = lowerKey.split(/\s+/).filter(w => w.length > 3);
-      const hasKeyMatch = keyWords.some(kw => searchScope.includes(kw));
-
-      if (hasKeyMatch) {
-        addTerm(engKey, meta.ar, meta.def);
-      }
     }
   }
 
