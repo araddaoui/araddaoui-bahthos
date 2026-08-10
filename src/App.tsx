@@ -37,13 +37,18 @@ const initialSyntheses: Synthesis[] = [];
 export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[]): GlossaryTerm[] {
   if (!terms || !Array.isArray(terms) || terms.length === 0) return [];
 
+  // If sources array is provided and empty, return [] immediately to prevent lingering contamination
+  if (sources && Array.isArray(sources) && sources.length === 0) return [];
+
   const validSourceIds = sources && sources.length > 0 ? new Set(sources.map((s) => s.id)) : null;
-  const fallbackSourceId = sources && sources[0]?.id;
 
   const validTerms = terms.filter((t) => {
     if (!t) return false;
-    if (validSourceIds && t.sourceId && !validSourceIds.has(t.sourceId)) {
-      return false;
+    // Strict isolation: if sources list is supplied, term MUST have a sourceId matching one of current sources
+    if (validSourceIds) {
+      if (!t.sourceId || !validSourceIds.has(t.sourceId)) {
+        return false;
+      }
     }
     const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
     if (!sanitized.isValid) return false;
@@ -60,7 +65,11 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
   const sourceCounts: Record<string, number> = {};
   const cappedTerms: GlossaryTerm[] = [];
   for (const t of validTerms) {
-    const sId = t.sourceId || fallbackSourceId || "default";
+    const sId = t.sourceId;
+    if (!sId || (validSourceIds && !validSourceIds.has(sId))) {
+      continue;
+    }
+
     const currentCount = sourceCounts[sId] || 0;
     if (currentCount < 3) {
       const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
@@ -1024,7 +1033,10 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
 
   // Ensure every uploaded source automatically has an Arabic summary and 2 to 3 concepts
   useEffect(() => {
-    if (sources.length === 0) return;
+    if (sources.length === 0) {
+      setGlossaryTerms([]);
+      return;
+    }
 
     let sourcesNeedsUpdate = false;
     const sanitizedSources = sources.map((s) => {
