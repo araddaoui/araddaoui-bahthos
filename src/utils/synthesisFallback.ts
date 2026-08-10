@@ -67,7 +67,17 @@ function extractDocSubstance(src: any, idx: number, safeTopic: string) {
         [/supply\s*chain/g, "سلاسل الإمداد والتوريد"],
         [/strategic\s*management/g, "الإدارة الاستراتيجية والتخطيط"],
         [/investigative\s*journalism/g, "الصحافة الاستقصائية ومعايير التغطية"],
+        [/thought\s*leadership/g, "الريادة الفكرية والتأثير التحريري"],
+        [/digital\s*storytelling/g, "السرد الرقمي والقصص التفاعلية"],
+        [/content\s*strategy/g, "استراتيجية وصناعة المحتوى"],
+        [/public\s*administration/g, "الإدارة العامة والقطاع الحكومي"],
+        [/bureaucratic\s*efficiency/g, "الكفاءة البيروقراطية والتنظيمية"],
+        [/compliance\s*management/g, "إدارة الامتثال والرقابة المؤسسية"],
         [/hermeneutics/g, "الهرمنيوطيقا والتأويل النصي"],
+        [/intertextuality/g, "التناص والتحليل النصي الأدبي"],
+        [/critical\s*discourse/g, "تحليل الخطاب النقدي"],
+        [/epistemology/g, "الابستمولوجيا ونظرية المعرفة"],
+        [/formative\s*assessment/g, "التقويم التكويني والتشخيصي"],
         [/social\s*cohesion/g, "مؤشرات التماسك الاجتماعي"],
         [/behavioral\s*economics/g, "الاقتصاد السلوكي ورسم القرارات"]
       ];
