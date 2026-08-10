@@ -47,7 +47,7 @@ async function generateContentWithRetry(
 ) {
   let attempt = 1;
   const maxAttempts = 3;
-  let currentModel = params.model || "gemini-2.5-flash";
+  let currentModel = params.model || "gemini-3.6-flash";
 
   while (true) {
     try {
@@ -85,10 +85,10 @@ async function generateContentWithRetry(
         attempt++;
         const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1000 : 2000);
         
-        if (currentModel.includes("2.5") || currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
-          currentModel = "gemini-2.0-flash";
+        if (currentModel === "gemini-3.6-flash") {
+          currentModel = "gemini-flash-latest";
         } else {
-          currentModel = "gemini-1.5-flash";
+          currentModel = "gemini-3.6-flash";
         }
 
         console.warn(`[Retry System] Attempt ${attempt}/${maxAttempts}: Retrying request using model '${currentModel}' due to ${isQuota ? "429 quota/rate limit" : "error"}. Retrying in ${delay}ms...`);
@@ -272,7 +272,7 @@ app.post("/api/chat", async (req, res) => {
     console.log(`Sending chat request to Gemini with ${contents.length} messages and ${validSources.length} sources.`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-1.5-flash",
+      model: "gemini-3.6-flash",
       contents: contents,
       config: {
         systemInstruction: mergedSystemInstruction,
@@ -422,7 +422,7 @@ app.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => {
       }
 
       const response = await generateContentWithRetry(ai, {
-        model: "gemini-2.5-flash",
+        model: "gemini-3.6-flash",
         contents: contentsInput,
         config: {
           responseMimeType: "application/json",
@@ -749,7 +749,7 @@ app.post("/api/synthesize", async (req, res) => {
 
       try {
         const response = await generateContentWithRetry(ai, {
-          model: "gemini-2.5-flash",
+          model: "gemini-3.6-flash",
           contents: dalilUserPrompt,
           config: { systemInstruction: DALIL_SYSTEM_INSTRUCTION, temperature: 0.4 },
         });
@@ -857,7 +857,7 @@ scopeIntro + sourcesContext;
 
     try {
       const response = await generateContentWithRetry(ai, {
-        model: "gemini-2.5-flash",
+        model: "gemini-3.6-flash",
         contents: userPrompt,
         config: {
           systemInstruction,
@@ -960,7 +960,7 @@ ${historyFormatted ? `[سجل الاستفسارات المباشرة الساب
 قدم إجابة موثقة ودقيقة وشاملة وغير غامضة تجيب عن هذا السؤال بناءً على التقرير والمصادر.`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: userPrompt,
       config: {
         systemInstruction,
@@ -1001,7 +1001,7 @@ app.post("/api/extract-glossary", async (req, res) => {
     if (systemPrompt && typeof systemPrompt === "string" && systemPrompt.trim().length >= 10) {
       console.log("🤖 Calling Google AI with custom system prompt...");
       const response = await generateContentWithRetry(ai, {
-        model: "gemini-2.5-flash",
+        model: "gemini-3.6-flash",
         contents: text,
         config: {
           temperature: 0.1,
@@ -1061,7 +1061,7 @@ app.post("/api/extract-glossary", async (req, res) => {
 text.substring(0, 3500);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -1182,7 +1182,7 @@ app.post("/api/sweep-glossary", async (req, res) => {
 ${JSON.stringify(terms, null, 2)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
