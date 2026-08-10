@@ -48,7 +48,7 @@ export default function SettingsView({
           <div>
             <h1 className="text-lg font-bold text-[#1f1f1f]">إعدادات منصة بحث OS</h1>
             <p className="text-xs text-gray-500 font-medium">
-              التحكم في معلمات الذكاء الاصطناعي، ومراجعة ميثاق وقواعد التحليل الأكاديمي الصارمة.
+              التحكم في معلمات الذكاء الاصطناعي، ومراجعة ميثاق وقواعد التحليل والتوليف الصارمة.
             </p>
           </div>
         </div>
@@ -106,7 +106,7 @@ export default function SettingsView({
                 id="temperature-slider"
               />
               <div className="flex justify-between text-[10px] text-gray-400 font-semibold mt-1">
-                <span>0.0 (دقة متناهية - الأفضل للأكاديميين)</span>
+                <span>0.0 (دقة متناهية - الأفضل للتحليل والدراسات)</span>
                 <span>1.0 (إبداع عالٍ)</span>
               </div>
             </div>
@@ -114,7 +114,7 @@ export default function SettingsView({
             <div className="p-3 bg-teal-50/50 rounded-xl border border-teal-100 text-[11px] text-gray-600 leading-relaxed flex items-start gap-2">
               <Info className="w-4 h-4 text-[#0d6264] flex-shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold text-[#0d6264]">نصيحة بحثية:</span> درجة الحرارة المنخفضة (0.1 - 0.2) تضمن التزام النموذج الصارم بالحقائق المذكورة وتمنعه من تشتيت المقارنات أو اختراع بيانات إحصائية غير مدعومة بالوثائق المرفوعة.
+                <span className="font-bold text-[#0d6264]">نصيحة تحليلية:</span> درجة الحرارة المنخفضة (0.1 - 0.2) تضمن التزام النموذج الصارم بالحقائق المذكورة وتمنعه من تشتيت المقارنات أو اختراع بيانات إحصائية غير مدعومة بالوثائق المرفوعة.
               </div>
             </div>
           </div>
@@ -128,7 +128,7 @@ export default function SettingsView({
           </h2>
 
           <p className="text-[11px] text-gray-500 leading-relaxed">
-            تخضع إجابات بحث OS لمجموعة من القواعد الأكاديمية الصارمة المدمجة في نواته لمنع الهلوسة العلمية وضمان الأمان المعرفي:
+            تخضع إجابات بحث OS لمجموعة من القواعد الصارمة المدمجة في نواته لمنع الهلوسة وضمان الموثوقية المعرفية:
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">

@@ -86,7 +86,7 @@ export function normalizeReportStructure(text: string): string {
 
   // Ensure double newlines before key meta headers
   result = result.replace(/(\s*)(عنوان تقرير التوليف:)/gi, "\n\n$2\n");
-  result = result.replace(/(\s*)(محتوى التقرير الأكاديمي:)/gi, "\n\n$2\n");
+  result = result.replace(/(\s*)(محتوى التقرير الأكاديمي:|محتوى التقرير التوليفي:|محتوى التقرير:)/gi, "\n\n$2\n");
   
   // Ensure double newlines around disclosure banners (توضيح النطاق: or نطاق التقرير:)
   result = result.replace(/([^\n])\s*(توضيح النطاق:|نطاق التقرير:)/gi, "$1\n\n$2");
@@ -534,7 +534,7 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     }
 
     // Meta / Scope disclosure banners
-    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير الأكاديمي:")) {
+    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير التوليفي:") || trimmed.startsWith("محتوى التقرير الأكاديمي:") || trimmed.startsWith("محتوى التقرير:")) {
       flushList(`line-${idx}`);
       elements.push(
         <div key={idx} className="mt-4 mb-2 p-2.5 px-4 bg-[#094d4e]/10 border-r-4 border-[#094d4e] text-[#094d4e] font-extrabold text-xs md:text-sm rounded-lg flex items-center gap-2">
@@ -748,7 +748,7 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
     }
 
     // Meta / Scope disclosure
-    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير الأكاديمي:")) {
+    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير التوليفي:") || trimmed.startsWith("محتوى التقرير الأكاديمي:") || trimmed.startsWith("محتوى التقرير:")) {
       if (inList) {
         bodyHtml += "</ul>\n";
         inList = false;

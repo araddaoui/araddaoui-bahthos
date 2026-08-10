@@ -113,7 +113,7 @@ export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynt
             <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-4">
               <div>
                 <span className="text-[10px] bg-teal-50 text-[#0d6264] px-2 py-0.5 rounded font-bold border border-teal-100">
-                  تقرير توليف أكاديمي محفوظ
+                  تقرير توليف محفوظ
                 </span>
                 <h1 className="text-base font-bold text-[#1f1f1f] mt-1">
                   {activeSyn.title}

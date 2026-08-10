@@ -162,6 +162,38 @@ export async function deleteUserProject(userId: string, projectId: string): Prom
   await deleteDoc(projectDocRef);
 }
 
+// Reusable helper to diff and sync a collection in Firestore
+export async function syncCollection<T extends { id?: string; term?: string }>(
+  userId: string,
+  projectId: string,
+  collectionName: string,
+  items: T[] | undefined
+): Promise<void> {
+  if (items === undefined) return;
+
+  const colRef = collection(db, "users", userId, "projects", projectId, collectionName);
+  const snap = await getDocs(colRef);
+  const getItemId = (item: T): string => item.id || item.term || "";
+  const newIds = new Set(items.map((item) => getItemId(item)));
+
+  const batch = writeBatch(db);
+  snap.forEach((d) => {
+    if (!newIds.has(d.id)) {
+      batch.delete(d.ref);
+    }
+  });
+  await batch.commit();
+
+  for (const item of items) {
+    const docId = getItemId(item);
+    if (!docId) continue;
+    await setDoc(
+      doc(db, "users", userId, "projects", projectId, collectionName, docId),
+      sanitizeForFirestore(item)
+    );
+  }
+}
+
 // Helper to save all documents of a project to Firestore
 export async function saveProjectData(
   userId: string,
@@ -179,69 +211,10 @@ export async function saveProjectData(
   }
   const { sources, messages, syntheses, glossaryTerms } = data;
 
-  if (sources !== undefined) {
-    const colRef = collection(db, "users", userId, "projects", projectId, "sources");
-    const snap = await getDocs(colRef);
-    const newIds = new Set(sources.map((s) => s.id));
-    const batch = writeBatch(db);
-    snap.forEach((d) => {
-      if (!newIds.has(d.id)) {
-        batch.delete(d.ref);
-      }
-    });
-    await batch.commit();
-    for (const source of sources) {
-      await setDoc(doc(db, "users", userId, "projects", projectId, "sources", source.id), sanitizeForFirestore(source));
-    }
-  }
-
-  if (messages !== undefined) {
-    const colRef = collection(db, "users", userId, "projects", projectId, "messages");
-    const snap = await getDocs(colRef);
-    const newIds = new Set(messages.map((m) => m.id));
-    const batch = writeBatch(db);
-    snap.forEach((d) => {
-      if (!newIds.has(d.id)) {
-        batch.delete(d.ref);
-      }
-    });
-    await batch.commit();
-    for (const msg of messages) {
-      await setDoc(doc(db, "users", userId, "projects", projectId, "messages", msg.id), sanitizeForFirestore(msg));
-    }
-  }
-
-  if (syntheses !== undefined) {
-    const colRef = collection(db, "users", userId, "projects", projectId, "syntheses");
-    const snap = await getDocs(colRef);
-    const newIds = new Set(syntheses.map((s) => s.id));
-    const batch = writeBatch(db);
-    snap.forEach((d) => {
-      if (!newIds.has(d.id)) {
-        batch.delete(d.ref);
-      }
-    });
-    await batch.commit();
-    for (const syn of syntheses) {
-      await setDoc(doc(db, "users", userId, "projects", projectId, "syntheses", syn.id), sanitizeForFirestore(syn));
-    }
-  }
-
-  if (glossaryTerms !== undefined) {
-    const colRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
-    const snap = await getDocs(colRef);
-    const newTerms = new Set(glossaryTerms.map((t) => t.term));
-    const batch = writeBatch(db);
-    snap.forEach((d) => {
-      if (!newTerms.has(d.id)) {
-        batch.delete(d.ref);
-      }
-    });
-    await batch.commit();
-    for (const term of glossaryTerms) {
-      await setDoc(doc(db, "users", userId, "projects", projectId, "glossaryTerms", term.term), sanitizeForFirestore(term));
-    }
-  }
+  await syncCollection(userId, projectId, "sources", sources);
+  await syncCollection(userId, projectId, "messages", messages);
+  await syncCollection(userId, projectId, "syntheses", syntheses);
+  await syncCollection(userId, projectId, "glossaryTerms", glossaryTerms);
 }
 
 // Helper to load project state from Firestore

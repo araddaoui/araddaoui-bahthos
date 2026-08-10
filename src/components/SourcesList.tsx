@@ -622,7 +622,7 @@ export default function SourcesList({
           {isSweeping && (
             <div className="bg-[#fcfbf7] border border-[#eae9e2] rounded-xl p-3 flex items-center gap-2.5 text-gray-700 text-[11px] font-medium animate-pulse" id="glossary-sweeping-banner" dir="rtl">
               <Loader2 className="w-4 h-4 animate-spin text-gray-500 flex-shrink-0" />
-              <span>جاري مراجعة وتدقيق المصطلحات عبر مصفوفة التحقق ثنائية الحقول للعمق الأكاديمي...</span>
+              <span>جاري مراجعة وتدقيق المصطلحات عبر مصفوفة التحقق ثنائية الحقول للتحقق الشامل...</span>
             </div>
           )}
           {sweepCorrectionCount !== null && sweepCorrectionCount > 0 && (

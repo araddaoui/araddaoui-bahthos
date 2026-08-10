@@ -127,7 +127,7 @@ export function ensureEverySourceHasTerms(sources: Source[], currentTerms: Gloss
 export default function App() {
   const [showLandingPage, setShowLandingPage] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem("bahthos_entered_app") || localStorage.getItem("tawlif_entered_app");
+      const saved = localStorage.getItem("bahthos_entered_app");
       return saved ? false : true;
     } catch (e) {
       return true;
@@ -157,7 +157,7 @@ export default function App() {
         
         if (cloudProjects.length === 0) {
           // Sync existing localStorage data on initial login
-          const localProjectsStr = localStorage.getItem("bahthos_projects") || localStorage.getItem("tawlif_projects");
+          const localProjectsStr = localStorage.getItem("bahthos_projects");
           let projectsToMigrate: Project[] = [];
           if (localProjectsStr) {
             try {
@@ -178,10 +178,10 @@ export default function App() {
 
           for (const proj of projectsToMigrate) {
             await saveUserProject(currentUser.uid, proj);
-            const savedSources = localStorage.getItem(`bahthos_sources_${proj.id}`) || localStorage.getItem(`tawlif_sources_${proj.id}`);
-            const savedMessages = localStorage.getItem(`bahthos_messages_${proj.id}`) || localStorage.getItem(`tawlif_messages_${proj.id}`);
-            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`) || localStorage.getItem(`tawlif_syntheses_${proj.id}`);
-            const savedGlossary = localStorage.getItem(`bahthos_glossary_${proj.id}`) || localStorage.getItem(`tawlif_glossary_${proj.id}`);
+            const savedSources = localStorage.getItem(`bahthos_sources_${proj.id}`);
+            const savedMessages = localStorage.getItem(`bahthos_messages_${proj.id}`);
+            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`);
+            const savedGlossary = localStorage.getItem(`bahthos_glossary_${proj.id}`);
             
             const localSources = savedSources ? JSON.parse(savedSources) : (proj.id === "default" ? defaultSources : []);
             const localMessages = savedMessages ? JSON.parse(savedMessages) : [];
@@ -212,7 +212,7 @@ export default function App() {
         const cloudTemp = activeProjObj?.temperature ?? 0.2;
 
         // Retrieve local backup from localStorage for activeId
-        const savedLocalSources = localStorage.getItem(`bahthos_sources_${activeId}`) || localStorage.getItem(`tawlif_sources_${activeId}`);
+        const savedLocalSources = localStorage.getItem(`bahthos_sources_${activeId}`);
         const localSourcesParsed: Source[] = savedLocalSources ? JSON.parse(savedLocalSources) : [];
 
         // If cloud sources is empty but local storage has uploaded sources, preserve local sources
@@ -283,7 +283,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Projects list
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
-      const saved = localStorage.getItem("bahthos_projects") || localStorage.getItem("tawlif_projects");
+      const saved = localStorage.getItem("bahthos_projects");
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -306,7 +306,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Active project ID
   const [currentProjectId, setCurrentProjectId] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem("bahthos_current_project_id") || localStorage.getItem("tawlif_current_project_id");
+      const saved = localStorage.getItem("bahthos_current_project_id");
       if (saved) return saved;
     } catch (e) {
       console.error(e);
@@ -343,14 +343,14 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Lazily load sources for the current project
   const [sources, setSources] = useState<Source[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || localStorage.getItem("tawlif_current_project_id") || "default";
-      const saved = localStorage.getItem(`bahthos_sources_${activeId}`) || localStorage.getItem(`tawlif_sources_${activeId}`);
+      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
+      const saved = localStorage.getItem(`bahthos_sources_${activeId}`);
       let rawSources: Source[] = [];
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) rawSources = parsed;
       } else if (activeId === "default") {
-        const legacy = localStorage.getItem("bahthos_sources") || localStorage.getItem("tawlif_sources") || localStorage.getItem("al_dalil_sources");
+        const legacy = localStorage.getItem("bahthos_sources") || localStorage.getItem("al_dalil_sources");
         if (legacy) rawSources = JSON.parse(legacy);
         else rawSources = defaultSources;
       }
@@ -372,14 +372,14 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Lazily load messages for the current project
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || localStorage.getItem("tawlif_current_project_id") || "default";
-      const saved = localStorage.getItem(`bahthos_messages_${activeId}`) || localStorage.getItem(`tawlif_messages_${activeId}`);
+      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
+      const saved = localStorage.getItem(`bahthos_messages_${activeId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
       }
       if (activeId === "default") {
-        const legacy = localStorage.getItem("bahthos_messages") || localStorage.getItem("tawlif_messages") || localStorage.getItem("al_dalil_messages");
+        const legacy = localStorage.getItem("bahthos_messages") || localStorage.getItem("al_dalil_messages");
         if (legacy) return JSON.parse(legacy);
       }
     } catch (e) {
@@ -395,13 +395,13 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Lazily load syntheses for the current project
   const [syntheses, setSyntheses] = useState<Synthesis[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || localStorage.getItem("tawlif_current_project_id") || "default";
-      const savedSources = localStorage.getItem(`bahthos_sources_${activeId}`) || localStorage.getItem(`tawlif_sources_${activeId}`);
+      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
+      const savedSources = localStorage.getItem(`bahthos_sources_${activeId}`);
       const parsedSources = savedSources ? JSON.parse(savedSources) : [];
       if (!Array.isArray(parsedSources) || parsedSources.length === 0) {
         return [];
       }
-      const saved = localStorage.getItem(`bahthos_syntheses_${activeId}`) || localStorage.getItem(`tawlif_syntheses_${activeId}`);
+      const saved = localStorage.getItem(`bahthos_syntheses_${activeId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
@@ -415,11 +415,11 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Lazily load temperature for the current project
   const [temperature, setTemperature] = useState(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || localStorage.getItem("tawlif_current_project_id") || "default";
-      const saved = localStorage.getItem(`bahthos_temperature_${activeId}`) || localStorage.getItem(`tawlif_temperature_${activeId}`);
+      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
+      const saved = localStorage.getItem(`bahthos_temperature_${activeId}`);
       if (saved) return parseFloat(saved);
       if (activeId === "default") {
-        const legacy = localStorage.getItem("bahthos_temperature") || localStorage.getItem("tawlif_temperature") || localStorage.getItem("al_dalil_temperature");
+        const legacy = localStorage.getItem("bahthos_temperature") || localStorage.getItem("al_dalil_temperature");
         if (legacy) return parseFloat(legacy);
       }
     } catch (e) {
@@ -431,13 +431,13 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   // Lazily load glossary terms for the current project
   const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || localStorage.getItem("tawlif_current_project_id") || "default";
-      const savedSources = localStorage.getItem(`bahthos_sources_${activeId}`) || localStorage.getItem(`tawlif_sources_${activeId}`);
+      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
+      const savedSources = localStorage.getItem(`bahthos_sources_${activeId}`);
       const parsedSources = savedSources ? JSON.parse(savedSources) : [];
       if (!Array.isArray(parsedSources) || parsedSources.length === 0) {
         return [];
       }
-      const saved = localStorage.getItem(`bahthos_glossary_${activeId}`) || localStorage.getItem(`tawlif_glossary_${activeId}`);
+      const saved = localStorage.getItem(`bahthos_glossary_${activeId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return cleanAndMigrateGlossary(parsed, parsedSources);
@@ -451,7 +451,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   const [isSweeping, setIsSweeping] = useState(false);
   const [sweepCorrectionCount, setSweepCorrectionCount] = useState<number | null>(null);
 
-  const [stateLoadedFromServer, setStateLoadedFromServer] = useState(false);
   useEffect(() => {
     if (sources.length === 0) {
       if (glossaryTerms.length > 0) setGlossaryTerms([]);
@@ -463,41 +462,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       });
     }
   }, [sources]);
-
-  // Load state from server on startup (for whatever project is loaded)
-  useEffect(() => {
-    const fetchState = async () => {
-      try {
-        const res = await fetch("/api/load-state");
-        if (res.ok) {
-          const data = await res.json();
-          if (data) {
-            const serverSources: Source[] = Array.isArray(data.sources) ? data.sources : [];
-            const serverGlossary: GlossaryTerm[] = Array.isArray(data.glossaryTerms) ? data.glossaryTerms : [];
-
-            if (serverSources.length > 0) {
-              setSources(serverSources);
-              setGlossaryTerms(cleanAndMigrateGlossary(serverGlossary, serverSources));
-            } else {
-              // Server has no sources. Ensure local state also reflects empty glossary if sources is empty
-              setSources((currSources) => {
-                if (currSources.length === 0) {
-                  setGlossaryTerms([]);
-                  setSyntheses([]);
-                }
-                return currSources;
-              });
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load state from server:", err);
-      } finally {
-        setStateLoadedFromServer(true);
-      }
-    };
-    fetchState();
-  }, []);
 
   useEffect(() => {
     const runSweep = async () => {
@@ -613,11 +577,11 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
 
     // 2. Load the new project's state
     try {
-      const savedSources = localStorage.getItem(`bahthos_sources_${newProjectId}`) || localStorage.getItem(`tawlif_sources_${newProjectId}`);
-      const savedMessages = localStorage.getItem(`bahthos_messages_${newProjectId}`) || localStorage.getItem(`tawlif_messages_${newProjectId}`);
-      const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${newProjectId}`) || localStorage.getItem(`tawlif_syntheses_${newProjectId}`);
-      const savedGlossary = localStorage.getItem(`bahthos_glossary_${newProjectId}`) || localStorage.getItem(`tawlif_glossary_${newProjectId}`);
-      const savedTemp = localStorage.getItem(`bahthos_temperature_${newProjectId}`) || localStorage.getItem(`tawlif_temperature_${newProjectId}`);
+      const savedSources = localStorage.getItem(`bahthos_sources_${newProjectId}`);
+      const savedMessages = localStorage.getItem(`bahthos_messages_${newProjectId}`);
+      const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${newProjectId}`);
+      const savedGlossary = localStorage.getItem(`bahthos_glossary_${newProjectId}`);
+      const savedTemp = localStorage.getItem(`bahthos_temperature_${newProjectId}`);
 
       const loadedSources = savedSources ? JSON.parse(savedSources) : [];
       const loadedMessages = savedMessages ? JSON.parse(savedMessages) : [];
@@ -641,13 +605,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       // Close reading view if open
       setSelectedSourceId(null);
       setActiveMainView("chat");
-
-      // Sync active project state to server
-      fetch("/api/save-state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sources: loadedSources, glossaryTerms: loadedGlossary }),
-      }).catch(console.error);
     } catch (e) {
       console.error("Failed to switch project:", e);
     }
@@ -748,8 +705,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           glossaryTerms: []
         });
       }
-
-      fetch("/api/reset-state", { method: "POST" }).catch(console.error);
     } else {
       setProjects(updatedProjects);
 
@@ -776,23 +731,17 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
             setTemperature(nextActiveProject.temperature ?? 0.2);
             setSelectedSourceId(null);
             setActiveMainView("chat");
-
-            fetch("/api/save-state", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sources: cloudSources, glossaryTerms: cloudGlossary }),
-            }).catch(console.error);
           } catch (e) {
             console.error("Failed to load next project from Firestore:", e);
           } finally {
             setIsFirebaseLoading(false);
           }
         } else {
-          const savedSources = localStorage.getItem(`bahthos_sources_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_sources_${nextActiveProject.id}`);
-          const savedMessages = localStorage.getItem(`bahthos_messages_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_messages_${nextActiveProject.id}`);
-          const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_syntheses_${nextActiveProject.id}`);
-          const savedGlossary = localStorage.getItem(`bahthos_glossary_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_glossary_${nextActiveProject.id}`);
-          const savedTemp = localStorage.getItem(`bahthos_temperature_${nextActiveProject.id}`) || localStorage.getItem(`tawlif_temperature_${nextActiveProject.id}`);
+          const savedSources = localStorage.getItem(`bahthos_sources_${nextActiveProject.id}`);
+          const savedMessages = localStorage.getItem(`bahthos_messages_${nextActiveProject.id}`);
+          const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${nextActiveProject.id}`);
+          const savedGlossary = localStorage.getItem(`bahthos_glossary_${nextActiveProject.id}`);
+          const savedTemp = localStorage.getItem(`bahthos_temperature_${nextActiveProject.id}`);
 
           const nextSources = savedSources ? JSON.parse(savedSources) : [];
           const nextMessages = savedMessages ? JSON.parse(savedMessages) : [];
@@ -806,21 +755,10 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           setTemperature(savedTemp ? parseFloat(savedTemp) : 0.2);
           setSelectedSourceId(null);
           setActiveMainView("chat");
-
-          fetch("/api/save-state", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sources: nextSources, glossaryTerms: nextGlossary }),
-          }).catch(console.error);
         }
       } else {
         // Deleted non-active project: keep loadedProjectIdRef intact for current project
         loadedProjectIdRef.current = currentProjectId;
-        fetch("/api/save-state", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sources, glossaryTerms }),
-        }).catch(console.error);
       }
     }
   };
@@ -897,16 +835,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     }
   }, [sources, messages, syntheses, glossaryTerms, temperature, currentUser, currentProjectId, isFirebaseLoading]);
 
-  // Save sources and glossary terms to the server when they change (only if NOT logged in)
-  useEffect(() => {
-    if (stateLoadedFromServer && !currentUser) {
-      fetch("/api/save-state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sources, glossaryTerms }),
-      }).catch((err) => console.error("Failed to save state to server:", err));
-    }
-  }, [sources, glossaryTerms, stateLoadedFromServer, currentUser]);
   const handleResetWorkspace = async () => {
     clearDeletedProjectsRegistry();
     if (currentUser) {
@@ -970,12 +898,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       keysToRemove.forEach((key) => localStorage.removeItem(key));
     } catch (e) {
       console.error(e);
-    }
-
-    try {
-      await fetch("/api/reset-state", { method: "POST" });
-    } catch (err) {
-      console.error("Failed to reset state on server:", err);
     }
 
     // Set ref immediately to allow state saving for "default"
@@ -1119,7 +1041,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     }
 
     setGlossaryTerms((prev) => ensureEverySourceHasTerms(sanitizedSources, prev));
-  }, [sources, stateLoadedFromServer]);
+  }, [sources]);
 
   // Toggle single source checkbox
   const handleToggleSource = (id: string) => {
@@ -1173,13 +1095,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       console.error("Failed to save sources to localStorage:", e);
     }
 
-    // Save immediately to server persistent state
-    fetch("/api/save-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sources: nextSources, glossaryTerms }),
-    }).catch(console.error);
-
     // Save immediately to Firestore
     if (currentUser && currentProjectId) {
       saveProjectData(currentUser.uid, currentProjectId, { sources: nextSources, glossaryTerms }).catch(console.error);
@@ -1227,15 +1142,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         messages: nextSources.length === 0 ? [] : messages
       }).catch(console.error);
     }
-
-    fetch("/api/save-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sources: nextSources,
-        glossaryTerms: nextSources.length === 0 ? [] : nextTerms
-      })
-    }).catch(console.error);
   };
 
   // Delete all research sources completely
@@ -1255,15 +1161,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         messages: []
       }).catch(console.error);
     }
-
-    fetch("/api/save-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sources: [],
-        glossaryTerms: []
-      })
-    }).catch(console.error);
   };
 
   // Select source card for reading

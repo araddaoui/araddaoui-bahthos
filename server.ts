@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import fs from "fs";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
@@ -43,14 +42,12 @@ async function generateContentWithRetry(
     contents: any;
     config?: any;
     systemInstruction?: any;
-  }
+  },
+  res?: any
 ) {
   let attempt = 1;
   const maxAttempts = 3;
-  let currentModel = params.model || "gemini-2.0-flash";
-  if (currentModel.includes("2.5") || currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
-    currentModel = "gemini-2.0-flash";
-  }
+  let currentModel = params.model || "gemini-2.5-flash";
 
   while (true) {
     try {
@@ -88,9 +85,24 @@ async function generateContentWithRetry(
         attempt++;
         const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1000 : 2000);
         
-        currentModel = "gemini-1.5-flash";
-        console.warn(`Attempt ${attempt}: Switching model to ${currentModel} due to ${isQuota ? "429 quota/rate limit" : "503/404/timeout"}. Retrying in ${delay}ms...`);
+        if (currentModel.includes("2.5") || currentModel.includes("3.6") || currentModel.includes("3.5") || currentModel.includes("3.0")) {
+          currentModel = "gemini-2.0-flash";
+        } else {
+          currentModel = "gemini-1.5-flash";
+        }
+
+        console.warn(`[Retry System] Attempt ${attempt}/${maxAttempts}: Retrying request using model '${currentModel}' due to ${isQuota ? "429 quota/rate limit" : "error"}. Retrying in ${delay}ms...`);
         
+        if (res && typeof res.setHeader === "function" && !res.headersSent) {
+          try {
+            res.setHeader("X-Retry-Count", String(attempt - 1));
+            res.setHeader("X-Retried", "true");
+            res.setHeader("X-Model-Used", currentModel);
+          } catch (hErr) {
+            // ignore header errors
+          }
+        }
+
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
@@ -150,7 +162,7 @@ FORMATTING REQUIREMENTS (CRITICAL RULES):
 INTEGRATED SYNTHESIS REQUIREMENT:
 - NEVER output a disjointed list of separate bullet points for each document (e.g., do not just write "Document 1 says X, Document 2 says Y" in isolation).
 - ALWAYS produce a single, unified, fully integrated synthesis that synthesizes evidence from all active documents simultaneously.
-- Organize the findings logically under themed paragraphs or thematic headings rather than listing document summaries sequentially. Your final response must read like a highly polished academic literature review or research synthesis that contrasts and connects different perspectives.
+- Organize the findings logically under themed paragraphs or thematic headings rather than listing document summaries sequentially. Your final response must read like a highly polished synthesis report or research synthesis that contrasts and connects different perspectives.
 
 CITATION MECHANISM:
 When you use information from a specific document, name that document clearly within the sentence itself, not in a separate footnote. Example pattern: "Document 1 states X, while Document 3 notes that this effect is limited to a specific age group."
@@ -266,7 +278,7 @@ app.post("/api/chat", async (req, res) => {
         systemInstruction: mergedSystemInstruction,
         temperature: 0.2,
       },
-    });
+    }, res);
 
     const replyText = normalizeArabicText(response?.text || "المصادر المتاحة لا توفر إجابة كافية حيال هذا السؤال المباشر.");
     return res.json({ text: replyText });
@@ -284,7 +296,7 @@ app.post("/api/chat", async (req, res) => {
     
     if (activeSources.length === 0) {
       return res.json({
-        text: "مرحباً بك. يرجى تفعيل أو رفع وثيقة بحثية واحدة على الأقل في القائمة الجانبية لنتمكن من تحليلها ومقارنتها والإجابة عن سؤالك بدقة أكاديمية."
+        text: "مرحباً بك. يرجى تفعيل أو رفع وثيقة واحدة على الأقل في القائمة الجانبية لنتمكن من تحليلها ومقارنتها والإجابة عن سؤالك بدقة عالية وموضوعية."
       });
     }
 
@@ -302,7 +314,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // Endpoint to extract text and terms from uploaded file or text content
-app.post("/api/extract-text", async (req, res) => {
+app.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => {
   try {
     const { content, base64, mimeType, fileName } = req.body || {};
 
@@ -313,6 +325,14 @@ app.post("/api/extract-text", async (req, res) => {
                    fileName?.toLowerCase().endsWith(".doc");
 
     let parsedContent = content || "";
+    let isLargePdf = false;
+
+    if (isPdf && base64) {
+      const approxSize = Math.floor((base64.length * 3) / 4);
+      if (approxSize > 4_500_000) {
+        isLargePdf = true;
+      }
+    }
 
     // ----- WORD PARSING -----
     if (!parsedContent && isDocx && base64) {
@@ -336,6 +356,7 @@ app.post("/api/extract-text", async (req, res) => {
         console.log(`📄 PDF size: ${buffer.length} bytes (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
 
         if (buffer.length > 4_500_000) {
+          isLargePdf = true;
           console.warn(`⚠️ PDF exceeds 4.5MB – fallback to direct Gemini multimodal parsing`);
         }
 
@@ -409,7 +430,7 @@ app.post("/api/extract-text", async (req, res) => {
             properties: {
               title: { type: Type.STRING, description: "العنوان الرئيسي المفضل للمستند." },
               language: { type: Type.STRING, description: "كود اللغة الأصلي للمستند مثل ar أو en." },
-              summary: { type: Type.STRING, description: "ملخص أكاديمي شامل باللغة العربية الفصحى." },
+              summary: { type: Type.STRING, description: "ملخص تحليلي شامل باللغة العربية الفصحى." },
               extractedText: { type: Type.STRING, description: "النص المستخرج من المستند." },
               terms: {
                 type: Type.ARRAY,
@@ -428,7 +449,7 @@ app.post("/api/extract-text", async (req, res) => {
             required: ["title", "language", "summary", "extractedText", "terms"]
           }
         }
-      });
+      }, res);
 
       let resData: any = {};
       if (response?.text) {
@@ -469,6 +490,12 @@ app.post("/api/extract-text", async (req, res) => {
       return res.json(resData);
     } catch (err: any) {
       console.error("AI Extraction failed:", err);
+      if (isLargePdf && !parsedContent) {
+        return res.status(400).json({
+          error: "This PDF is too large to process. Try uploading a smaller file or paste the text content directly into the chat.",
+          details: err.message || "PDF exceeds 4.5MB limit for direct processing."
+        });
+      }
       return res.json(defaultFallback);
     }
   } catch (err: any) {
@@ -626,9 +653,9 @@ app.post("/api/synthesize", async (req, res) => {
     });
 
     const ai = getAiClient();
-    const systemInstruction = "أنت عالم ومحلل بحثي وأكاديمي خبير في نظام \"بحث OS\" (Bahth OS).\n" +
-"مهمتك إجراء تحليل توليفي وتوثيقي عميق ومقارن للمصادر البحثية المرفقة حول الموضوع المحدد.\n\n" +
-"قواعد صياغة الجودة والأمان الأكاديمي الصارمة (STRICT QUALITY RULES):\n" +
+    const systemInstruction = "أنت عالم ومحلل خبير في نظام \"بحث OS\" (Bahth OS).\n" +
+"مهمتك إجراء تحليل توليفي وتوثيقي عميق ومقارن للمصادر المرفقة حول الموضوع المحدد.\n\n" +
+"قواعد صياغة الجودة والنزاهة التحليلية الصارمة (STRICT QUALITY RULES):\n" +
 "1. **اللغة العربية الفصحى الصافية والتوليف التام (PURE ARABIC SYNTHESIS)**:\n" +
 "   - اكتب بلغة عربية فصيحة سليمة مع مراعاة قواعد المطابقة اللغوية الكاملة.\n" +
 "   - يُحظر حظراً تاماً نقل ملخصات الإنجليزية أو الفرنسية بشكل حرفي أو مقتطع مبتور (مثل \"pays pa...\"). يجب ترجمة وتوليف كافة الأفكار والأدلة والمفاهيم الأجنبية إلى جمل عربية رصينة ومكتملة تماماً.\n" +
@@ -654,7 +681,7 @@ app.post("/api/synthesize", async (req, res) => {
 
     let userPrompt = "";
     if (toolType === "matrix") {
-      userPrompt = "صغ \"مصفوفة الأدلة والتعارضات الأكاديمية\" (Evidence & Contradiction Matrix) بشكل جدول ماركداون (Markdown Table) يتضمن 4 أعمدة فقط وبدون أي أسطر فارغة:\n" +
+      userPrompt = "صغ \"مصفوفة الأدلة والتعارضات\" (Evidence & Contradiction Matrix) بشكل جدول ماركداون (Markdown Table) يتضمن 4 أعمدة فقط وبدون أي أسطر فارغة:\n" +
 "1. **الرقم** (1، 2، 3...)\n" +
 "2. **الوثيقة والمحور الرئيسي** (اسم الوثيقة بالعربية + القضية الجوهرية)\n" +
 "3. **الأدلة والنتائج المؤيدة** (الأدلة الرقمية والمنهجية الموثقة دون تكرار)\n" +
@@ -662,26 +689,26 @@ app.post("/api/synthesize", async (req, res) => {
 "ثم اتبع الجدول بتحليل توليفي ومقارن تفصيلي ومكتمل بين المصادر حول الموضوع: \"" + topicName + "\".\n\n" +
 scopeIntro + sourcesContext;
     } else if (toolType === "gap" || toolType === "gaps") {
-      userPrompt = "صغ \"تقرير فجوات الأدلة الأكاديمية\" (Academic Evidence Gaps Report) حول الموضوع: \"" + topicName + "\" مع الالتزام التام بالفصل الكامل بين الفقرات والعناوين:\n\n" +
+      userPrompt = "صغ \"تقرير فجوات الأدلة\" (Evidence Gaps Report) حول الموضوع: \"" + topicName + "\" مع الالتزام التام بالفصل الكامل بين الفقرات والعناوين:\n\n" +
 "### 1. الفجوات المعرفية والمنهجية المرصودة\n" +
 "اكتب كل فجوة في فقرة أو نقطة مستقلة ومفصلة تماماً (الفجوة 1 في فقرة منفصلة، الفجوة 2 في فقرة جديدة منفصلة...) مع ترك سطرين فارغين بين كل فجوة وأخرى. لا تدمج الفجوات إطلاقاً في سطر واحد أو نقطة واحدة.\n\n" +
-"### 2. الأسئلة البحثية المعلقة والمقترحة مستقبلاً\n" +
-"اكتب كل سؤال بحثي في نقطة رقمية مستقلة ومفصلة تبدأ بـ (1. ، 2. ، 3. ...) مع ترك سطرين فارغين بين كل سؤال وآخر.\n\n" +
+"### 2. الأسئلة المعلقة والمقترحة مستقبلاً\n" +
+"اكتب كل سؤال في نقطة رقمية مستقلة ومفصلة تبدأ بـ (1. ، 2. ، 3. ...) مع ترك سطرين فارغين بين كل سؤال وآخر.\n\n" +
 "### 3. مقترحات المستندات الإضافية المطلوبة لسد الفجوات\n" +
 "اكتب كل مقترح في نقطة مستقلة تبدأ بـ (- لسد فجوة الأدلة المتعلقة بـ...) مع سطرين فارغين بين النقاط.\n\n" +
 scopeIntro + sourcesContext;
     } else if (toolType === "briefing") {
-      userPrompt = "صغ تقريراً موجزاً للسياسات والباحثين (Executive Policy Briefing) يتضمن فقرات ومحاور عربية متكاملة وموسعة:\n\n" +
-"### 1. الملخص التنفيذي للموقف الأكاديمي\n" +
+      userPrompt = "صغ تقريراً موجزاً للسياسات والمحللين (Executive Policy Briefing) يتضمن فقرات ومحاور عربية متكاملة وموسعة:\n\n" +
+"### 1. الملخص التنفيذي للموقف التحليلي\n" +
 "استعرض الملخص بفقرات موسعة ومفصلة توضح تقاطعات الأدلة بين المصادر.\n\n" +
 "### 2. التوصيات العملية الموجهة لصناع القرار\n" +
 "ضع كل توصية في نقطة مستقلة ومفصلة تماماً تبدأ بـ (`- توصية مستندة إلى...`) مع شرح الخطوات والإجراءات الميدانية بدقة، وترك سطرين فارغين بين كل توصية وأخرى. يُحظر حظراً تاماً دمج التوصيات في فقرة واحدة.\n\n" +
 "### 3. التداعيات والآثار الاستراتيجية بعيدة المدى\n" +
-"صغ تحليلاً عميقاً وشاملاً يمتد لعدة نقاط فرعية مستقلة ومفصلة (يشمل: الأثر على التخطيط المؤسسي والسياسات، تطوير الكفاءات وتوجيه العنصر البشري، إدارة المخاطر وتفادي الخسائر، واستدامة معايير الجودة البحثية والتنفيذية)، واشرح كل نقطة باستفاضة ودون اختزال.\n\n" +
+"صغ تحليلاً عميقاً وشاملاً يمتد لعدة نقاط فرعية مستقلة ومفصلة (يشمل: الأثر على التخطيط المؤسسي والسياسات، تطوير الكفاءات وتوجيه العنصر البشري، إدارة المخاطر وتفادي الخسائر، واستدامة معايير الجودة)، واشرح كل نقطة باستفاضة ودون اختزال.\n\n" +
 "الموضوع: \"" + (topic || "الملخص التنفيذي والتوصيات") + "\"\n\n" +
 scopeIntro + sourcesContext;
     } else if (toolType === "faq") {
-      userPrompt = "صغ دليلاً للأسئلة الشائعة والإجابات العلمية الموثقة (Academic FAQ Guide) يطرح أسئلة جوهرية وفريدة عن كل وثيقة وإجابات تفصيلية باللغة العربية الفصحى السلسة.\n\n" +
+      userPrompt = "صغ دليلاً للأسئلة الشائعة والإجابات الموثقة (FAQ Guide) يطرح أسئلة جوهرية وفريدة عن كل وثيقة وإجابات تفصيلية باللغة العربية الفصحى السلسة.\n\n" +
 "شروط صارمة لمنع التكرار:\n" +
 "- يُحظر حظراً تاماً تكرار نفس صيغة السؤال أو نفس الإجابة لأكثر من وثيقة واحدة.\n" +
 "- اشتق زاوية سؤال مختلفة ومتميزة لكل وثيقة (مثل: الإطار النظري والقيمة المنهجية، الأدلة الميدانية، التحديات والحدود التشغيلية، ودور العنصر البشري).\n" +
@@ -689,8 +716,8 @@ scopeIntro + sourcesContext;
 "الموضوع: \"" + (topic || "دليل الأسئلة الشائعة") + "\"\n\n" +
 scopeIntro + sourcesContext;
     } else {
-      userPrompt = "صغ تقريراً تحليلياً وتوليفياً كاملاً ومفصلاً (Full Academic Synthesis Report) حول الموضوع: \"" + topicName + "\" يتضمن الأقسام التالية بفقرات عربية مسترسلة ومتصلة:\n\n" +
-"1. مقدمة وتوطين موضوع البحث\n" +
+      userPrompt = "صغ تقريراً تحليلياً وتوليفياً كاملاً ومفصلاً (Full Synthesis Report) حول الموضوع: \"" + topicName + "\" يتضمن الأقسام التالية بفقرات عربية مسترسلة ومتصلة:\n\n" +
+"1. مقدمة وتوطين موضوع البحث والتحليل\n" +
 "2. القراءة التحليلية المقارنة للمصادر المرفقة (معالجة تفصيلية فريدة لكل وثيقة)\n" +
 "3. نقاط الاتفاق والتكامل المنهجي بين المصادر\n" +
 "4. نقاط الاختلاف والتباين المنهجي (التعارض والتحليل السياقي)\n" +
@@ -800,7 +827,7 @@ ${historyFormatted ? `[سجل الاستفسارات المباشرة الساب
 [سؤال المتابعة الحالي من الباحث]:
 "${question}"
 
-قدم إجابة أكاديمية موثقة ودقيقة وشاملة وغير غامضة تجيب عن هذا السؤال بناءً على التقرير والمصادر.`;
+قدم إجابة موثقة ودقيقة وشاملة وغير غامضة تجيب عن هذا السؤال بناءً على التقرير والمصادر.`;
 
     const response = await generateContentWithRetry(ai, {
       model: "gemini-2.5-flash",
@@ -880,25 +907,25 @@ app.post("/api/extract-glossary", async (req, res) => {
       ? existingTerms.map((t: any) => t.term || t.transliteration || t.verified_term).filter(Boolean).join("، ") 
       : "لا يوجد بعد";
 
-    const prompt = "أنت خبير ومحلل مصطلحي أكاديمي رفيع (Senior Terminological Analyst) في نظام \"بحث OS\".\n" +
-"مهمتك تحليل النص واستخراج قائمة دقيقة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة لدى الباحثين فقط.\n\n" +
+    const prompt = "أنت خبير ومحلل مصطلحي رفيع (Senior Terminological Analyst) في نظام \"بحث OS\".\n" +
+"مهمتك تحليل النص واستخراج قائمة دقيقة للغاية (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts)، والأطر المنهجية (Methodological Frameworks)، والمصطلحات التحليلية المعيارية المعتمدة.\n\n" +
 "طبق القواعد الصارمة التالية:\n" +
-"1. الاقتصار على البناءات النظرية والمفاهيم العلمية المركبة:\n" +
-"   استخرج فقط البناءات النظرية ذات العمق العلمي والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Human Competence, Soft Power, Path Dependence, Structural Realism, Principal-Agent Problem, Process Tracing, Machine Learning).\n" +
+"1. الاقتصار على البناءات النظرية والمفاهيم المركبة:\n" +
+"   استخرج فقط البناءات النظرية ذات العمق والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Human Competence, Soft Power, Path Dependence, Principal-Agent Problem, Process Tracing, Machine Learning).\n" +
 "2. تجريد وحظر أدوات الربط والجسيمات الزائدة والأرقام:\n" +
-"   استخرج الاسم الأكاديمي المعرف السليم دائماً خاوياً من أي حروف زائدة ملتصقة (مثل: استخرج \"الكفاءة البشرية\" وليس \"كالكفاءة البشرية 2،\" ولا \"بالترجمة\" ولا \"للترجمة\"). أحظر تماماً أرقام الصفحات والعلامات الملحقة.\n" +
+"   استخرج الاسم المعرف السليم دائماً خاوياً من أي حروف زائدة ملتصقة (مثل: استخرج \"الكفاءة البشرية\" وليس \"كالكفاءة البشرية 2،\"). أحظر تماماً أرقام الصفحات والعلامات الملحقة.\n" +
 "3. الحظر الصارم للجمل والعبارات اللغوية الشائعة (Linguistic Fragments):\n" +
-"   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: \"both have translatability\", \"results show\", \"in this section\", \"data collected\", \"future studies\").\n" +
-"4. الجودة الصارمة للتعريب والتعريف الأكاديمي:\n" +
+"   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: \"results show\", \"in this section\", \"data collected\", \"future studies\").\n" +
+"4. الجودة الصارمة للتعريب والتعريف الدقيق:\n" +
 "   لكل مصطلح، يجب تقديم المصطلح العربي المعيار المعتمد والمكافئ بدقة في حقل verified_term (يُمنع ترك verified_term باللغة الإنجليزية).\n" +
-"   صغ تعريفاً إجرائياً أكاديمياً حقيقياً شارحاً لجوهره العلمي في جملة واحدة رصينة مفيدة، وتجنب العبارات القالبية الفارغة.\n" +
+"   صغ تعريفاً إجرائياً حقيقياً شارحاً لجوهره في جملة واحدة رصينة مفيدة، وتجنب العبارات القالبية الفارغة.\n" +
 "5. منع التكرار مع المصطلحات السابقة في المشروع:\n" +
 "   يُمنع منعاً باتاً استخراج أو تكرار أي مصطلح أو مفهوم موجود بالفعل في هذه القائمة:\n" +
 "   " + existingTermsStr + "\n\n" +
 "لكل مصطلح مستخرج، عبئ الحقول التالية بالترتيب الدقيق:\n" +
 "1. term: المصطلح الأصلي بالإنجليزية.\n" +
 "2. draft_term: المصطلح العربي المقترح أولياً.\n" +
-"3. definition: تعريف أكاديمي علمي حقيقي ونافع يشرح المفهوم وجوهره في جملة واحدة رصينة.\n" +
+"3. definition: تعريف مفاهيمي دقيق ونافع يشرح المفهوم وجوهره في جملة واحدة رصينة.\n" +
 "4. verified_term: المصطلح العربي النهائي المدقق والمصوب بعد استبدال أي تعريب صوتي بمكافئ عربي فصيح وتجريده من الحروف الزائدة.\n\n" +
 "النص المراد تحليله:\n" +
 text.substring(0, 3500);
@@ -936,7 +963,7 @@ text.substring(0, 3500);
                 },
                 required: ["term", "draft_term", "definition", "verified_term"],
               },
-              description: "قائمة المصطلحات الأكاديمية والتقنية المستخرجة والمصححة بالتحقق ثنائي الحقول.",
+              description: "قائمة المصطلحات والمفاهيم المستخرجة والمصححة بالتحقق ثنائي الحقول.",
             },
           },
           required: ["terms"],
@@ -1005,27 +1032,27 @@ app.post("/api/sweep-glossary", async (req, res) => {
 
   try {
     const ai = getAiClient();
-    const prompt = `أنت خبير في مراجعة وتدقيق المصطلحات الأكاديمية والتقنية في نظام "بحث OS" المخصص لمساعدة الباحثين.
+    const prompt = `أنت خبير في مراجعة وتدقيق المصطلحات والمفاهيم في نظام "بحث OS" المخصص لمساعدة المستخدمين والباحثين والمحللين.
 لقد تم تزويدك بقائمة من المصطلحات المستخرجة مسبقاً. مهمتك هي تطبيق عملية التدقيق الشاملة وتصحيح أي قصور في الترجمة أو التعريفات:
 
 1. تصحيح واستبدال التعريفات القالبية والتكرارية:
-   إذا كان تعريف أي مصطلح يحتوي على عبارات قالبية فارغة من قبيل "مفهوم وأداة تحليلية أكاديمية وردت في السياق حول..." أو "مصطلح محوري تمت مناقشته..."، فيجب عليك فوراً إعادة صياغة التعريف واستبداله بتعريف أكاديمي موضوعي رصين ومكثف (من جملة إلى جملتين) يشرح الجوهر العلمي الدقيق لهذا المفهوم كما في أدبيات التخصص.
+   إذا كان تعريف أي مصطلح يحتوي على عبارات قالبية فارغة من قبيل "مفهوم وأداة تحليلية وردت في السياق حول..." أو "مصطلح محوري تمت مناقشته..."، فيجب عليك فوراً إعادة صياغة التعريف واستبداله بتعريف موضوعي رصين ومكثف (من جملة إلى جملتين) يشرح الجوهر الدقيق لهذا المفهوم.
 2. تصحيح واستبدال أسماء العلوم والتخصصات الكلية العامة:
-   إذا وجد مصطلح عبارة عن مجرد اسم علم عام أو تخصص مجرد (مثل Computer Science, Marketing, Economics, History, Management)، فقم بتعريفه علمياً كمفهوم تحليلي أو إطار تخصصي مع تصحيح التعريف والاسم المعتمد.
+   إذا وجد مصطلح عبارة عن مجرد اسم علم عام أو تخصص مجرد (مثل Computer Science, Marketing, Economics, History, Management)، فقم بتعريفه كمفهوم تحليلي أو إطار تخصصي مع تصحيح التعريف والاسم المعتمد.
 3. مراجعة وتصحيح التعريب الصوتي (Domain-Independent Test):
    اقرأ المصطلح العربي المقترح بمفرده. إذا كان تعريباً صوتياً أو لفظياً (مثل: كونسورتيوم -> اتحاد أو ائتلاف، ليرنينغ موداليتي -> نمط التعلم)، اكتب التعريب العربي الفصيح والمكافئ الحقيقي للمصطلح في verified_term.
 
 لكل مصطلح في القائمة أدناه، أعد تعبئة وتوليد الحقول التالية بدقة:
 1. term: المصطلح الأصلي بالإنجليزية كما هو.
 2. draft_term: المصطلح العربي المقترح حالياً.
-3. definition: التعريف الأكاديمي الشارح والجامع الصريح بعد إزالة العبارات القالبية الفارغة وتوفير شرح علمي حقيقي ومكثف.
-4. verified_term: المصطلح العربي النهائى السليم المعتمد.
+3. definition: التعريف الشارح والجامع الصريح بعد إزالة العبارات القالبية الفارغة وتوفير شرح حقيقي ومكثف.
+4. verified_term: المصطلح العربي النهائي السليم المعتمد.
 
 المصطلحات المراد مراجعتها وتدقيقها:
 ${JSON.stringify(terms, null, 2)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -1048,7 +1075,7 @@ ${JSON.stringify(terms, null, 2)}`;
                   },
                   definition: {
                     type: Type.STRING,
-                    description: "التعريف الأكاديمي للمصطلح باللغة العربية الفصحى.",
+                    description: "التعريف المفاهيمي الشامل للمصطلح باللغة العربية الفصحى.",
                   },
                   verified_term: {
                     type: Type.STRING,
@@ -1087,45 +1114,6 @@ ${JSON.stringify(terms, null, 2)}`;
   } catch (error: any) {
     console.warn("Glossary sweep backend failed:", error);
     res.json({ terms: [] });
-  }
-});
-
-const STATE_FILE_PATH = path.join(process.cwd(), "persistent_state.json");
-
-app.get("/api/load-state", (req, res) => {
-  try {
-    if (fs.existsSync(STATE_FILE_PATH)) {
-      const data = fs.readFileSync(STATE_FILE_PATH, "utf8");
-      return res.json(JSON.parse(data));
-    }
-    return res.json({ sources: null, glossaryTerms: null });
-  } catch (error) {
-    console.error("Error loading state from persistent file:", error);
-    return res.status(500).json({ error: "Failed to load state" });
-  }
-});
-
-app.post("/api/save-state", (req, res) => {
-  const { sources, glossaryTerms } = req.body;
-  try {
-    const data = JSON.stringify({ sources, glossaryTerms }, null, 2);
-    fs.writeFileSync(STATE_FILE_PATH, data, "utf8");
-    return res.json({ success: true });
-  } catch (error) {
-    console.error("Error saving state to persistent file:", error);
-    return res.status(500).json({ error: "Failed to save state" });
-  }
-});
-
-app.post("/api/reset-state", (req, res) => {
-  try {
-    if (fs.existsSync(STATE_FILE_PATH)) {
-      fs.unlinkSync(STATE_FILE_PATH);
-    }
-    return res.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting persistent state file during reset:", error);
-    return res.status(500).json({ error: "Failed to reset state on server" });
   }
 });
 

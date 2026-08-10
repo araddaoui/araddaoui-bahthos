@@ -109,8 +109,8 @@ export default function ChatWindow({
     setUploadStep("جاري قراءة واستخراج النص من المستند...");
 
     try {
-      setTimeout(() => setUploadStep("جاري فحص لغة المستند والترميز الأكاديمي..."), 400);
-      setTimeout(() => setUploadStep("جاري صياغة الملخص الأكاديمي وتفكيك المصطلحات..."), 800);
+      setTimeout(() => setUploadStep("جاري فحص لغة المستند والترميز النصي..."), 400);
+      setTimeout(() => setUploadStep("جاري صياغة الملخص وتفكيك المصطلحات..."), 800);
 
       const parsed = await parseDocumentFile(file);
       let reqBody: any = { 
@@ -177,7 +177,7 @@ export default function ChatWindow({
           label: "أدوات التوليف والمصطلحات",
         },
         {
-          text: "ما هي صيغ ونوعيات الملفات المدعومة للتحليل الأكاديمي؟",
+          text: "ما هي صيغ ونوعيات الملفات المدعومة للتحليل والتوليف؟",
           label: "صيغ الملفات المدعومة",
         },
       ];
@@ -185,7 +185,7 @@ export default function ChatWindow({
       const title = activeSources[0].title || "الوثيقة الأولى";
       return [
         {
-          text: `استخلص الملخص الأكاديمي وأهم النتائج والتوصيات المذكورة في "${title}".`,
+          text: `استخلص الملخص الشامل وأهم النتائج والتوصيات المذكورة في "${title}".`,
           label: "أبرز النتائج والتوصيات",
         },
         {
@@ -296,7 +296,7 @@ export default function ChatWindow({
                 ) : (
                   <div className="space-y-3">
                     <p className="text-xs text-gray-600 leading-relaxed font-medium">
-                      قم برفع ملفات الدراسات الأكاديمية (PDF أو Word أو TXT) لتبدأ عملية المقارنة والتحليل التوليفي الذكي فوراً:
+                      قم برفع المستندات والملفات (PDF أو Word أو TXT) لتبدأ عملية المقارنة والتحليل التوليفي الذكي فوراً:
                     </p>
                     <div className="flex items-center gap-2">
                       <input
