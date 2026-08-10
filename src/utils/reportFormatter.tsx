@@ -113,6 +113,25 @@ export function normalizeReportStructure(text: string): string {
   // Ensure double newlines around section dividers
   result = result.replace(/([^\n])(---)/g, "$1\n\n$2\n\n");
 
+  // Reparagraph dense, monolithic blocks (>260 chars) on sentence boundaries
+  result = result.replace(/([^\n]{260,})/g, (longBlock) => {
+    // Split on sentence boundaries followed by whitespace
+    const sentences = longBlock.split(/(?<=[.؛!؟])\s+/);
+    if (sentences.length <= 1) return longBlock;
+    const chunks: string[] = [];
+    let current = "";
+    for (const sentence of sentences) {
+      if (current.length + sentence.length > 200 && current.length > 80) {
+        chunks.push(current.trim());
+        current = sentence;
+      } else {
+        current = current ? current + " " + sentence : sentence;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.join("\n\n");
+  });
+
   // Normalize max 2 newlines in a row
   result = result.replace(/\n{3,}/g, "\n\n");
 
@@ -702,13 +721,13 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
       flushList(`line-${idx}`);
       const body = trimmed.replace(/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/, "").trim();
       elements.push(
-        <div key={idx} className="mt-2 mb-6 p-4 md:p-5 bg-emerald-50/60 border-r-4 border-r-emerald-600 border border-emerald-200/80 rounded-xl shadow-xs space-y-2">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="bg-emerald-600 text-white px-2.5 py-0.5 rounded text-xs font-black">
-              الإجابة العلمية (ج)
+        <div key={idx} className="mt-2 mb-6 p-4 md:p-5 bg-slate-50/90 border-r-4 border-r-emerald-600 border border-slate-200/90 rounded-xl shadow-2xs space-y-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="bg-emerald-700 text-white px-2.5 py-0.5 rounded text-xs font-bold">
+              الإجابة والتحليل (ج)
             </span>
           </div>
-          <div className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-800 font-normal">
+          <div className="text-xs md:text-sm leading-relaxed md:leading-loose text-slate-800 font-normal">
             {renderInlineMarkdown(body)}
           </div>
         </div>
@@ -719,11 +738,34 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
     // Normal paragraph line
     flushList(`line-${idx}`);
 
-    elements.push(
-      <p key={idx} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 my-4 md:my-5 font-sans tracking-normal">
-        {renderInlineMarkdown(trimmed)}
-      </p>
-    );
+    if (trimmed.length > 280 && /[.؛!؟]\s+/.test(trimmed)) {
+      const parts = trimmed.split(/(?<=[.؛!؟])\s+/);
+      const chunks: string[] = [];
+      let currentChunk = "";
+      for (const p of parts) {
+        if (currentChunk.length + p.length > 220 && currentChunk.length > 80) {
+          chunks.push(currentChunk.trim());
+          currentChunk = p;
+        } else {
+          currentChunk = currentChunk ? currentChunk + " " + p : p;
+        }
+      }
+      if (currentChunk.trim()) chunks.push(currentChunk.trim());
+
+      chunks.forEach((chunk, cIdx) => {
+        elements.push(
+          <p key={`${idx}-p-${cIdx}`} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 my-3 md:my-4 font-sans tracking-normal">
+            {renderInlineMarkdown(chunk)}
+          </p>
+        );
+      });
+    } else {
+      elements.push(
+        <p key={idx} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 my-3 md:my-4 font-sans tracking-normal">
+          {renderInlineMarkdown(trimmed)}
+        </p>
+      );
+    }
   }
 
   flushList("end");

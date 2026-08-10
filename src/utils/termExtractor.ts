@@ -884,17 +884,12 @@ export function areTermsEquivalent(termA: string, termB: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
 
-  // Substring equivalence check for non-trivial terms (> 4 characters)
-  if (a.length > 4 && b.length > 4 && (a.includes(b) || b.includes(a))) {
-    return true;
-  }
-
-  // Compare via scholarly concepts registry (English key or Arabic translation)
+  // Compare via scholarly concepts registry (English key or Arabic translation) with exact equality
   for (const [engKey, meta] of Object.entries(SCHOLARLY_CONCEPTS_REGISTRY)) {
     const keyClean = cleanStr(engKey);
     const arClean = cleanStr(meta.ar);
-    const isAMatch = a === keyClean || a === arClean || (a.length > 4 && (a.includes(keyClean) || a.includes(arClean) || arClean.includes(a)));
-    const isBMatch = b === keyClean || b === arClean || (b.length > 4 && (b.includes(keyClean) || b.includes(arClean) || arClean.includes(b)));
+    const isAMatch = a === keyClean || a === arClean;
+    const isBMatch = b === keyClean || b === arClean;
     if (isAMatch && isBMatch) {
       return true;
     }
@@ -1035,20 +1030,7 @@ export function ensureArabicSummary(summary?: string, title?: string, content?: 
     .replace(/[-]/g, " ")
     .trim();
 
-  const lowerTitle = cleanTitle.toLowerCase();
-
-  // 1. Check if title matches known academic domains for deep, elegant Arabic summaries
-  if (lowerTitle.includes("post human") || lowerTitle.includes("post-human")) {
-    return "تناقش هذه الدراسة موقع المترجم البشري ودوره المحوري في ظل التوسع في استخدام تقنيات الترجمة الآلية ومفاهيم ما بعد الإنسانية. وتركز البحث على قراءة نقدية لإعادة تعريف الكفاءة الترجمية والتحرير البعدي (Post-editing)، مؤكدة أن القيمة الجوهرية للترجمة تتجلى في التأويل الثقافي والتحليل السياقي البشري الذي يعجز الذكاء الاصطناعي عن استبداله.";
-  } else if (lowerTitle.includes("erreur") || lowerTitle.includes("intelligibilité") || lowerTitle.includes("automatique")) {
-    return "يقدم المستند دراسة تقويمية تجريبية تقارن بين جودة الترجمة الآلية والترجمة البشرية، مع التركيز على مقاييس المفهومية وقابلية الفهم (Intelligibilité) وتصنيف الأخطاء التركيبية والدلالية. وتخلص النتائج إلى تفوق العنصر البشري في صياغة الجمل المعقدة والتراكيب المجازية، موضحة حتمية التدخل البشري لتصحيح المخرجات الآلية في النصوص المتخصصة.";
-  } else if (lowerTitle.includes("types") || lowerTitle.includes("versus") || lowerTitle.includes("method")) {
-    return "تستعرض هذه الدراسة مقارنة منهجية بين مختلف أنظمة الترجمة الآلية (القائمة على القواعد، الإحصائية، والشبكات العصبية) ومناهج التقييم المعيارية المتبعة. وتوصي بالابتعاد عن اعتماد نموذج واحد في كافة الحقول، وضرورة تكييف أساليب التقييم وفق طبيعة النص وتخصصه.";
-  } else if (lowerTitle.includes("ameer nawaz") || lowerTitle.includes("evaluating") || lowerTitle.includes("digital technologies")) {
-    return "تجري هذه الدراسة بحثاً تطبيقيًا كمياً لقياس مخرجات أدوات الترجمة بمساعدة الحاسوب (CAT Tools) والتقنيات العصبية لدى عينة من المترجمين الميدانيين. وتثبت النتائج زيادة المردودية والسرعة مع تحسن الاتساق المصطلحي، مشيرة في الوقت ذاته إلى التحديات النفسية والذهنية المرتبطة بعمليات التحرير البعدي.";
-  }
-
-  // 2. If summary exists, strip any raw non-Arabic verbatim quotes or boilerplate headers
+  // 1. If summary exists, strip any raw non-Arabic verbatim quotes or boilerplate headers
   if (summary && summary.trim().length > 15) {
     let cleanSum = summary.trim()
       .replace(/^الإجابة العلمية\s*\(ج\)\s*:\s*\*\*/i, "")
