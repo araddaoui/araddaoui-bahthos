@@ -937,49 +937,50 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
   if (!/[\u0600-\u06FF]/.test(cleanTitle)) {
     let mapped = cleanTitle.toLowerCase();
     const mappings: [RegExp, string][] = [
-      [/uae'?s?\s*regional\s*wars/gi, "الحروب الإقليمية ودور دولة الإمارات"],
-      [/war\s*experiences\s*war\s*practices\s*war\s*theory/gi, "تجارب الحرب وممارساتها ونظرياتها"],
-      [/regional\s*wars/gi, "الحروب والنزاعات الإقليمية"],
-      [/war\s*experiences/gi, "تجارب الحرب والممارسة العسكرية"],
-      [/war\s*practices/gi, "الممارسات والتكتيكات العسكرية"],
-      [/war\s*theory/gi, "النظرية والعقيدة العسكرية"],
-      [/al\s*qaeda|al\s*qaida|aqap/gi, "تنظيم القاعدة"],
-      [/islamic\s*state|isis|isin/gi, "تنظيم الدولة الإسلامية"],
-      [/yemen/gi, "اليمن"],
-      [/battle\s*for\s*local\s*audiences/gi, "الصراع على التأثير الشعبي والجمهور المحلي"],
-      [/counter\s*terrorism|counter-terrorism/gi, "مكافحة الإرهاب"],
-      [/drone\s*strikes/gi, "الضربات الجوية والدرونز"],
-      [/post\s*human|post-human/gi, "عصر ما بعد الإنسانية"],
-      [/machine\s*translation/gi, "الترجمة الآلية"],
-      [/post\s*editing|post-editing/gi, "التحرير اللاحق"],
-      [/pedagogical\s*translation/gi, "الترجمة البيداغوجية"],
-      [/foreign\s*policy/gi, "السياسة الخارجية"],
-      [/sovereignty/gi, "السيادة الوطنية"],
-      [/international\s*relations/gi, "العلاقات الدولية"],
-      [/digital\s*technologies/gi, "التقنيات الرقمية"],
-      [/artificial\s*intelligence/gi, "الذكاء الاصطناعي"],
-      [/corporate\s*governance/gi, "الحوكمة المؤسسية"],
-      [/disruptive\s*innovation/gi, "الابتكار الإرباكي"],
-      [/supply\s*chain/gi, "سلاسل الإمداد والتوريد"],
-      [/strategic\s*management/gi, "الإدارة الاستراتيجية"],
-      [/agenda\s*setting/gi, "ترتيب الأولويات الإعلامية"],
-      [/framing\s*theory/gi, "التأطير الإعلامي"],
-      [/investigative\s*journalism/gi, "الصحافة الاستقصائية"],
-      [/hermeneutics/gi, "الهرمنيوطيقا والتأويل"],
-      [/social\s*cohesion/gi, "التماسك الاجتماعي"],
-      [/behavioral\s*economics/gi, "الاقتصاد السلوكي"],
+      [/uae'?s?\s*regional\s*wars/gi, "الحروب الإقليمية ودور دولة الإمارات العربية المتحدة في التدخلات والتحالفات المسلحة"],
+      [/war\s*experiences\s*war\s*practices\s*war\s*theory/gi, "التفاعل المفهومي بين تجارب الحرب والممارسات التكتيكية والعقيدة النظرية للعسكرية المعاصرة"],
+      [/regional\s*wars/gi, "استراتيجيات وديناميات النزاعات والحروب الإقليمية"],
+      [/war\s*experiences/gi, "الخبرة العسكرية والتجارب الميدانية للقتال"],
+      [/war\s*practices/gi, "الممارسات والتكتيكات العسكرية الميدانية"],
+      [/war\s*theory/gi, "النظرية الفلسفية والعقيدة القتالية العسكرية"],
+      [/military\s*power/gi, "مكونات وأبعاد القوة العسكرية الشاملة والقدرات الدفاعية والتنافس الاستراتيجي"],
+      [/al\s*qaeda|al\s*qaida|aqap/gi, "استراتيجيات تنظيم القاعدة وديناميات تحركاته المسلحة"],
+      [/islamic\s*state|isis|isin/gi, "تنظيم الدولة الإسلامية وصراعات السيطرة"],
+      [/yemen/gi, "السياق الجيوسياسي وديناميات الصراع المسلح في اليمن"],
+      [/battle\s*for\s*local\s*audiences/gi, "التنافس على التأثير الحشدوي والجمهور المحلي في مناطق النزاع"],
+      [/counter\s*terrorism|counter-terrorism/gi, "سياسات واستراتيجيات مكافحة الإرهاب والعمليات الخاصة"],
+      [/drone\s*strikes/gi, "الضربات الجوية بالطيران المسير واستجابات الأهداف الميدانية"],
+      [/post\s*human|post-human/gi, "مفاهيم ما بعد الإنسانية والتحول التكنولوجي في الاتصال والترجمة"],
+      [/machine\s*translation/gi, "تقنيات الترجمة الآلية النيورونية معالجة النصوص"],
+      [/post\s*editing|post-editing/gi, "إدارة عمليات التحرير البعدي وتأهيل العنصر البشري"],
+      [/pedagogical\s*translation/gi, "التطبيقات البيداغوجية والتعليمية للترجمة"],
+      [/foreign\s*policy/gi, "محددات وتوجهات السياسة الخارجية للدول"],
+      [/sovereignty/gi, "أبعاد السيادة الوطنية والتحديات الدولية"],
+      [/international\s*relations/gi, "تحولات العلاقات الدولية وتوازنات القوى"],
+      [/digital\s*technologies/gi, "تأثير التقنيات الرقمية والحلول الذكية"],
+      [/artificial\s*intelligence/gi, "تطبيقات الذكاء الاصطناعي والأوتوماتيكية"],
+      [/corporate\s*governance/gi, "أطر الحوكمة المؤسسية والشفافية الهيكلية"],
+      [/disruptive\s*innovation/gi, "استراتيجيات الابتكار الإرباكي والميزة التنافسية"],
+      [/supply\s*chain/gi, "مرونة سلاسل الإمداد والتوريد في الأزمات"],
+      [/strategic\s*management/gi, "مبادئ الإدارة الاستراتيجية والتخطيط المرن"],
+      [/agenda\s*setting/gi, "نظرية ترتيب الأولويات وبناء الأجندة الإعلامية"],
+      [/framing\s*theory/gi, "التأطير الإعلامي وتوجيه اتجاهات الرأي العام"],
+      [/investigative\s*journalism/gi, "الصحافة الاستقصائية ومعايير التحقق والتغطية"],
+      [/hermeneutics/gi, "المناهج الهرمنيوطيقية والتأويل النادي للنصوص"],
+      [/social\s*cohesion/gi, "مؤشرات التماسك الاجتماعي والاستقرار المجتمعي"],
+      [/behavioral\s*economics/gi, "مبادئ الاقتصاد السلوكي ورسم القرارات"],
     ];
 
     mappings.forEach(([rgx, ar]) => {
       mapped = mapped.replace(rgx, ar);
     });
 
-    // Clean up leftover punctuation
+    // Clean up leftover punctuation and filler
     mapped = mapped.replace(/[._\-]+/g, " ").replace(/\s+/g, " ").trim();
-    if (/[\u0600-\u06FF]/.test(mapped)) {
+    if (/[\u0600-\u06FF]/.test(mapped) && mapped.length > 5) {
       arabicTitle = mapped;
     } else {
-      arabicTitle = `مضمون مستند "${cleanTitle}"`;
+      arabicTitle = `الموضوع التخصصي لمستند "${cleanTitle}"`;
     }
   }
 
@@ -1033,7 +1034,11 @@ export function ensureArabicSummary(summary?: string, title?: string, content?: 
     let cleanSum = summary.trim()
       .replace(/^الإجابة العلمية\s*\(ج\)\s*:\s*\*\*/i, "")
       .replace(/^\*\*\s*/, "")
-      .replace(/يقدم هذا المستند دراسة تحليلية رصينة تتناول موضوع \([^)]+\)، مع استعراض الأطر المنهجية والمفاهيم الأساسية المرتبطة به ومناقشة أبعاده (الأكاديمية|التحليلية)? باللغة العربية\.?/g, "")
+      .replace(/يقدم هذا المستند دراسة تحليلية رصينة تتناول موضوع \([^)]*\)/g, "")
+      .replace(/تناقش موضوع \([^)]*\)/g, "")
+      .replace(/تناقش موضوع/g, "")
+      .replace(/\(\s*\)/g, "")
+      .replace(/الموضوع المنهجي والأمني المحدد في الدراسة/g, "")
       .trim();
 
     cleanSum = cleanBibliographicClutterAndNormalizeArabic(cleanSum);
@@ -1042,6 +1047,9 @@ export function ensureArabicSummary(summary?: string, title?: string, content?: 
     cleanSum = cleanSum.replace(/:\s*[A-Za-z0-9\s.,'’"()\-\/]{20,}\.\.\./g, ".");
     cleanSum = cleanSum.replace(/[A-Za-z0-9\s.,'’"()\-\/]{35,}/g, "").trim();
     cleanSum = cleanSum.replace(/:\s*$/g, ".").trim();
+
+    // Remove any leftover empty brackets or orphaned "تناقش موضوع"
+    cleanSum = cleanSum.replace(/تناقش\s+موضوع\s*\.?/g, "").replace(/\(\s*\)/g, "").trim();
 
     const arabicCharCount = (cleanSum.match(/[\u0600-\u06FF]/g) || []).length;
     if (cleanSum.length > 25 && arabicCharCount > 15) {
