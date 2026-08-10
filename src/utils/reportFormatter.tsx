@@ -75,6 +75,9 @@ export function normalizeReportStructure(text: string): string {
   result = result.replace(/^(\s*)\*\*([^*:\n]+:)\s*([^*]{30,})\*\*/gm, "$1**$2** $3");
 
   // Clean and preserve markdown tables: group consecutive lines with pipes '|' together without interior blank lines
+  // Merge table rows separated by empty lines into a single contiguous table block
+  result = result.replace(/(\|[^\n]+\|)[ \t]*\n+[ \t]*(?=\|[^\n]+\|)/g, "$1\n");
+
   result = result.replace(/(?:^[ \t]*\|[^\n]+\n?)+/gm, (tableBlock) => {
     const cleanRows = tableBlock
       .split("\n")
@@ -310,6 +313,13 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
   });
 }
 
+const DEFAULT_MATRIX_HEADERS = [
+  "الرقم",
+  "الوثيقة والمحور الرئيسي",
+  "الأدلة والنتائج المؤيدة",
+  "التباين والتحليل النقدي",
+];
+
 /**
  * Helper to clean and parse a block of markdown table lines into header cells and data rows.
  * Strips delimiter lines, removes artifacts, normalizes columns to max 4.
@@ -333,53 +343,78 @@ function parseTableBlock(tableLines: string[]) {
     return cells;
   };
 
-  // Filter out pure delimiter/alignment rows (e.g. | :--- | :--- | or : | or | --- | or empty cells)
+  const isMeaningfulRow = (rowCells: string[]): boolean => {
+    if (!rowCells || rowCells.length === 0) return false;
+    return rowCells.some((cell) => {
+      const stripped = cell.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s:\-|_.*•]/g, "");
+      return stripped.length > 0;
+    });
+  };
+
+  // Filter out pure delimiter/alignment rows (e.g. | :--- | :--- | or empty cells)
   const contentRowsStr = tableLines.filter((line) => {
     const cells = parseRow(line);
-    if (cells.length === 0) return false;
-    const isAllDelimiters = cells.every((c) => {
-      const stripped = c.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s:\-|_]/g, "");
-      return stripped.length === 0;
-    });
-    return !isAllDelimiters;
+    return isMeaningfulRow(cells);
   });
 
   if (contentRowsStr.length === 0) {
     return { headerCells: [], rows: [] };
   }
 
-  // The first non-delimiter row is ALWAYS the header row!
-  let headerCells = parseRow(contentRowsStr[0]);
-  
-  // Clean header cells from any disclosure banner text residue
-  headerCells = headerCells.map((hCell) => {
-    return hCell
-      .replace(/^.*?(توضيح النطاق:|نطاق التقرير:)[^|]*?(?=\bالرقم\b|\bالوثيقة\b|\bالمستند\b|\bالمحور\b|$)/gi, "")
-      .trim() || hCell;
-  });
+  const rawRow0 = parseRow(contentRowsStr[0]);
+  const row0Joined = rawRow0.join(" ").toLowerCase();
 
-  let dataRowsStr = contentRowsStr.slice(1);
+  // Check if first row is a genuine header row or a data row
+  const isRealHeader =
+    !/^\s*[\d١-٩]+\s*$/.test(rawRow0[0] || "") &&
+    (row0Joined.includes("الرقم") ||
+      row0Joined.includes("الوثيقة") ||
+      row0Joined.includes("المستند") ||
+      row0Joined.includes("الأدلة") ||
+      row0Joined.includes("النتائج") ||
+      row0Joined.includes("التباين") ||
+      row0Joined.includes("المحور") ||
+      row0Joined.includes("title") ||
+      row0Joined.includes("document") ||
+      row0Joined.includes("evidence") ||
+      row0Joined.includes("analysis") ||
+      row0Joined.includes("header") ||
+      row0Joined.includes("#"));
+
+  let headerCells: string[] = [];
+  let dataRowsLines: string[] = [];
+
+  if (isRealHeader) {
+    headerCells = rawRow0.map((hCell) => {
+      return hCell
+        .replace(/^.*?(توضيح النطاق:|نطاق التقرير:)[^|]*?(?=\bالرقم\b|\bالوثيقة\b|\bالمستند\b|\bالمحور\b|$)/gi, "")
+        .trim() || hCell;
+    });
+    dataRowsLines = contentRowsStr.slice(1);
+  } else {
+    // If first row is actually a data row, supply standard 4 matrix headers
+    headerCells = [...DEFAULT_MATRIX_HEADERS];
+    dataRowsLines = contentRowsStr;
+  }
 
   if (headerCells.length > 4) {
     headerCells = headerCells.slice(0, 4);
   }
 
-  const rows = dataRowsStr
-    .map(parseRow)
-    .map((rowCells) => {
-      if (rowCells.length > headerCells.length) {
-        return rowCells.slice(0, headerCells.length);
-      }
-      while (rowCells.length < headerCells.length) {
-        rowCells.push("");
-      }
-      return rowCells;
-    })
-    .filter((rowCells) =>
-      rowCells.some((cell) =>
-        cell.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s:\-|_]/g, "").length > 0
-      )
-    );
+  const rows: string[][] = [];
+
+  for (const rowLine of dataRowsLines) {
+    let rowCells = parseRow(rowLine);
+    if (!isMeaningfulRow(rowCells)) continue;
+
+    if (rowCells.length > headerCells.length) {
+      rowCells = rowCells.slice(0, headerCells.length);
+    }
+    while (rowCells.length < headerCells.length) {
+      rowCells.push("");
+    }
+    rows.push(rowCells);
+  }
 
   return { headerCells, rows };
 }
@@ -511,11 +546,28 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
 
     // Check if line is a table row
     const cleanTableLine = trimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
-    if (cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2) {
+    const isTableLine = cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2;
+
+    if (isTableLine) {
       flushList(`line-${idx}`);
       currentTableLines.push(cleanTableLine);
       continue;
     } else {
+      if (!trimmed && currentTableLines.length > 0) {
+        let hasMoreTableLinesAhead = false;
+        for (let j = idx + 1; j < lines.length; j++) {
+          const nextTrimmed = lines[j].trim();
+          if (!nextTrimmed) continue;
+          const nextClean = nextTrimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+          if (nextClean.startsWith("|") && (nextClean.match(/\|/g) || []).length >= 2) {
+            hasMoreTableLinesAhead = true;
+          }
+          break;
+        }
+        if (hasMoreTableLinesAhead) {
+          continue;
+        }
+      }
       flushTable(`line-${idx}`);
     }
 
@@ -714,11 +766,13 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
     }
   };
 
-  lines.forEach((line) => {
+  lines.forEach((line, lineIdx) => {
     const trimmed = line.trim();
 
     const cleanTableLine = trimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
-    if (cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2) {
+    const isTableLine = cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2;
+
+    if (isTableLine) {
       if (inList) {
         bodyHtml += "</ul>\n";
         inList = false;
@@ -726,6 +780,21 @@ export function markdownToWordHtml(title: string, markdownText: string): string 
       currentTableLines.push(cleanTableLine);
       return;
     } else {
+      if (!trimmed && currentTableLines.length > 0) {
+        let hasMoreTableLinesAhead = false;
+        for (let j = lineIdx + 1; j < lines.length; j++) {
+          const nextTrimmed = lines[j].trim();
+          if (!nextTrimmed) continue;
+          const nextClean = nextTrimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+          if (nextClean.startsWith("|") && (nextClean.match(/\|/g) || []).length >= 2) {
+            hasMoreTableLinesAhead = true;
+          }
+          break;
+        }
+        if (hasMoreTableLinesAhead) {
+          return;
+        }
+      }
       flushTable();
     }
 
