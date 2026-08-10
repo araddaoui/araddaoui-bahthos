@@ -35,7 +35,7 @@ const initialSyntheses: Synthesis[] = [];
 
 // Helper to clean phonetic transliterations of academic/technical terms to real Arabic equivalents
 export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[]): GlossaryTerm[] {
-  if (!terms || !Array.isArray(terms) || terms.length === 0) return [];
+  if (!terms || !Array.isArray(terms)) terms = [];
 
   // If sources array is provided and empty, return [] immediately to prevent lingering contamination
   if (sources && Array.isArray(sources) && sources.length === 0) return [];
@@ -87,6 +87,14 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
       );
       if (!isDuplicate) {
         sourceCounts[sId] = currentCount + 1;
+        const cleanDef = (t.definition &&
+          !t.definition.includes('""') &&
+          !t.definition.includes(':\s*""') &&
+          !t.definition.includes("مفهوم تحليلي يُقصد به في النص: \"\"") &&
+          t.definition.length > 25)
+          ? spellcheckAndRepairArabicAndEnglishText(t.definition)
+          : buildContextDefinition(eng, "", ar);
+
         cappedTerms.push({
           ...t,
           sourceId: sId,
@@ -94,10 +102,24 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
           draft_term: sanitized.draft_term,
           verified_term: ar,
           transliteration: ar,
-          definition: (t.definition && !t.definition.includes("مفهوم تحليلي وإطار نظري") && t.definition.length > 25)
-            ? spellcheckAndRepairArabicAndEnglishText(t.definition)
-            : buildContextDefinition(eng, "", ar),
+          definition: cleanDef,
         });
+      }
+    }
+  }
+
+  // Backfill genuine concepts for any active source that has fewer than 2 terms
+  if (sources && Array.isArray(sources)) {
+    for (const src of sources) {
+      const count = sourceCounts[src.id] || 0;
+      if (count < 2) {
+        const fallbacks = extractFallbackTermsFromText(src.content || "", src.id, src.title, cappedTerms);
+        for (const fb of fallbacks) {
+          if ((sourceCounts[src.id] || 0) < 3) {
+            cappedTerms.push(fb);
+            sourceCounts[src.id] = (sourceCounts[src.id] || 0) + 1;
+          }
+        }
       }
     }
   }

@@ -133,13 +133,36 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
+  // Reject terms ending with prepositions, conjunctions, or trailing verbs ("and", "or", "of", "in", "for", "on", "with", "by", "from", "at", "source", "author", "reshapes", "missed")
+  if (/\b(and|or|of|in|for|on|with|by|from|at|source|author|reshapes|missed|shaping|reshaping|seeking|rethinking|understanding)\s*$/i.test(cleanTerm)) {
+    return true;
+  }
+
+  // Reject terms starting with fragment verbs / articles / pronouns ("war reshapes", "missed the", "the myth of", "why we", "how war", "how the", "where is", "when the")
+  if (/^(war reshapes|missed the|the myth of|why we|how war|how the|what is|where is|when the|eleonora|gregory|gause)\b/i.test(cleanTerm)) {
+    return true;
+  }
+
+  // Reject specific scholar names, author names, proper personal names
+  const scholarAndAuthorNames = [
+    "eleonora ardemagni", "ardemagni", "gregory gause", "gause", "gregory gause iii", "gause iii",
+    "elizabeth kendall", "kendall", "bernard lewis", "lewis", "joseph nye", "nye", "roberts to", "roberts",
+    "david b", "david", "tamim", "emir tamim", "john", "smith", "keohane", "waltz", "mearsheimer",
+    "huntington", "fukuyama", "morgenthau", "bull", "wendt", "walt", "kissinger", "weber", "chomsky",
+    "bourdieu", "foucault", "derrida", "habermas", "said", "lynch", "marc lynch", "barnett",
+    "michael barnett", "telhami", "shibley telhami", "nawaz", "ameer nawaz"
+  ];
+  if (scholarAndAuthorNames.some((sa) => cleanTerm === sa || cleanTerm.startsWith(sa + " ") || cleanTerm.endsWith(" " + sa) || cleanTerm.includes("gause") || cleanTerm.includes("ardemagni"))) {
+    return true;
+  }
+
   // Contains citation numbers, ISSN, DOI, URLs, page ranges, or header symbols
   if (/[0-9]|issn|doi|http|www|vol|n°|\bno\b|pp\.|isbn|journal|college|university|press|comillas|london|edited|published|accessed|downloaded/i.test(cleanTerm)) {
     return true;
   }
 
   // Reject citation verbs and author attribution fragments
-  if (/\b(cite|citation|cited|author|edited|published|publisher|copyright|rights reserved|et al|ibid|op cit|translator|translated)\b/i.test(cleanTerm)) {
+  if (/\b(cite|citation|cited|author|edited|published|publisher|copyright|rights reserved|et al|ibid|op cit|translator|translated|source|volume|issue|proceedings)\b/i.test(cleanTerm)) {
     return true;
   }
 
@@ -191,15 +214,7 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
-  // Reject specific scholar names, author names, proper personal names
-  const scholarAndAuthorNames = [
-    "joseph nye", "nye", "roberts to", "roberts", "david b", "david", "tamim", "emir tamim", "john", "smith", "keohane", "waltz", "mearsheimer", "huntington", "fukuyama", "morgenthau", "bull", "wendt"
-  ];
-  if (scholarAndAuthorNames.some((sa) => cleanTerm === sa || cleanTerm.startsWith(sa + " ") || cleanTerm.endsWith(" " + sa))) {
-    return true;
-  }
-
-  // Reject geographical regions, country names, city names
+  // Reject geographical regions, country names, city names standalone
   const geographicalAndPlaces = [
     "middle east", "qatar", "doha", "london", "al udeid", "as sayliyah", "sayliyah", "udeid", "united states", "europe", "asia", "latin america", "persian gulf", "arabian gulf", "الشرق الأوسط", "قطر", "الدوحة", "لندن", "واشنطن"
   ];
@@ -207,10 +222,14 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
-  // Check definition for actual citation/footer/header garbage or page ranges (e.g. 567-580)
+  // Check definition for actual citation/footer/header garbage, page ranges, or empty quotes
   if (definition) {
     const cleanDef = normalizeArabicText(definition).toLowerCase();
     if (
+      cleanDef.length < 15 ||
+      cleanDef.includes('""') ||
+      cleanDef.includes(":\s*\"\"") ||
+      cleanDef.includes("مفهوم تحليلي يُقصد به في النص: \"\"") ||
       /issn|doi|n°|001-|[0-9]{3,}|journal of|all rights reserved|executive summary|full terms|cite this article|http|\b\d{1,4}\s*[-–—]\s*\d{1,4}\b/i.test(cleanDef) ||
       cleanDef.includes("جامعة") || cleanDef.includes("أنموذجا") || cleanDef.includes("أنموذجاً") || cleanDef.includes("سنة أولى") || cleanDef.includes("تدريس الترجمة في ظل") || cleanDef.includes("567")
     ) {
@@ -570,7 +589,103 @@ export const SCHOLARLY_CONCEPTS_REGISTRY: Record<string, ScholarlyConceptMeta> =
     def: "حقل متقدم في علوم الحاسوب يهدف إلى بناء أنظمة وخوارزميات قادرة على محاكاة القدرات المعرفية البشرية، كالتحليل والتعلم والاستنتاج."
   },
 
-  // International Relations & Political Science
+  // International Relations, Geopolitics & Political Science
+  "authoritarian stability": {
+    ar: "الاستقرار الاستبدادي",
+    def: "مفهوم تحليلي يدرس الآليات والترتيبات المؤسسية والأمنية والمالية التي تعتمدها الأنظمة غير الديمقراطية لإدارة التهديدات وضمان استمراريتها وبقائها."
+  },
+  "authoritarian resilience": {
+    ar: "المرونة الاستبدادية",
+    def: "قدرة الأنظمة الاستبدادية على التكيف مع الأزمات الداخلية والضغوط الخارجية عبر مزيج من إعادة توزيع الموارد، والإصلاح الشكلي، والقمع السلس."
+  },
+  "rentier state theory": {
+    ar: "نظرية الدولة الريعية",
+    def: "نموذج نظري في الاقتصاد السياسي يفسر سلوك الدولة المستندة أساساً إلى العوائد الخارجية والنفطية، حيث تقل الحاجة للضرائب وبالتالي لتمثيل المواطنين."
+  },
+  "rentierism": {
+    ar: "الريعية السياسية والاقتصادية",
+    def: "منظومة علاقات اقتصادية وسياسية تعتمد على التوزيع المباشر للريع الخارجي لشراء الولاءات وتحقيق التضامن الاجتماعي وبقاء السلطة."
+  },
+  "asymmetric warfare": {
+    ar: "الحرب غير المتكافئة",
+    def: "نمط من الصراعات المسلحة يقع بين أطراف تتفاوت قدراتها العسكرية وتكنولوجيا قتالها بشكل حاد، مما يدفع الطرف الأضعف لتوظيف استراتيجيات غير تقليدية."
+  },
+  "proxy warfare": {
+    ar: "حرب الوكالة",
+    def: "استراتيجية عسكرية وسياسية تعتمد فيها القوى الإقليمية أو الدولية على فاعلين من غير الدول أو حلفاء محليين لإدارة الصراع نيابة عنها وتقليل التكلفة المباشرة."
+  },
+  "proxy conflict": {
+    ar: "الصراع بالوكالة",
+    def: "نزاع مسلح تُديره أو تغذيه أطراف خارجية عبر دعم فصائل أو حلفاء محليين دون الانخراط المباشر الشامل للقوى الكبرى."
+  },
+  "security dilemma": {
+    ar: "المعضلة الأمنية",
+    def: "مفهوم نظري محوري يفيد بأن إجراءات دولة ما لتعزيز أمنها قد يُفسرها الجيران كتهديد مباشر، مما يدفعهم لردود فعل دفاعية تزيد من حالة عدم الاستقرار."
+  },
+  "deterrence theory": {
+    ar: "نظرية الردع",
+    def: "إستراتيجية قائمة على منع الخصم من اتخاذ سلوك هجومي عبر إقناعه بأن التكلفة والخسائر المتوقعة ستتجاوز أي مكاسب محتملة."
+  },
+  "hybrid warfare": {
+    ar: "الحرب الهجينة",
+    def: "إستراتيجية صراع متكاملة تمزج بين الأدوات العسكرية التقليدية، والحروب السيبرانية، والحملات الإعلامية، والضغوط الاقتصادية لتحقيق أهداف جيوسياسية."
+  },
+  "regional hegemony": {
+    ar: "الهيمنة الإقليمية",
+    def: "حالة يفرض فيها فاعل دولي أو إقليمي نفوذه وقدراته العسكرية والاقتصادية والسياسية ليصبح القوة المهيمنة الرئيسية في نطاقه الجغرافي."
+  },
+  "patron-client relations": {
+    ar: "علاقات التبعية والزبائنية",
+    def: "شبكة روابط وتبادل غير متكافئة بين فاعل أقوى (المتبوع) يقدم الحماية والموارد، وفاعل أضعف (الزبون) يقدم الولاء والدعم السياسي."
+  },
+  "sectarianization": {
+    ar: "الهندسة الطائفية (التطييف)",
+    def: "عملية سياسية واجتماعية تُوظف فيها الهويات الدينية أو الطائفية عمداً من قبل الفاعلين السياسييين لشرعنة السلطة وتعبئة الأتباع وتأطير الصراعات."
+  },
+  "power transition theory": {
+    ar: "نظرية تحول القوة",
+    def: "إطار نظري يدرس دورات صعود وهبوط القوى الكبرى والإقليمية، مؤكداً أن احتمال الحروب الشاملة يزداد عندما تقترب القوى الصاعدة من موازاة القوة المهيمنة."
+  },
+  "competitive authoritarianism": {
+    ar: "الاستبدادية التنافسية",
+    def: "نظام سياسي هجين تتواجد فيه مؤسسات ديمقراطية شكلية مثل الانتخابات، لكن السلطة تستغل موارد الدولة للحياد بالعملية ومنع التداول الحقيقي."
+  },
+  "regime survival": {
+    ar: "بقاء النظام السياسـي",
+    def: "مجموعة الاستراتيجيات الأمنية والسياسية والاقتصادية التي تتخذها قيادة الدولة لضمان استمراريتها في وجه التهديدات الداخلية والخارجية."
+  },
+  "institutional resilience": {
+    ar: "المرونة المؤسسية",
+    def: "قدرة المؤسسات السياسية والاجتماعية على امتصاص الصدمات المتكررة والأزمات الهيكلية والتكيف مع التغيرات دون انهيار النظام."
+  },
+  "resource curse": {
+    ar: "لعنة الموارد",
+    def: "ظاهرة اقتصادية وسياسية تفيد بأن البلدان الغنية بالموارد الطبيعية كالنفط تميل لمعاناة نمو اقتصادي أقل ومستويات استبداد أعلى مقارنة بغيرها."
+  },
+  "strategic autonomy": {
+    ar: "الاستقلالية الاستراتيجية",
+    def: "قدرة الدولة على اتخاذ قرارات سياسية وأمنية وعسكرية مستقلة وتنفيذها دون الاعتماد المفرط على التحالفات والقوى الخارجية."
+  },
+  "geopolitics": {
+    ar: "الجيوسياسية (الجغرافيا السياسية)",
+    def: "دراسة أثر الموارد والتضاريس والموقع الجغرافي للدول في تشكيل سلوكها السياسي وعلاقاتها الدولية واستراتيجياتها الأمنية."
+  },
+  "state capacity": {
+    ar: "قدرة الدولة المؤسسية",
+    def: "مدى قدرة مؤسسات الدولة على تنفيذ سياستها العامة وفرض سيادة القانون وجباية الموارد وتقديم الخدمات لجميع مواطنيها."
+  },
+  "securitization": {
+    ar: "الأمننة (التسييس الأمني)",
+    def: "عملية تحويل قضية سياسية أو اجتماعية عادية إلى تهديد وجودي عاجل عبر الخطاب الرسمي، مما يسوغ استخدام إجراءات استثنائية خارجة عن المألوف."
+  },
+  "arab spring": {
+    ar: "الحراك العربي (الثورات العربية)",
+    def: "موجة الاحتجاجات الشعبية والانتفاضات السياسية التي شهدتها منطقة الشرق الأوسط وشمال أفريقيا منذ عام 2011 لإعادة تشكيل العلاقة بين السلطة والمجتمع."
+  },
+  "political economy": {
+    ar: "الاقتصاد السياسي",
+    def: "حقل تحليلي يدرس التفاعل التبادل بين المؤسسات السياسية والأنظمة الاقتصادية وكيفية تأثير القوانين والسلطة على توزيع الثروة."
+  },
   "westphalian sovereignty": {
     ar: "السيادة الويستفالية",
     def: "مبدأ في القانون الدولي والعلاقات الدولية ينص على استقلالية كل دولة وسلطتها الحصرية على إقليمها ومواطنيها دون تدخل خارجي."
@@ -632,6 +747,88 @@ export const SCHOLARLY_CONCEPTS_REGISTRY: Record<string, ScholarlyConceptMeta> =
   "moral hazard": {
     ar: "المخاطرة الأخلاقية",
     def: "حالة تحليلية يرتكب فيها طرف معين مخاطر غير محسوبة لعلمه أن تكاليف وعواقب تلك المخاطر سيتحملها طرف آخر."
+  },
+
+  // Business, Management & Innovation
+  "corporate governance": {
+    ar: "الحوكمة المؤسسية",
+    def: "منظومة القواعد والممارسات والعمليات التي يتم من خلالها توجيه الشركة وإدارتها ومراقبتها لتحقيق التوازن بين مصالح المساهمين والإدارة."
+  },
+  "disruptive innovation": {
+    ar: "الابتكار الإرباكي (الزعزعة الابتكارية)",
+    def: "مفهوم إداري يصف العمليات التي تحول المنتجات والخدمات المعقدة والمكلفة إلى حلول بسيطة ومتاحة لقطاعات واسعة، مما يعيد تشكيل الأسواق القائمة."
+  },
+  "supply chain resilience": {
+    ar: "مرونة سلاسل الإمداد",
+    def: "قدرة شبكة التوريد والإمداد المؤسسية على التكيف السريع والامتصاص الفعال للصدمات والاضطرابات دون تعطيل العمليات الجوهرية."
+  },
+  "strategic management": {
+    ar: "الإدارة الاستراتيجية",
+    def: "عملية التخطيط والتحليل والتنفيذ والتطوير المستمر للأهداف المحددة والموارد المؤسسية لضمان التفوق والميزة التنافسية المستدامة."
+  },
+  "value proposition": {
+    ar: "القيمة المقترحة",
+    def: "الوعد بالقيمة والفوائد الفريدة التي تعهد بها المؤسسة أو العلامة التجارية لعملائها لتميز منتجاتها وخدماتها عن المنافسين."
+  },
+
+  // Journalism, Media & Mass Communication
+  "agenda setting theory": {
+    ar: "نظرية ترتيب الأولويات (وضع الأجندة)",
+    def: "إطار تحليلي إعلامي يفسر قدرة وسائل الإعلام على توجيه اهتمام الجمهور ورأيه العام ونوعية القضايا المطروحة للبحث والمناقشة."
+  },
+  "framing theory": {
+    ar: "نظرية التأطير الإعلامي",
+    def: "منهج تحليل إعلامي يدرس كيفية اختيار وتركيز وصياغة وسائل الإعلام لجوانب معينة من حدث ما لتأطير إدراك الجمهور وتفسيره."
+  },
+  "media literacy": {
+    ar: "الدراية الإعلامية والرقمنة",
+    def: "مجموعة المهارات المعرفية والتحليلية التي تمكن الجمهور من الوصول إلى الرسائل الإعلامية ونقدها وتقييمها وإنتاجها بوعي."
+  },
+  "investigative journalism": {
+    ar: "الصحافة الاستقصائية",
+    def: "أسلوب صحفي متعمق يقوم على البحث والتقصي لكشف الحقائق الخفية وقضايا الفساد وسوء استخدام السلطة لخدمة الصالح العام."
+  },
+
+  // Literary Criticism, Cultural Studies & Humanities
+  "intertextual analysis": {
+    ar: "التحليل التناصي (التناص)",
+    def: "منهج نقدي يدرس علاقات التداخل والتفاعل والنقل بين النص المدروس والنصوص والأعمال الأدبية السابقة أو المعاصرة له."
+  },
+  "hermeneutics": {
+    ar: "الهرمنيوطيقا (علم التأويل)",
+    def: "نظرية ومنهجية التفسير والتأويل الفلسفي والأدبي المعنية بكشف الأبعاد الدلالية والسياقات الثقافية وراء النصوص."
+  },
+  "cultural hegemony": {
+    ar: "الهيمنة الثقافية",
+    def: "مفهوم فكري ونقدي يصف قيادة طبقة أو فئة مجتمعية لصياغة المنظومة القيمية والثقافية وتعميمها كمعيار طبيعي ومقبول لدى الجميع."
+  },
+  "narrative arc": {
+    ar: "المسار السردي",
+    def: "البنية الهيكلية والزمنية للقصة أو النص الأدبي التي تتطور عبرها الأحداث والشخصيات والصراعات وصولاً إلى الذروة والحل."
+  },
+
+  // Social Affairs, Sociology & Public Policy
+  "social cohesion": {
+    ar: "التماسك الاجتماعي",
+    def: "مدى قوة الروابط الاجتماعية والتضامن والشعور بالانتماء المتبادل والثقة بين أفراد المجتمع ومؤسساته المختلفة."
+  },
+  "social capital": {
+    ar: "رأس المال الاجتماعي",
+    def: "شبكة العلاقات الاجتماعية والقيم والأعراف المتبادلة والثقة التي تسهل التعاون الفعال وتطوير المجتمع والنهوض به."
+  },
+  "demographic transition": {
+    ar: "التحول الديموغرافي",
+    def: "نموذج تحليلي يفسر التغيرات الهيكلية في معدلات المواليد والوفيات والتركيبة العمرية للسكان وتأثيرها على التنمية والتخطيط."
+  },
+
+  // Economics & Finance
+  "behavioral economics": {
+    ar: "الاقتصاد السلوكي",
+    def: "حقل معقد يدمج بين علم النفس والاقتصاد لدراسة كيفية اتخاذ الأفراد والمؤسسات للقرارات الاقتصادية والمالية الفعلية في ظل عدم الرشد المطلق."
+  },
+  "macroeconomic stability": {
+    ar: "الاستقرار الاقتصادي الكلي",
+    def: "حالة توازن اقتصادي تتسم بمعدلات نمو مستدامة ومستويات تضخم منخفضة وضبط للبطالة والدين العام لحماية الاقتصاد الوطني."
   },
   "content analysis": {
     ar: "تحليل المضمون",
@@ -926,12 +1123,18 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   };
 
   // 1. Scan against SCHOLARLY_CONCEPTS_REGISTRY sorted by key length descending
-  // ONLY add concepts that actually appear in the search scope
+  // Add concepts that actually appear in the search scope or full text
   const sortedKeys = Object.keys(SCHOLARLY_CONCEPTS_REGISTRY).sort((a, b) => b.length - a.length);
   for (const engKey of sortedKeys) {
     if (extracted.length >= 3) break;
     const meta = SCHOLARLY_CONCEPTS_REGISTRY[engKey];
-    if (searchScope.includes(engKey) || searchScope.includes(meta.ar.toLowerCase())) {
+    const lowerKey = engKey.toLowerCase();
+    const lowerAr = meta.ar.toLowerCase();
+    if (
+      searchScope.includes(lowerKey) ||
+      searchScope.includes(lowerAr) ||
+      (lowerKey.length > 4 && cleanText.toLowerCase().includes(lowerKey))
+    ) {
       addTerm(engKey, meta.ar, meta.def);
     }
   }
@@ -960,17 +1163,6 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
   }
 
-  // 4. Derive key terms directly from title if still fewer than 2 terms
-  if (extracted.length < 2 && title && title.trim().length > 3) {
-    const titleWords = title.trim().replace(/[._\-]+/g, " ").split(/\s+/).filter(w => w.length > 3);
-    if (titleWords.length >= 2) {
-      const derivedTerm = titleWords.slice(0, 3).join(" ");
-      if (!isTrivialOrCitationTerm(derivedTerm)) {
-        addTerm(derivedTerm);
-      }
-    }
-  }
-
   return extracted.slice(0, 3);
 }
 
@@ -985,27 +1177,42 @@ export function buildContextDefinition(term: string, fullText: string, arabicTer
     }
   }
 
-  // 2. Keyword-driven concept definitions across domains (Business, Technology, Journalism, Science, Policy)
+  // 2. Keyword-driven concept definitions across diverse professional and academic domains
+  if (cleanEng.includes("governance") || cleanEng.includes("management") || cleanAr.includes("حوكمة") || cleanAr.includes("إدارة") || cleanAr.includes("أعمال") || cleanAr.includes("استراتيجية")) {
+    return "منظومة المبادئ والقواعد والتخطيط المنظم لتوجيه الموارد وتحقيق الكفاءة التشغيلية والنمو المؤسسي المستدام.";
+  }
+  if (cleanEng.includes("journalism") || cleanEng.includes("media") || cleanEng.includes("framing") || cleanAr.includes("صحافة") || cleanAr.includes("إعلام") || cleanAr.includes("خبر") || cleanAr.includes("تأطير")) {
+    return "إطار تحليلي اتصالي يدرس آليات صياغة الرسائل الإعلامية وتغطية الأحداث ونقلها وتأثيرها على الرأي العام وتوجيه الاهتمام.";
+  }
+  if (cleanEng.includes("literature") || cleanEng.includes("narrative") || cleanEng.includes("criticism") || cleanAr.includes("سرد") || cleanAr.includes("أدب") || cleanAr.includes("نقد") || cleanAr.includes("تناص") || cleanAr.includes("تأويل")) {
+    return "منهج نقدي وتحليلي يعنى بدراسة البنى النصية والسردية والتفاعلات الدلالية والجمالية والتأويلية في الأعمال الأدبية.";
+  }
+  if (cleanEng.includes("social") || cleanEng.includes("cohesion") || cleanAr.includes("اجتماع") || cleanAr.includes("تماسك") || cleanAr.includes("مجتمعي")) {
+    return "مفهوم سوسيولوجي يدرس شبكات الروابط والتضامن والبنى التفاعلية والمؤسسية المنظمة للتماسك والتطور الاجتماعي.";
+  }
+  if (cleanEng.includes("economic") || cleanEng.includes("finance") || cleanAr.includes("اقتصاد") || cleanAr.includes("تمويل") || cleanAr.includes("سوق") || cleanAr.includes("ريع")) {
+    return "إطار تحليلي يدرس آليات إنتاج وتوزيع الموارد والقرارات المالية والسلوكية وانعكاساتها على الأسواق والتنمية.";
+  }
+  if (cleanEng.includes("authoritarian") || cleanAr.includes("استبداد")) {
+    return "مفهوم تحليلي يدرس الترتيبات المؤسسية والأمنية والمالية التي تعتمدها الأنظمة غير الديمقراطية لإدارة التهديدات وضمان الاستقرار.";
+  }
+  if (cleanEng.includes("war") || cleanEng.includes("warfare") || cleanEng.includes("conflict") || cleanAr.includes("حرب") || cleanAr.includes("صراع")) {
+    return "نمط صراع استراتيجي يركز على توظيف التكتيكات العسكرية وغير التقليدية والأدوات السياسية لتحقيق الأهداف والتوازنات.";
+  }
+  if (cleanEng.includes("security") || cleanAr.includes("أمن")) {
+    return "منظومة الترتيبات والاستراتيجيات المتبعة لحماية المصالح الحيوية والحد من التهديدات القائمة والناشئة.";
+  }
+  if (cleanEng.includes("sovereign") || cleanAr.includes("سياد")) {
+    return "مبدأ قانوني وسياسي أساسي يؤكد استقلالية السلطة وحصريتها التنفيذية والتشريعية داخل حدودها.";
+  }
+  if (cleanEng.includes("policy") || cleanAr.includes("سياس")) {
+    return "مجموعة القرارات والمبادئ التوجيهية المنظمة للتفاعل وتوزيع الموارد وإدارة العلاقات بين السلطة والفاعلين.";
+  }
   if (cleanAr.includes("كفاءة بشرية") || cleanAr.includes("الكفاءة البشرية")) {
     return "منظومة المهارات والقدرات التحليلية والإبداعية التي يتفوق بها العنصر البشري في اتخاذ القرارات وحل المشكلات المعقدة مقارنة بالأنظمة الآلية.";
   }
   if (cleanAr.includes("نظرية") && (cleanAr.includes("تطبيقية") || cleanAr.includes("فعل"))) {
     return "إطار تحليلي ومنهجي يدرس الممارسات والأفعال في بيئتها الميدانية، موجهاً القرارات التنفيذية نحو الاستجابة المباشرة لمتطلبات الموقف.";
-  }
-  if (cleanAr.includes("ظواهر") || cleanAr.includes("ظوآهر") || cleanAr.includes("ظاهرة")) {
-    return "منهجية تفكيكية تعنى برصد ودراسة المتغيرات والأنماط السلوكية والتفاعلية داخل المنظومة الميدانية لتطوير نواتج الأداء والتقويم.";
-  }
-  if (cleanAr.includes("إدارة") || cleanAr.includes("استراتيجية") || cleanAr.includes("أعمال")) {
-    return "مجموعة المبادئ والتخطيط المنظم لتوجيه الموارد وتحقيق الأهداف المؤسسية والكفاءة التشغيلية والنمو المستدام.";
-  }
-  if (cleanAr.includes("كفاءة")) {
-    return "منظومة من القدرات والمهارات المعرفية والعملية التي تمكن الفرد أو المؤسسة من إنجاز المهام بدقة وجودة عالية.";
-  }
-  if (cleanAr.includes("نظرية")) {
-    return "إطار معرفي ونسقي يفسر العلاقات بين المفاهيم والمتغيرات الميدانية ويوجه القرارات والممارسات التطبيقية.";
-  }
-  if (cleanAr.includes("تحليل")) {
-    return "منهجية تفكيكية تهدف إلى رصد المكونات والمتغيرات البنيوية وفهم آليات التشكل والتأثير في السياق الميداني والعملي.";
   }
   if (cleanAr.includes("ترجمة") || cleanAr.includes("مترجم")) {
     return "عملية نقل دلالي وثقافي ووظيفي للنصوص بين اللغات مع مراعاة المقاصد التواصلية وخصوصيات السياق الهدف.";
@@ -1016,20 +1223,19 @@ export function buildContextDefinition(term: string, fullText: string, arabicTer
   if (cleanAr.includes("ذكاء") || cleanAr.includes("آلية") || cleanAr.includes("خوارزم") || cleanAr.includes("حاسوب") || cleanAr.includes("تقنية")) {
     return "أنظمة وتقنيات حاسوبية متقدمة تعتمد على الخوارزميات والبيانات لمعالجة المعلومات وتوليد المخرجات الذكية.";
   }
-  if (cleanAr.includes("خطاب") || cleanAr.includes("مضمون") || cleanAr.includes("نص") || cleanAr.includes("صحافة") || cleanAr.includes("إعلام")) {
-    return "منهج تحليلي يدرس البنى اللغوية والدلالية وسياقات إنتاج المحتوى وتلقيه في البيئة الاتصالية والاجتماعية.";
-  }
 
-  // 3. Extract grounded sentence from source text if available
+  // 3. Extract grounded sentence from source text if available and non-empty
   if (fullText && fullText.length > 50) {
     const sentences = fullText.split(/[.\n;؛]/).map(s => s.trim()).filter(Boolean);
-    const matchingSentence = sentences.find(s => s.length >= 25 && s.length <= 200 && (s.includes(cleanAr) || s.includes(cleanAr.replace(/^ال/, ""))));
+    const matchingSentence = sentences.find(s => s.length >= 25 && s.length <= 180 && (s.includes(cleanAr) || s.includes(cleanAr.replace(/^ال/, ""))));
     if (matchingSentence) {
-      const cleanSentence = spellcheckAndRepairArabicAndEnglishText(matchingSentence.replace(/^[^\u0600-\u06FF]+/, ""));
-      return `مفهوم تحليلي يُقصد به في النص: "${cleanSentence}"`;
+      const cleanSentence = spellcheckAndRepairArabicAndEnglishText(matchingSentence.replace(/^[^\u0600-\u06FF]+/, "")).trim();
+      if (cleanSentence && cleanSentence.length >= 20) {
+        return `مفهوم تحليلي يُقصد به في النص: "${cleanSentence}"`;
+      }
     }
   }
 
-  return `مفهوم علمي ومنهجي يدرس الآليات والأبعاد التطبيقية المتعلقة بـ (${cleanAr}) في أدبيات المجال والبيانات المتاحة.`;
+  return `مفهوم علمي ومنهجي يدرس الآليات والأبعاد النظرية والتطبيقية المتعلقة بـ (${cleanAr}) في أدبيات المجال والدراسات المتاحة.`;
 }
 

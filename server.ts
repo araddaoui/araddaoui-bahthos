@@ -396,12 +396,12 @@ app.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => {
     try {
       const ai = getAiClient();
       const promptText = "أنت خبير ومحلل مصطلحي رفيع (Chief Terminologist) في نظام \"بحث OS\".\n" +
-  "مهمتك استخراج قائمة دقيقة ونقية جداً (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts) والأطر المنهجية، وصياغة ملخص شامل ودقيق للمستند باللغة العربية الفصحى حصراً.\n\n" +
+  "مهمتك استخراج قائمة دقيقة ونقية جداً (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts) والأطر المنهجية والمصطلحات المفتاحية بحسب التخصص المباشر للمستند المرفق (سواء كان في إدارة الأعمال، الصحافة والإعلام، النقد الأدبي، العلوم الاجتماعية، الاقتصاد، الكتابة الأكاديمية، التكنولوجيا، الشؤون السياسية، إلخ)، وصياغة ملخص شامل ودقيق للمستند باللغة العربية الفصحى حصراً.\n\n" +
   "طبق القواعد الحاسمة التالية:\n" +
   "1. الملخص (summary): يجب أن يكون ملخصاً تحليلياً تركيبياً شاملاً باللغة العربية الفصحى حصراً. يُحظر حظراً مطلقاً اقتباس نصوص خام أو جمل بالإنجليزية أو الفرنسية داخل الملخص، بل يجب صياغة الملخص بأسلوب عربي سلس يترجم ويشرح المضمون دون نقل أسطر أو اقتباسات من الأصل.\n" +
-  "2. المصطلحات: استخراج 2 إلى 3 مفاهيم نظرية وأطر منهجية رئيسية معتمدة في النص المرفق حصراً.\n" +
-  "3. الحظر التام لاستخراج العناوين وأسماء الجامعات والبيانات المؤسسية والعبارات الشائعة.\n" +
-  "4. استبعاد التخصصات والمجالات الفضفاضة والكلمات العابرة.\n\n" +
+  "2. المصطلحات: استخراج 2 إلى 3 مفاهيم نظرية وأطر منهجية ومصطلحات مفتاحية أصيلة تعبر عن مضمون المستند وحقله المعرفي المباشر حصراً.\n" +
+  "3. يُحظر حظراً مطلقاً استخراج أسماء المؤلفين والباحثين والأعلام والشخصيات، أو عناوين المقالات والأوراق والكتب، أو العبارات المجزأة والمبتورة المكتفية بحروف جر أو أفعال ناقصة.\n" +
+  "4. يجب تقديم تعريف تحليلي أكاديمي متكامل باللغة العربية الفصحى لكل مصطلح يوضح معناه وسياقه المباشر في حقل النص (لا يقل عن 25 حرفاً) دون استخدام اقتباسات فارغة.\n\n" +
   "النص:\n" + (parsedContent ? parsedContent.substring(0, 30000) : "");
 
       const contentsInput: any[] = [];
@@ -476,15 +476,39 @@ app.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => {
           .map((t: any) => {
             const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
             if (!sanitized.isValid) return null;
+
+            if (isTrivialOrCitationTerm(sanitized.term, t.definition)) return null;
+            if (isTrivialOrCitationTerm(sanitized.verified_term, t.definition)) return null;
+
+            const cleanDef = (t.definition &&
+              !t.definition.includes('""') &&
+              !t.definition.includes(':\s*""') &&
+              !t.definition.includes("مفهوم تحليلي يُقصد به في النص: \"\"") &&
+              t.definition.length > 25)
+              ? spellcheckAndRepairArabicAndEnglishText(t.definition)
+              : buildContextDefinition(sanitized.term, parsedContent || "", sanitized.verified_term);
+
             return {
               term: sanitized.term,
+              transliteration: sanitized.verified_term,
               draft_term: sanitized.draft_term,
               verified_term: sanitized.verified_term,
-              transliteration: sanitized.verified_term,
-              definition: spellcheckAndRepairArabicAndEnglishText(t.definition),
+              definition: cleanDef,
             };
           })
           .filter(Boolean);
+      } else {
+        resData.terms = [];
+      }
+
+      // Ensure every source gets 2 to 3 genuine scholarly terms by calling fallback extractor if needed
+      if (resData.terms.length < 2) {
+        const fallbacks = extractFallbackTermsFromText(parsedContent || "", "temp_id", resData.title || fileName || "", resData.terms);
+        for (const fb of fallbacks) {
+          if (resData.terms.length < 3) {
+            resData.terms.push(fb);
+          }
+        }
       }
 
       return res.json(resData);
