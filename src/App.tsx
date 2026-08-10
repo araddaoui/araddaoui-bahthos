@@ -192,10 +192,10 @@ export default function App() {
             const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`);
             const savedGlossary = localStorage.getItem(`bahthos_glossary_${proj.id}`);
             
-            const localSources = savedSources ? JSON.parse(savedSources) : (proj.id === "default" ? defaultSources : []);
+            const localSources = savedSources ? JSON.parse(savedSources) : [];
             const localMessages = savedMessages ? JSON.parse(savedMessages) : [];
-            const localSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : (proj.id === "default" ? initialSyntheses : []);
-            const localGlossary = savedGlossary ? JSON.parse(savedGlossary) : (proj.id === "default" ? initialGlossary : []);
+            const localSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
+            const localGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
             
             await saveProjectData(currentUser.uid, proj.id, {
               sources: localSources,
@@ -358,10 +358,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) rawSources = parsed;
-      } else if (activeId === "default") {
-        const legacy = localStorage.getItem("bahthos_sources") || localStorage.getItem("al_dalil_sources");
-        if (legacy) rawSources = JSON.parse(legacy);
-        else rawSources = defaultSources;
       }
       return rawSources.map(s => ({
         ...s,
@@ -369,10 +365,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       }));
     } catch (e) {
       console.error(e);
-      return defaultSources.map(s => ({
-        ...s,
-        summary: ensureArabicSummary(s.summary, s.content, s.title)
-      }));
+      return [];
     }
   });
 
@@ -386,10 +379,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
-      }
-      if (activeId === "default") {
-        const legacy = localStorage.getItem("bahthos_messages") || localStorage.getItem("al_dalil_messages");
-        if (legacy) return JSON.parse(legacy);
       }
     } catch (e) {
       console.error(e);
@@ -427,10 +416,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
       const saved = localStorage.getItem(`bahthos_temperature_${activeId}`);
       if (saved) return parseFloat(saved);
-      if (activeId === "default") {
-        const legacy = localStorage.getItem("bahthos_temperature") || localStorage.getItem("al_dalil_temperature");
-        if (legacy) return parseFloat(legacy);
-      }
     } catch (e) {
       console.error(e);
     }

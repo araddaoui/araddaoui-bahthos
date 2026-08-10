@@ -925,7 +925,8 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     });
   };
 
-  // 1. Scan against SCHOLARLY_CONCEPTS_REGISTRY sorted by key length descending (most specific concepts first)
+  // 1. Scan against SCHOLARLY_CONCEPTS_REGISTRY sorted by key length descending
+  // ONLY add concepts that actually appear in the search scope
   const sortedKeys = Object.keys(SCHOLARLY_CONCEPTS_REGISTRY).sort((a, b) => b.length - a.length);
   for (const engKey of sortedKeys) {
     if (extracted.length >= 3) break;
@@ -935,110 +936,37 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
   }
 
-  // 2. Domain Inference to guarantee 2 to 3 genuine scholarly concepts if fewer were found
-  if (extracted.length < 3) {
-    const isTranslationDomain = /translat|ترجم|tradu/i.test(searchScope);
-    const isAiDomain = /artificial intelligence|ai|ذكاء اصطناعي|machine learning|llm|neural/i.test(searchScope);
-    const isIrDomain = /sovereign|power|policy|siya|international|realism|constructiv/i.test(searchScope);
-    const isPedagogyDomain = /learn|teach|student|pedagog|تعليم|تدريس|طلبة|didactic/i.test(searchScope);
-
-    const domainCandidates: string[] = [];
-    if (isTranslationDomain && isAiDomain) {
-      domainCandidates.push(
-        "translator competence",
-        "machine translation post-editing",
-        "pedagogical translation",
-        "didactics of translation",
-        "technological turn in translation",
-        "neural machine translation",
-        "translation equivalence",
-        "skopos theory",
-        "functional equivalence",
-        "dynamic equivalence",
-        "descriptive translation studies",
-        "cognitive load in translation",
-        "audiovisual translation",
-        "computer-assisted translation",
-        "translation theory",
-        "quality assurance"
-      );
-    } else if (isTranslationDomain) {
-      domainCandidates.push(
-        "pedagogical translation",
-        "translator competence",
-        "didactics of translation",
-        "skopos theory",
-        "translation equivalence",
-        "functional equivalence",
-        "dynamic equivalence",
-        "descriptive translation studies",
-        "cognitive load in translation",
-        "audiovisual translation",
-        "computer-assisted translation",
-        "translation theory",
-        "quality assurance"
-      );
-    } else if (isIrDomain) {
-      domainCandidates.push(
-        "westphalian sovereignty",
-        "constructivism",
-        "realism",
-        "soft power",
-        "balance of power",
-        "process tracing",
-        "path dependence",
-        "content analysis",
-        "critical discourse analysis"
-      );
-    } else if (isPedagogyDomain) {
-      domainCandidates.push(
-        "constructivist pedagogy",
-        "scaffolding theory",
-        "formative assessment",
-        "blended learning",
-        "quality assurance",
-        "pedagogical translation",
-        "didactics of translation",
-        "cognitive load in translation"
-      );
-    } else if (isAiDomain) {
-      domainCandidates.push(
-        "generative artificial intelligence",
-        "large language models",
-        "natural language processing",
-        "machine learning",
-        "neural machine translation",
-        "technological turn in translation"
-      );
-    } else {
-      domainCandidates.push(
-        "process tracing",
-        "path dependence",
-        "content analysis",
-        "critical discourse analysis",
-        "quality assurance",
-        "scaffolding theory",
-        "formative assessment"
-      );
-    }
-
-    for (const candidate of domainCandidates) {
-      if (extracted.length >= 3) break;
-      const meta = SCHOLARLY_CONCEPTS_REGISTRY[candidate];
-      if (meta) {
-        addTerm(candidate, meta.ar, meta.def);
+  // 2. Scan for capitalized English multi-word compound phrases in the actual document text
+  if (extracted.length < 3 && /[a-zA-Z]/.test(cleanText)) {
+    const capitalizedPhraseRegex = /\b([A-Z][a-z0-9\-]+(?:\s+[A-Za-z0-9\-]+){1,3})\b/g;
+    let match;
+    while ((match = capitalizedPhraseRegex.exec(cleanText)) !== null && extracted.length < 3) {
+      const candidate = match[1].trim();
+      if (candidate.length > 5 && !isTrivialOrCitationTerm(candidate)) {
+        addTerm(candidate);
       }
     }
   }
 
-  // 3. Scan for theoretical Arabic academic compound concepts if still < 3
+  // 3. Scan for theoretical/analytical Arabic academic compound concepts in the actual document text
   if (extracted.length < 3) {
-    const arabicTheoryRegex = /(?:نظرية|منهجية|كفاءة|تعليمية|تحليل|أبعاد|بنية|ديناميكية|منظومة)\s+[\u0600-\u06FF]{3,15}(?:\s+[\u0600-\u06FF]{3,15})?/g;
+    const arabicTheoryRegex = /(?:تنظيم|صراع|استراتيجية|مكافحة|حرب|سياسة|أمن|نظرية|منهجية|كفاءة|تعليمية|تحليل|أبعاد|بنية|ديناميكية|منظومة)\s+[\u0600-\u06FF]{3,15}(?:\s+[\u0600-\u06FF]{3,15})?/g;
     let match;
     while ((match = arabicTheoryRegex.exec(cleanText)) !== null && extracted.length < 3) {
       const candidate = match[0].trim();
       if (!isTrivialOrCitationTerm(candidate)) {
         addTerm(candidate, candidate);
+      }
+    }
+  }
+
+  // 4. Derive key terms directly from title if still fewer than 2 terms
+  if (extracted.length < 2 && title && title.trim().length > 3) {
+    const titleWords = title.trim().replace(/[._\-]+/g, " ").split(/\s+/).filter(w => w.length > 3);
+    if (titleWords.length >= 2) {
+      const derivedTerm = titleWords.slice(0, 3).join(" ");
+      if (!isTrivialOrCitationTerm(derivedTerm)) {
+        addTerm(derivedTerm);
       }
     }
   }
