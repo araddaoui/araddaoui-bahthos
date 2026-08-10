@@ -113,15 +113,15 @@ export function normalizeReportStructure(text: string): string {
   // Ensure double newlines around section dividers
   result = result.replace(/([^\n])(---)/g, "$1\n\n$2\n\n");
 
-  // Reparagraph dense, monolithic blocks (>260 chars) on sentence boundaries
-  result = result.replace(/([^\n]{260,})/g, (longBlock) => {
+  // Reparagraph dense, monolithic blocks (>200 chars) on sentence boundaries
+  result = result.replace(/([^\n]{200,})/g, (longBlock) => {
     // Split on sentence boundaries followed by whitespace
     const sentences = longBlock.split(/(?<=[.؛!؟])\s+/);
     if (sentences.length <= 1) return longBlock;
     const chunks: string[] = [];
     let current = "";
     for (const sentence of sentences) {
-      if (current.length + sentence.length > 200 && current.length > 80) {
+      if (current.length + sentence.length > 160 && current.length > 60) {
         chunks.push(current.trim());
         current = sentence;
       } else {
@@ -657,12 +657,12 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
           const qPrefix = colonIdx !== -1 ? headingContent.substring(0, colonIdx + 1) : "سؤال:";
           const qBody = colonIdx !== -1 ? headingContent.substring(colonIdx + 1) : headingContent;
           elements.push(
-            <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-teal-50/90 border-r-4 border-r-[#094d4e] border border-teal-200/90 rounded-xl shadow-xs">
+            <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-amber-50/90 border-r-4 border-r-amber-600 border border-amber-200/90 rounded-xl shadow-xs">
               <div className="flex items-start gap-2.5">
-                <span className="bg-[#094d4e] text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5">
+                <span className="bg-amber-600 text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5 shadow-2xs">
                   {qPrefix}
                 </span>
-                <h4 className="text-sm md:text-base font-extrabold text-[#094d4e] leading-snug flex-1">
+                <h4 className="text-sm md:text-base font-extrabold text-amber-950 leading-snug flex-1">
                   {renderInlineMarkdown(qBody.trim())}
                 </h4>
               </div>
@@ -687,12 +687,12 @@ export function parseMarkdownToReact(text: string): React.ReactNode {
       const qPrefix = directQuestionMatch[1].replace(/\*/g, "").trim();
       const qBody = directQuestionMatch[2].trim();
       elements.push(
-        <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-teal-50/90 border-r-4 border-r-[#094d4e] border border-teal-200/90 rounded-xl shadow-xs">
+        <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-amber-50/90 border-r-4 border-r-amber-600 border border-amber-200/90 rounded-xl shadow-xs">
           <div className="flex items-start gap-2.5">
-            <span className="bg-[#094d4e] text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5">
+            <span className="bg-amber-600 text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5 shadow-2xs">
               {qPrefix}
             </span>
-            <h4 className="text-sm md:text-base font-extrabold text-[#094d4e] leading-snug flex-1">
+            <h4 className="text-sm md:text-base font-extrabold text-amber-950 leading-snug flex-1">
               {renderInlineMarkdown(qBody)}
             </h4>
           </div>

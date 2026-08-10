@@ -53,10 +53,6 @@ function extractDocSubstance(src: any, idx: number, safeTopic: string) {
       arabicTitleConcept = "معايير الحوكمة المؤسسية والشفافية والتنظيم الهيكلي لإدارة مخاطر الشركة";
     } else if (translated.includes("framing theory") || translated.includes("journalism")) {
       arabicTitleConcept = "نظرية التأطير الإعلامي وبناء الأجندة التحريرية والتأثير في الرأي العام";
-    } else if (translated.includes("machine translation") || translated.includes("post-editing") || translated.includes("post editing")) {
-      arabicTitleConcept = "تقنيات الترجمة الآلية العصبية وإدارة جودة التحرير البعدي وتأهيل العنصر البشري";
-    } else if (translated.includes("post human") || translated.includes("post-human")) {
-      arabicTitleConcept = "مفاهيم ما بعد الإنسانية والتحول التكنولوجي في كفاءات التواصل والترجمة";
     } else {
       const subMap: [RegExp, string][] = [
         [/uae'?s?/g, "دولة الإمارات"],
@@ -68,8 +64,6 @@ function extractDocSubstance(src: any, idx: number, safeTopic: string) {
         [/foreign\s*policy/g, "السياسة الخارجية والتوجهات الاستراتيجية"],
         [/sovereignty/g, "مبدأ السيادة الوطنية"],
         [/international\s*relations/g, "العلاقات الدولية وتوازنات القوى"],
-        [/digital\s*technologies/g, "التقنيات الرقمية والأنظمة الذكية"],
-        [/artificial\s*intelligence/g, "تطبيقات الذكاء الاصطناعي"],
         [/supply\s*chain/g, "سلاسل الإمداد والتوريد"],
         [/strategic\s*management/g, "الإدارة الاستراتيجية والتخطيط"],
         [/investigative\s*journalism/g, "الصحافة الاستقصائية ومعايير التغطية"],
