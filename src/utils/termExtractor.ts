@@ -133,13 +133,13 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
-  // Reject terms ending with prepositions, conjunctions, or trailing verbs ("and", "or", "of", "in", "for", "on", "with", "by", "from", "at", "source", "author", "reshapes", "missed")
-  if (/\b(and|or|of|in|for|on|with|by|from|at|source|author|reshapes|missed|shaping|reshaping|seeking|rethinking|understanding)\s*$/i.test(cleanTerm)) {
+  // Reject terms ending with prepositions, conjunctions, or trailing verbs ("and", "or", "of", "in", "for", "on", "with", "by", "from", "at", "source", "author", "reshapes", "missed", "shaping", "reshaping", "seeking", "rethinking", "understanding", "facing", "looking")
+  if (/\b(and|or|of|in|for|on|with|by|from|at|source|author|reshapes|missed|shaping|reshaping|seeking|rethinking|understanding|facing|looking|doing|going|seeing)\s*$/i.test(cleanTerm)) {
     return true;
   }
 
-  // Reject terms starting with fragment verbs / articles / pronouns ("war reshapes", "missed the", "the myth of", "why we", "how war", "how the", "where is", "when the")
-  if (/^(war reshapes|missed the|the myth of|why we|how war|how the|what is|where is|when the|eleonora|gregory|gause)\b/i.test(cleanTerm)) {
+  // Reject terms starting with fragment verbs / articles / pronouns / title structures
+  if (/^(war reshapes|missed the|the myth of|why we|how war|how the|what is|where is|when the|eleonora|gregory|gause|elizabeth|kendall|david|bernard|john|smith|dr\.|prof\.)\b/i.test(cleanTerm)) {
     return true;
   }
 
@@ -150,9 +150,14 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     "david b", "david", "tamim", "emir tamim", "john", "smith", "keohane", "waltz", "mearsheimer",
     "huntington", "fukuyama", "morgenthau", "bull", "wendt", "walt", "kissinger", "weber", "chomsky",
     "bourdieu", "foucault", "derrida", "habermas", "said", "lynch", "marc lynch", "barnett",
-    "michael barnett", "telhami", "shibley telhami", "nawaz", "ameer nawaz"
+    "michael barnett", "telhami", "shibley telhami", "nawaz", "ameer nawaz", "gregory", "eleonora"
   ];
-  if (scholarAndAuthorNames.some((sa) => cleanTerm === sa || cleanTerm.startsWith(sa + " ") || cleanTerm.endsWith(" " + sa) || cleanTerm.includes("gause") || cleanTerm.includes("ardemagni"))) {
+  if (scholarAndAuthorNames.some((sa) => cleanTerm === sa || cleanTerm.startsWith(sa + " ") || cleanTerm.endsWith(" " + sa) || cleanTerm.includes("gause") || cleanTerm.includes("ardemagni") || cleanTerm.includes("kendall"))) {
+    return true;
+  }
+
+  // Reject any action verbs, verb forms, or clause fragments in English
+  if (/\b(reshapes|reshape|reshaped|reshaping|missed|miss|missing|rethinking|rethink|seeking|seek|sought|understanding|understand|understands|facing|face|faced|looking|look|doing|make|makes|making|made|takes|taking|took|gives|giving|gave|shows|showing|showed|creates|creating|created|brings|bringing|brought)\b/i.test(cleanTerm)) {
     return true;
   }
 
@@ -1139,26 +1144,32 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
   }
 
-  // 2. Scan for capitalized English multi-word compound phrases in the actual document text
-  if (extracted.length < 3 && /[a-zA-Z]/.test(cleanText)) {
-    const capitalizedPhraseRegex = /\b([A-Z][a-z0-9\-]+(?:\s+[A-Za-z0-9\-]+){1,3})\b/g;
-    let match;
-    while ((match = capitalizedPhraseRegex.exec(cleanText)) !== null && extracted.length < 3) {
-      const candidate = match[1].trim();
-      if (candidate.length > 5 && !isTrivialOrCitationTerm(candidate)) {
-        addTerm(candidate);
+  // 2. Secondary scan against SCHOLARLY_CONCEPTS_REGISTRY with field-level keyword affinity
+  if (extracted.length < 3) {
+    for (const engKey of sortedKeys) {
+      if (extracted.length >= 3) break;
+      const meta = SCHOLARLY_CONCEPTS_REGISTRY[engKey];
+      const lowerKey = engKey.toLowerCase();
+      const lowerAr = meta.ar.toLowerCase();
+
+      // Check if key words of the concept appear in searchScope or cleanText
+      const keyWords = lowerKey.split(/\s+/).filter(w => w.length > 3);
+      const hasKeyMatch = keyWords.some(kw => searchScope.includes(kw));
+
+      if (hasKeyMatch) {
+        addTerm(engKey, meta.ar, meta.def);
       }
     }
   }
 
-  // 3. Scan for theoretical/analytical Arabic academic compound concepts in the actual document text
-  if (extracted.length < 3) {
-    const arabicTheoryRegex = /(?:تنظيم|صراع|استراتيجية|مكافحة|حرب|سياسة|أمن|نظرية|منهجية|كفاءة|تعليمية|تحليل|أبعاد|بنية|ديناميكية|منظومة)\s+[\u0600-\u06FF]{3,15}(?:\s+[\u0600-\u06FF]{3,15})?/g;
+  // 3. Strict fallback for authentic multi-word noun phrase concepts ending in established academic suffixes
+  if (extracted.length < 3 && /[a-zA-Z]/.test(cleanText)) {
+    const authenticConceptRegex = /\b([A-Z][a-z\-]+(?:\s+[A-Za-z\-]+){0,2}\s+(?:Theory|Governance|Autonomy|Dilemma|Warfare|Analysis|Literacy|Innovation|Transition|Cohesion|Sovereignty|Hegemony|Capacity|Securitization|Aesthetics|Ethics|Policy|Strategy|System|Paradigm|Methodology|Resilience|Curse|Economy|Sectarianization|Rentierism|Geopolitics|Capital|Arc|Hermeneutics|Trope|Discourse|State))\b/g;
     let match;
-    while ((match = arabicTheoryRegex.exec(cleanText)) !== null && extracted.length < 3) {
-      const candidate = match[0].trim();
-      if (!isTrivialOrCitationTerm(candidate)) {
-        addTerm(candidate, candidate);
+    while ((match = authenticConceptRegex.exec(cleanText)) !== null && extracted.length < 3) {
+      const candidate = match[1].trim();
+      if (candidate.length > 6 && !isTrivialOrCitationTerm(candidate)) {
+        addTerm(candidate);
       }
     }
   }
