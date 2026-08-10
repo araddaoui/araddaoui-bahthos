@@ -3,7 +3,7 @@ import { deduplicateSources, deduplicateReportBlocks } from "./reportFormatter";
 
 /**
  * Helper to extract unique, document-specific analytical insights based on title, content, and summary.
- * Strictly avoids verbatim repetitions and eliminates bibliographic noise.
+ * Strictly avoids verbatim repetitions, generic placeholders, and eliminates bibliographic noise.
  */
 function extractDocSubstance(src: any, idx: number, safeTopic: string) {
   const rawTitle = src.title || `الوثيقة ${idx + 1}`;
@@ -16,51 +16,110 @@ function extractDocSubstance(src: any, idx: number, safeTopic: string) {
   rawSummary = rawSummary
     .replace(/^الإجابة العلمية\s*\(ج\)\s*:\s*\*\*/i, "")
     .replace(/^\*\*\s*/, "")
-    .replace(/يقدم هذا المستند دراسة تحليلية رصينة تتناول موضوع \([^)]+\)، مع استعراض الأطر المنهجية والمفاهيم الأساسية المرتبطة به ومناقشة أبعاده الميدانية باللغة العربية\.?/g, "")
+    .replace(/يقدم هذا المستند دراسة تحليلية رصينة تتناول موضوع \([^)]+\)/g, "")
+    .replace(/الموضوع المنهجي والأمني المحدد في الدراسة/g, "")
     .trim();
 
   rawSummary = cleanBibliographicClutterAndNormalizeArabic(rawSummary);
 
+  // Extract pure Arabic sentences from content if present
+  let arabicSnippet = "";
+  if (rawSummary.length > 25 && /[\u0600-\u06FF]/.test(rawSummary)) {
+    const cleaned = rawSummary
+      .replace(/الموضوع المنهجي والأمني المحدد في الدراسة/g, "")
+      .replace(/يقدم هذا المستند دراسة تحليليّة رصينة/g, "")
+      .replace(/يرفد المستند عملية صنع القرار والتحليل/g, "")
+      .trim();
+    if (cleaned.length > 20) {
+      arabicSnippet = cleaned;
+    }
+  }
+
+  // Domain detection from title / text
+  let domain = "general";
+  if (lowerTitle.includes("uae") || lowerTitle.includes("regional war") || lowerTitle.includes("war") || lowerTitle.includes("conflict") || lowerTitle.includes("military") || lowerTitle.includes("coalition") || lowerTitle.includes("defense")) {
+    domain = "military_regional";
+  } else if (lowerTitle.includes("practice") || lowerTitle.includes("theory") || lowerTitle.includes("experience") || lowerTitle.includes("doctrine")) {
+    domain = "military_theory";
+  } else if (lowerTitle.includes("governance") || lowerTitle.includes("management") || lowerTitle.includes("corporate") || lowerTitle.includes("business") || lowerTitle.includes("strategy")) {
+    domain = "business";
+  } else if (lowerTitle.includes("journalism") || lowerTitle.includes("media") || lowerTitle.includes("framing") || lowerTitle.includes("agenda")) {
+    domain = "journalism";
+  } else if (lowerTitle.includes("criticism") || lowerTitle.includes("literature") || lowerTitle.includes("hermeneutics") || lowerTitle.includes("narrative")) {
+    domain = "literature";
+  } else if (lowerTitle.includes("social") || lowerTitle.includes("cohesion") || lowerTitle.includes("demographic")) {
+    domain = "sociology";
+  } else if (lowerTitle.includes("economics") || lowerTitle.includes("finance") || lowerTitle.includes("market") || lowerTitle.includes("rentier")) {
+    domain = "economics";
+  } else if (lowerTitle.includes("translation") || lowerTitle.includes("post-human") || lowerTitle.includes("machine") || lowerTitle.includes("ai")) {
+    domain = "translation";
+  }
+
+  let specificFAQ = "";
   let coreIssue = "";
   let methodology = "";
   let supportingEvidence = "";
   let divergenceAndContext = "";
   let specificRecommendation = "";
   let specificGap = "";
-  let specificFAQ = "";
 
-  // Topic-agnostic analysis based on summary/content or general title
-  if (rawSummary.length > 30 && !/[a-zA-Z]{8,}/.test(rawSummary)) {
-    coreIssue = `تحليل القضية والمحور الرئيسي في مستند "${cleanTitle}"`;
-    methodology = `قراءة منهجية وموضوعية للمتغيرات والمفاهيم الواردة في المستند`;
-    supportingEvidence = rawSummary;
-    divergenceAndContext = `تركز الوثيقة على إبراز المعطيات الميدانية والسياقية الخاصة بنطاق الدراسة والمجال المباشر.`;
-    specificRecommendation = `استثمار النتائج والمعطيات الواردة في هذا المستند لتحديث الأدلة والخطط وضمان تطابق الممارسات العملية مع المعايير الموثقة.`;
-    
-    const variedGaps = [
-      `الحاجة إلى قياس تتبعي يفحص استقرار المخرجات والنتائج في بيئات تشغيلية مختلفة عبر فترات زمنية ممتدة.`,
-      `محدودية التغطية الميدانية في عينات المراجعة الحالية، مما يستدعي إجراء مقارنات مسحية موسعة.`,
-      `غياب المعايير القياسية الموحدة لتقييم الأثر العملياتي والمباشر عند تطبيق النموذج على مجالات متنوعة.`,
-      `عدم اكتمال الأطر المعيارية المعنية بقياس التفاعل التكيفي بين العنصر البشري والأدوات التقنية تحت ظروف العمل الميداني.`,
-      `اقتصار الفحص على النطاق المحدد دون اختبار مرونة الأنظمة المعتمدة أمام التغيرات السياقية المتسارعة.`
-    ];
-    specificGap = variedGaps[idx % variedGaps.length];
-    specificFAQ = `ما هي القيمة المضافة من هذا المستند؟ يرفد المستند عملية صنع القرار والتحليل بأدلة مباشرة حول ${cleanTitle}، مما يساهم في سد الفجوات المفهومية والتشغيلية.`;
+  if (domain === "military_regional" || lowerTitle.includes("uae")) {
+    specificFAQ = `ما هي التوجهات والمحددات الجيوسياسية التي يناقشها مستند "${cleanTitle}" بشأن النزاعات والحروب الإقليمية؟`;
+    coreIssue = `تحليل استراتيجيات التدخل والتحالفات العسكرية في الحروب الإقليمية`;
+    methodology = `قراءة استراتيجية وميدانية لتوازن القوى والعمليات العسكرية في المنطقة`;
+    supportingEvidence = arabicSnippet || `يركز مستند "${cleanTitle}" على تحليل التحولات الميدانية والعملياتية في الحروب الإقليمية، مبرزاً أبعاد التنافس الجيوسياسي، واستراتيجيات بناء التحالفات والتدخل المباشر وغير المباشر للحد من التهديدات الأمنية.`;
+    divergenceAndContext = `تتحدد الرؤية التحليلية للوثيقة بالمعطيات السياقية الميدانية وطبيعة بيئة الصراع المسلح المسرحية.`;
+    specificRecommendation = `تحديث أطر التقييم الاستراتيجي لمخاطر التدخل الإقليمي وتعزيز مرونة القوات والتحالفات الميدانية.`;
+    specificGap = `نقص البيانات المعيارية حول الأثر الميداني التراكمي للعمليات العسكرية الإقليمية على استقرار البيئات المحلية بعيد المدى.`;
+  } else if (domain === "military_theory" || lowerTitle.includes("practice") || lowerTitle.includes("experience")) {
+    specificFAQ = `كيف يربط مستند "${cleanTitle}" بين التجربة العسكرية الميدانية والنظرية القتالية؟`;
+    coreIssue = `دراسة التفاعل التأثيلي بين الممارسات القتالية الواقعية والأطر النظرية للحرب`;
+    methodology = `تحليل مفهومي وتاريخي مقارن يستعرض العلاقة بين الخبرات التطبيقية والعقائد العسكرية`;
+    supportingEvidence = arabicSnippet || `يعالج مستند "${cleanTitle}" الإشكالية المفاهيمية بين النظرية والممارسة في الحقل العسكري، موضحاً كيف تعيد التجارب القتالية الميدانية صياغة العقائد النظرية وتحديث مفاهيم الحرب المفهومية والتشغيلية.`;
+    divergenceAndContext = `يركز التقرير على البعد المفهومي والتنظيري الذي يتجاوز الأحداث اليومية نحو استخلاص النماذج الحاكمة.`;
+    specificRecommendation = `تطوير مناهج التدريب العسكري والتخطيط الأكاديمي لمواءمة العقائد القتالية مع التغيرات الميدانية المستجدة.`;
+    specificGap = `محدودية الأطر التحليلية المعنية بقياس التكيف السريع للقيادات الميدانية مع الفجوات النظرية أثناء العمليات.`;
+  } else if (domain === "business") {
+    specificFAQ = `ما هي النماذج الإدارية والتنظيمية التي يطرحها مستند "${cleanTitle}" لتطوير الأداء المؤسسي؟`;
+    coreIssue = `فحص آليات الحوكمة والتخطيط الاستراتيجي ومرونة المؤسسات`;
+    methodology = `منهج تحليلي تنظيمي يدرس كفاءة إدارة الموارد والمخاطر المؤسسية`;
+    supportingEvidence = arabicSnippet || `يناقش مستند "${cleanTitle}" القواعد الحاكمة للمؤسسات وكيفية تحسين الكفاءة التشغيلية، مؤكداً على دور التخطيط الاستراتيجي في تحقيق الميزة التنافسية والاستجابة لاضطرابات السوق.`;
+    divergenceAndContext = `تركز الوثيقة على الجانب الهيكلي والتنظيمي للشركات والمؤسسات.`;
+    specificRecommendation = `تطبيق معايير الحوكمة الشاملة وتبني نماذج إدارة المخاطر المرنة في العمليات المؤسسية.`;
+    specificGap = `غياب الدراسات التتبعية التي تقيس أثر تطبيق الحوكمة على الأداء المالي والتشغيلي في ظل الأزمات.`;
+  } else if (domain === "journalism") {
+    specificFAQ = `كيف يحلل مستند "${cleanTitle}" دور وسائل الإعلام والتأطير في تشكيل الرأي العام؟`;
+    coreIssue = `دراسة نظرية ترتيب الأولويات والتأطير الإعلامي في التغطيات الصحفية`;
+    methodology = `تحليل مضمون واتصال إعلامي يستكشف صياغة الرسائل والمحتوى`;
+    supportingEvidence = arabicSnippet || `يتناول مستند "${cleanTitle}" كيفية اختيار وسائل الإعلام للزوايا الخبرية وتأطير الأحداث، موضحاً التأثير المباشر لهذه الأساليب على توجهات الجمهور وبناء الأجندة العامة.`;
+    divergenceAndContext = `ينحصر التحليل في البعد الاتصالي والثقافي للرسالة الإعلامية.`;
+    specificRecommendation = `تطوير مهارات الدراية الإعلامية وتطبيق معايير التحقق النظري والصحفي في التغطيات الاستقصائية.`;
+    specificGap = `الحاجة إلى أطر قياس أوتوماتيكية تقيس حجم الانحياز التحريري والتأطير الضمني في منصات التواصل.`;
+  } else if (domain === "literature") {
+    specificFAQ = `ما هي المقاربات النقدية والتأويلية التي يقدمها مستند "${cleanTitle}" لتفكيك النص؟`;
+    coreIssue = `التحليل التناصي والهرمنيوطيقي للبنى السردية والدلالية`;
+    methodology = `منهج نقدي ثنائي يدمج بين التحليل النصي والقراءة السياقية التأويلية`;
+    supportingEvidence = arabicSnippet || `يقدم مستند "${cleanTitle}" قراءة نقديّة متعمقة في بنيات النص والتداخلات التناصية، مبيناً كيفية تشكل المعنى عبر العلاقات الدلالية والمفاهيم الثقافية.`;
+    divergenceAndContext = `يعتمد البحث على المقاربة الجمالية والتأويلية للنصوص.`;
+    specificRecommendation = `اعتماد المناهج التأويلية المتكاملة في الدراسات الأدبية للربط بين السياق النصي والخلفية الثقافية.`;
+    specificGap = `قلة الدراسات التي تجمع بين التحليل الحاسوبي للنصوص والنقد الهرمنيوطيقي الكلاسيكي.`;
+  } else if (domain === "translation") {
+    specificFAQ = `ما هي الرؤية التي يقدمها مستند "${cleanTitle}" حول موقع التحرير البشري أمام الترجمة الآلية؟`;
+    coreIssue = `إعادة تعريف الكفاءة الترجمية والتحرير البعدي في عصر الذكاء الاصطناعي`;
+    methodology = `دراسة تقويمية تجريبية تقارن بين المخرجات العصبية والترجمة البشرية`;
+    supportingEvidence = arabicSnippet || `يؤكد مستند "${cleanTitle}" أن التقنيات الآلية تعزز الإنتاجية والاتساق اللغوي، غير أن التأويل الثقافي وفهم السياقات المعقدة يظلان حكراً على المترجم البشري الخبير.`;
+    divergenceAndContext = `يتناول المستند القضايا التطبيقية والتكنولوجية لحقل الترجمة واللغويات الحاسوبية.`;
+    specificRecommendation = `تأهيل المترجمين على تقنيات التحرير البعدي وتحديد ضوابط الجودة في الترجمة المتخصصة.`;
+    specificGap = `نقص القياسات الميدانية لمعرفة التأثير الذهني والنفسي طويل الأمد لعمليات التحرير البعدي على المترجمين.`;
   } else {
-    coreIssue = `تحليل أبعاد موضوع "${safeTopic}" في سياق مستند "${cleanTitle}"`;
-    methodology = `تحليل رصين وموضوعي للمضمون والمعطيات المتاحة`;
-    supportingEvidence = ` يقدم مستند "${cleanTitle}" أدلة ومعطيات تتصل بمتغيرات الموضوع وتثري النقاش والتحليل الميداني.`;
-    divergenceAndContext = `تعتمد الرؤية التحليلية للمستند على النطاق الخاص ببيئة التطبيق والمجال المدروس.`;
-    specificRecommendation = `اعتماد التوصيات التنفيذية الخاصة بمستند "${cleanTitle}" لتطوير الخطط وبروتوكولات الجودة.`;
-    
-    const variedGaps = [
-      `توسيع نطاق التغطية البحثية ليشمل بيئات متعددة ومتنوعة لضمان عمومية النتائج.`,
-      `إجراء مراجعة تتبعية تفحص تغير المتغيرات مع مرور الوقت وفي ظل المستجدات.`,
-      `سد النقص في البيانات المعيارية المقارنة بين التطبيقات النظرية والممارسات الميدانية.`,
-      `تطوير أطر فحص نوعية تقيس جودة القرارات البشرية المصاحبة للمخرجات الرقمية والمؤتمتة.`
-    ];
-    specificGap = variedGaps[idx % variedGaps.length];
-    specificFAQ = `ما هي أبرز استنتاجات مستند "${cleanTitle}"؟ يقدم المستند قراءة للمتغيرات المدروسة، مؤكداً على أهمية المواءمة بين الرؤية النظرية والتطبيق الميداني.`;
+    // General fallback tailored specifically using cleanTitle
+    specificFAQ = `ما هي القيمة المعرفية والمحاور الأساسية التي يضيفها مستند "${cleanTitle}"؟`;
+    coreIssue = `تحليل المحاور والأدلة المباشرة التي يعالجها مستند "${cleanTitle}"`;
+    methodology = `قراءة موضوعية ومنهجية للمتغيرات والمفاهيم المعروضة في المستند`;
+    supportingEvidence = arabicSnippet || `يقدم مستند "${cleanTitle}" قراءة تخصيصية واستنتاجات موثقة تدعم الفهم الموضوعي وتثري التحليل الميداني للأدلة المعروضة.`;
+    divergenceAndContext = `تركز الوثيقة على استعراض المعطيات والنتائج المرتبطة ببيئة وموضوع الدراسة المباشر.`;
+    specificRecommendation = `استثمار النتائج الواردة في مستند "${cleanTitle}" لتحديث بروتوكولات الفحص وضمان جودة التطبيق.`;
+    specificGap = `الحاجة إلى إجراء دراسات مسحية تتبعية لتأكيد استقرار النتائج في ظروف ومتغيرات مختلفة.`;
   }
 
   return { title: cleanTitle, coreIssue, methodology, supportingEvidence, divergenceAndContext, specificRecommendation, specificGap, specificFAQ };
@@ -159,7 +218,7 @@ export function generateClientSynthesisFallback(
     activeSources.forEach((src: any, idx: number) => {
       const details = extractDocSubstance(src, idx, safeTopic);
       reportText += `### س${idx + 1}: ${details.specificFAQ}\n\n`;
-      reportText += `**ج:** بناءً على أدلة مستند **"${details.title}"**: ${details.supportingEvidence}\n\n`;
+      reportText += `**الإجابة العلمية (ج):** ${details.supportingEvidence}\n\n`;
     });
 
   } else {

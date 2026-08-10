@@ -937,6 +937,12 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
   if (!/[\u0600-\u06FF]/.test(cleanTitle)) {
     let mapped = cleanTitle.toLowerCase();
     const mappings: [RegExp, string][] = [
+      [/uae'?s?\s*regional\s*wars/gi, "الحروب الإقليمية ودور دولة الإمارات"],
+      [/war\s*experiences\s*war\s*practices\s*war\s*theory/gi, "تجارب الحرب وممارساتها ونظرياتها"],
+      [/regional\s*wars/gi, "الحروب والنزاعات الإقليمية"],
+      [/war\s*experiences/gi, "تجارب الحرب والممارسة العسكرية"],
+      [/war\s*practices/gi, "الممارسات والتكتيكات العسكرية"],
+      [/war\s*theory/gi, "النظرية والعقيدة العسكرية"],
       [/al\s*qaeda|al\s*qaida|aqap/gi, "تنظيم القاعدة"],
       [/islamic\s*state|isis|isin/gi, "تنظيم الدولة الإسلامية"],
       [/yemen/gi, "اليمن"],
@@ -952,18 +958,28 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
       [/international\s*relations/gi, "العلاقات الدولية"],
       [/digital\s*technologies/gi, "التقنيات الرقمية"],
       [/artificial\s*intelligence/gi, "الذكاء الاصطناعي"],
+      [/corporate\s*governance/gi, "الحوكمة المؤسسية"],
+      [/disruptive\s*innovation/gi, "الابتكار الإرباكي"],
+      [/supply\s*chain/gi, "سلاسل الإمداد والتوريد"],
+      [/strategic\s*management/gi, "الإدارة الاستراتيجية"],
+      [/agenda\s*setting/gi, "ترتيب الأولويات الإعلامية"],
+      [/framing\s*theory/gi, "التأطير الإعلامي"],
+      [/investigative\s*journalism/gi, "الصحافة الاستقصائية"],
+      [/hermeneutics/gi, "الهرمنيوطيقا والتأويل"],
+      [/social\s*cohesion/gi, "التماسك الاجتماعي"],
+      [/behavioral\s*economics/gi, "الاقتصاد السلوكي"],
     ];
 
     mappings.forEach(([rgx, ar]) => {
       mapped = mapped.replace(rgx, ar);
     });
 
-    // Remove leftover raw English words
-    mapped = mapped.replace(/[a-z0-9._\-]+/gi, " ").replace(/\s+/g, " ").trim();
-    if (mapped.length > 3) {
+    // Clean up leftover punctuation
+    mapped = mapped.replace(/[._\-]+/g, " ").replace(/\s+/g, " ").trim();
+    if (/[\u0600-\u06FF]/.test(mapped)) {
       arabicTitle = mapped;
     } else {
-      arabicTitle = "الموضوع المنهجي والأمني المحدد في الدراسة";
+      arabicTitle = `مضمون مستند "${cleanTitle}"`;
     }
   }
 
@@ -971,7 +987,6 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
   let contentHighlights = "";
   if (content && content.trim().length > 30) {
     const cleanContent = cleanBibliographicClutterAndNormalizeArabic(content.trim());
-    // Find lines that contain Arabic text and do not look like citations or titles
     const arabicLines = cleanContent
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -983,10 +998,10 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
   }
 
   if (contentHighlights && contentHighlights.length > 30) {
-    return `يقدم هذا المستند دراسة تحليليّة شاملة تتناول موضوع (${arabicTitle})، مسلطاً الضوء على المحاور الأساسية والأدلة الميدانية المعروضة. ومن أبرز النتائج والمؤشرات الواردة: ${contentHighlights}.`;
+    return `تستعرض هذه الدراسة تحليلاً متخصصاً وحقلياً حول ${arabicTitle}، مسلطة الضوء على المحاور الأساسية والمعطيات الميدانية المدروسة. ومن أبرز النتائج والمؤشرات الواردة: ${contentHighlights}.`;
   }
 
-  return `يقدم هذا المستند دراسة تحليليّة رصينة تناقش موضوع (${arabicTitle})، مستعرضاً الأطر النظرية والمنهجية والسياقات الميدانية المرتبطة به، ومحللاً الأبعاد الاستراتيجية والنتائج الرئيسية التي خلص إليها البحث باللغة العربية الفصحى.`;
+  return `تقدم هذه الدراسة قراءة تحليليّة أكاديمية متخصصة تناقش ${arabicTitle}، مع استعراض الأطر النظرية والمنهجية والممارسات السياقية ذات الصلة باللغة العربية الفصحى.`;
 }
 
 /**
