@@ -18,7 +18,7 @@ import {
   getDocFromServer,
   writeBatch
 } from "firebase/firestore";
-import { Project, Source, Synthesis, GlossaryTerm, Message } from "./types";
+import { Project, Source, Synthesis, GlossaryTerm, Message, DalilBriefing } from "./types";
 
 // Firebase configuration from firebase-applet-config
 const firebaseConfig = {
@@ -146,7 +146,7 @@ export async function saveUserProject(userId: string, project: Project): Promise
 export async function deleteUserProject(userId: string, projectId: string): Promise<void> {
   markProjectAsDeleted(projectId);
   // Delete subcollection documents first in chunks, then the project document itself
-  const subcollections = ["sources", "messages", "syntheses", "glossaryTerms"];
+  const subcollections = ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"];
   for (const sub of subcollections) {
     const colRef = collection(db, "users", userId, "projects", projectId, sub);
     const snap = await getDocs(colRef);
@@ -203,18 +203,20 @@ export async function saveProjectData(
     messages?: Message[];
     syntheses?: Synthesis[];
     glossaryTerms?: GlossaryTerm[];
+    dalilBriefings?: DalilBriefing[];
   }
 ): Promise<void> {
   if (isProjectDeleted(projectId)) {
     console.log(`[Firestore] Skipping saveProjectData for deleted project: ${projectId}`);
     return;
   }
-  const { sources, messages, syntheses, glossaryTerms } = data;
+  const { sources, messages, syntheses, glossaryTerms, dalilBriefings } = data;
 
   await syncCollection(userId, projectId, "sources", sources);
   await syncCollection(userId, projectId, "messages", messages);
   await syncCollection(userId, projectId, "syntheses", syntheses);
   await syncCollection(userId, projectId, "glossaryTerms", glossaryTerms);
+  await syncCollection(userId, projectId, "dalilBriefings", dalilBriefings);
 }
 
 // Helper to load project state from Firestore
@@ -226,17 +228,20 @@ export async function loadProjectData(
   messages: Message[];
   syntheses: Synthesis[];
   glossaryTerms: GlossaryTerm[];
+  dalilBriefings: DalilBriefing[];
 }> {
   const sourcesRef = collection(db, "users", userId, "projects", projectId, "sources");
   const messagesRef = collection(db, "users", userId, "projects", projectId, "messages");
   const synthesesRef = collection(db, "users", userId, "projects", projectId, "syntheses");
   const glossaryTermsRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
+  const dalilBriefingsRef = collection(db, "users", userId, "projects", projectId, "dalilBriefings");
 
-  const [sourcesSnap, messagesSnap, synthesesSnap, glossarySnap] = await Promise.all([
+  const [sourcesSnap, messagesSnap, synthesesSnap, glossarySnap, dalilSnap] = await Promise.all([
     getDocs(sourcesRef),
     getDocs(messagesRef),
     getDocs(synthesesRef),
-    getDocs(glossaryTermsRef)
+    getDocs(glossaryTermsRef),
+    getDocs(dalilBriefingsRef)
   ]);
 
   const sources: Source[] = [];
@@ -253,5 +258,8 @@ export async function loadProjectData(
   const glossaryTerms: GlossaryTerm[] = [];
   glossarySnap.forEach((d) => glossaryTerms.push(d.data() as GlossaryTerm));
 
-  return { sources, messages, syntheses, glossaryTerms };
+  const dalilBriefings: DalilBriefing[] = [];
+  dalilSnap.forEach((d) => dalilBriefings.push(d.data() as DalilBriefing));
+
+  return { sources, messages, syntheses, glossaryTerms, dalilBriefings };
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { defaultSources } from "./data/defaultSources";
-import { Source, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project } from "./types";
+import { Source, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types";
 import Sidebar from "./components/Sidebar";
 import SourcesList from "./components/SourcesList";
 import ChatWindow from "./components/ChatWindow";
@@ -444,6 +444,26 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     return 0.2;
   });
 
+  // Lazily load Dalil briefing for the current project
+  const [dalilBriefing, setDalilBriefing] = useState<DalilBriefing | null>(() => {
+    try {
+      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
+      const saved = localStorage.getItem(`bahthos_dalil_${activeId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object" && parsed.id) return parsed;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return null;
+  });
+
+  const [dalilCountdown, setDalilCountdown] = useState<number | null>(null);
+  const [isDalilGenerating, setIsDalilGenerating] = useState(false);
+  const dalilTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingNewSourceIdsRef = useRef<Set<string>>(new Set());
+
   // Lazily load glossary terms for the current project
   const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>(() => {
     try {
@@ -549,12 +569,13 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
             sources,
             messages,
             syntheses,
-            glossaryTerms
+            glossaryTerms,
+            dalilBriefings: dalilBriefing ? [dalilBriefing] : []
           });
         }
 
         // 2. Load the new project's state from Firestore
-        const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
+        const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary, dalilBriefings: cloudDalil } = 
           await loadProjectData(currentUser.uid, newProjectId);
 
         const newProjObj = projects.find((p) => p.id === newProjectId);
@@ -565,6 +586,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         setMessages(cloudMessages);
         setSyntheses(cloudSyntheses);
         setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary, cloudSources));
+        setDalilBriefing(cloudDalil && cloudDalil.length > 0 ? cloudDalil[cloudDalil.length - 1] : null);
         setTemperature(cloudTemp);
         setCurrentProjectId(newProjectId);
 
@@ -585,6 +607,11 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         localStorage.setItem(`bahthos_messages_${currentProjectId}`, JSON.stringify(messages));
         localStorage.setItem(`bahthos_syntheses_${currentProjectId}`, JSON.stringify(syntheses));
         localStorage.setItem(`bahthos_glossary_${currentProjectId}`, JSON.stringify(glossaryTerms));
+        if (dalilBriefing) {
+          localStorage.setItem(`bahthos_dalil_${currentProjectId}`, JSON.stringify(dalilBriefing));
+        } else {
+          localStorage.removeItem(`bahthos_dalil_${currentProjectId}`);
+        }
         localStorage.setItem(`bahthos_temperature_${currentProjectId}`, temperature.toString());
       } catch (e) {
         console.error("Failed to save state during switch:", e);
@@ -597,12 +624,14 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       const savedMessages = localStorage.getItem(`bahthos_messages_${newProjectId}`);
       const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${newProjectId}`);
       const savedGlossary = localStorage.getItem(`bahthos_glossary_${newProjectId}`);
+      const savedDalil = localStorage.getItem(`bahthos_dalil_${newProjectId}`);
       const savedTemp = localStorage.getItem(`bahthos_temperature_${newProjectId}`);
 
       const loadedSources = savedSources ? JSON.parse(savedSources) : [];
       const loadedMessages = savedMessages ? JSON.parse(savedMessages) : [];
       const loadedSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
       const loadedGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
+      const loadedDalil = savedDalil ? JSON.parse(savedDalil) : null;
       const loadedTemp = savedTemp ? parseFloat(savedTemp) : 0.2;
 
       // 3. Update the ref immediately to block reactive saving of old values during render
@@ -613,6 +642,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       setMessages(loadedMessages);
       setSyntheses(loadedSyntheses);
       setGlossaryTerms(cleanAndMigrateGlossary(loadedGlossary, loadedSources));
+      setDalilBriefing(loadedDalil);
       setTemperature(loadedTemp);
       
       // 5. Update current project ID
@@ -829,7 +859,21 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     }
   }, [glossaryTerms, currentProjectId]);
 
-  // Save sources, messages, syntheses, and glossary terms to Firebase Firestore when they change
+  // Save dalilBriefing to localStorage on change
+  useEffect(() => {
+    if (currentProjectId !== loadedProjectIdRef.current) return;
+    try {
+      if (dalilBriefing) {
+        localStorage.setItem(`bahthos_dalil_${currentProjectId}`, JSON.stringify(dalilBriefing));
+      } else {
+        localStorage.removeItem(`bahthos_dalil_${currentProjectId}`);
+      }
+    } catch (e) {
+      console.error("Failed to save dalilBriefing to localStorage", e);
+    }
+  }, [dalilBriefing, currentProjectId]);
+
+  // Save sources, messages, syntheses, glossary terms, and dalilBriefings to Firebase Firestore when they change
   useEffect(() => {
     if (!currentUser || isFirebaseLoading) return;
     if (currentProjectId !== loadedProjectIdRef.current) return;
@@ -839,7 +883,8 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       sources,
       messages,
       syntheses,
-      glossaryTerms
+      glossaryTerms,
+      dalilBriefings: dalilBriefing ? [dalilBriefing] : []
     }).catch((err) => console.error("Failed to sync project data to Firestore:", err));
 
     const currentProjectObj = projects.find((p) => p.id === currentProjectId);
@@ -849,7 +894,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         temperature
       }).catch((err) => console.error("Failed to sync project config to Firestore:", err));
     }
-  }, [sources, messages, syntheses, glossaryTerms, temperature, currentUser, currentProjectId, isFirebaseLoading]);
+  }, [sources, messages, syntheses, glossaryTerms, dalilBriefing, temperature, currentUser, currentProjectId, isFirebaseLoading]);
 
   const handleResetWorkspace = async () => {
     clearDeletedProjectsRegistry();
@@ -1080,6 +1125,43 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     setSources((prev) => prev.map((src) => ({ ...src, enabled: false })));
   };
 
+  const triggerDalilUpdateBriefing = async (currentSourcesList: Source[]) => {
+    if (pendingNewSourceIdsRef.current.size === 0) return;
+    const newIds = Array.from(pendingNewSourceIdsRef.current);
+    pendingNewSourceIdsRef.current.clear();
+    setIsDalilGenerating(true);
+
+    try {
+      const res = await fetch("/api/synthesize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sources: currentSourcesList,
+          toolType: "dalil-update",
+          newSourceIds: newIds,
+          priorBriefingText: dalilBriefing?.text ?? null
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && !data.silent && data.text && data.text.trim().length > 5) {
+          const newBriefing: DalilBriefing = {
+            id: "dalil-" + Date.now(),
+            text: data.text.trim(),
+            sourceIdsAtTime: currentSourcesList.map((s) => s.id),
+            dateCreated: new Date().toISOString()
+          };
+          setDalilBriefing(newBriefing);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to generate al-Dalil update briefing:", err);
+    } finally {
+      setIsDalilGenerating(false);
+    }
+  };
+
   // Add custom source text with optional summary and pre-extracted terms
   const handleAddSource = (
     title: string,
@@ -1122,6 +1204,31 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     if (!error) {
       setSelectedSourceId(newSrc.id);
       setActiveMainView("source");
+
+      // Register new source for al-Dalil update briefing and trigger 10s debounce countdown
+      pendingNewSourceIdsRef.current.add(newSrc.id);
+
+      if (dalilTimerRef.current) {
+        clearInterval(dalilTimerRef.current);
+        dalilTimerRef.current = null;
+      }
+
+      let count = 10;
+      setDalilCountdown(count);
+
+      dalilTimerRef.current = setInterval(() => {
+        count -= 1;
+        if (count > 0) {
+          setDalilCountdown(count);
+        } else {
+          if (dalilTimerRef.current) {
+            clearInterval(dalilTimerRef.current);
+            dalilTimerRef.current = null;
+          }
+          setDalilCountdown(null);
+          triggerDalilUpdateBriefing(nextSources);
+        }
+      }, 1000);
       
       // If terms were returned in the same payload, add them directly
       if (terms && terms.length > 0) {
@@ -1421,6 +1528,9 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
             glossaryTerms={glossaryTerms}
             isSweeping={isSweeping}
             sweepCorrectionCount={sweepCorrectionCount}
+            dalilBriefing={dalilBriefing}
+            dalilCountdown={dalilCountdown}
+            isDalilGenerating={isDalilGenerating}
           />
         </div>
 

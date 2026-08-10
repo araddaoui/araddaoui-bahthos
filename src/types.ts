@@ -35,6 +35,13 @@ export interface Synthesis {
   dateCreated: string;
 }
 
+export interface DalilBriefing {
+  id: string;
+  text: string;
+  sourceIdsAtTime: string[];
+  dateCreated: string;
+}
+
 export interface GlossaryTerm {
   term: string;
   transliteration: string;

@@ -14,7 +14,7 @@ import {
   Loader2,
   FileText
 } from "lucide-react";
-import { Source, GlossaryTerm } from "../types";
+import { Source, GlossaryTerm, DalilBriefing } from "../types";
 import { parseDocumentFile } from "../utils/documentParser";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor";
 
@@ -33,6 +33,9 @@ interface SourcesListProps {
   glossaryTerms: GlossaryTerm[];
   isSweeping?: boolean;
   sweepCorrectionCount?: number | null;
+  dalilBriefing?: DalilBriefing | null;
+  dalilCountdown?: number | null;
+  isDalilGenerating?: boolean;
 }
 
 export default function SourcesList({
@@ -50,6 +53,9 @@ export default function SourcesList({
   glossaryTerms,
   isSweeping = false,
   sweepCorrectionCount = null,
+  dalilBriefing = null,
+  dalilCountdown = null,
+  isDalilGenerating = false,
 }: SourcesListProps) {
   const [activeSubTab, setActiveSubTab] = useState<"sources" | "glossary">("sources");
   const [searchQuery, setSearchQuery] = useState("");
@@ -249,6 +255,52 @@ export default function SourcesList({
           المصطلحات والمفاهيم ({glossaryTerms.length})
         </button>
       </div>
+
+      {/* Al-Dalil Countdown Status Banner */}
+      {dalilCountdown !== null && dalilCountdown !== undefined && (
+        <div className="mx-3 mt-3 p-2.5 bg-amber-50/90 border border-amber-200/90 rounded-xl flex items-center justify-between text-xs text-amber-900 shadow-2xs transition-all" id="dalil-countdown-banner">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-600 animate-spin" />
+            <span className="font-bold">جاري تقييم أثر المصدر مع الدليل...</span>
+          </div>
+          <span className="font-extrabold bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full text-[11px]">
+            {dalilCountdown} ث
+          </span>
+        </div>
+      )}
+
+      {/* Al-Dalil Generating Banner */}
+      {isDalilGenerating && (
+        <div className="mx-3 mt-3 p-2.5 bg-teal-50/90 border border-teal-200/90 rounded-xl flex items-center gap-2 text-xs text-[#094d4e] shadow-2xs" id="dalil-generating-banner">
+          <Loader2 className="w-4 h-4 text-[#094d4e] animate-spin" />
+          <span className="font-bold">جاري صياغة إحاطة التحديث المباشرة للدليل...</span>
+        </div>
+      )}
+
+      {/* Al-Dalil Update Briefing Display Banner */}
+      {dalilBriefing && !isDalilGenerating && (
+        <div className="mx-3 mt-3 p-3.5 bg-linear-to-b from-[#094d4e] to-[#063637] text-white rounded-xl shadow-xs border border-teal-800 transition-all" id="dalil-briefing-card">
+          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-teal-700/60">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-teal-300" />
+              <span className="font-bold text-xs text-teal-100">إحاطة التحديث — الدليل</span>
+            </div>
+            <span className="text-[10px] text-teal-300 font-medium dir-ltr">
+              {new Date(dalilBriefing.dateCreated).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
+          <div className="text-xs leading-relaxed text-teal-50 font-medium whitespace-pre-wrap">
+            {dalilBriefing.text.split("||").map((segment, idx, arr) => (
+              <React.Fragment key={idx}>
+                <span>{segment.trim()}</span>
+                {idx < arr.length - 1 && (
+                  <span className="inline-block mx-1 text-teal-400 font-bold opacity-80"> | </span>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      )}
 
       {activeSubTab === "sources" ? (
         <>
