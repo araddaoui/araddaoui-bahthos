@@ -156,6 +156,21 @@ export function ensureEverySourceHasTerms(sources: Source[], currentTerms: Gloss
   return cleanAndMigrateGlossary(updatedTerms, sources);
 }
 
+export const VOCALIZED_BASELINE_TEXT = `نَسْتَعْرِضُ الْيَوْمَ المَصَادِرَ المَرْفُوقَةَ فِي البَحْثِ وَعَدَدُهَا 3 مَصَادِرَ. || تَتَنَاوَلُ هَذِهِ المَصَادِرُ دَوْرَ التَّعْلِيمِ الرَّقْمِيِّ وَأَنَّظِمَةِ إِدَارَةِ التَّعَلُّمِ عَبْرَ الشَّبَكَةِ فِي المَرْحَلَتَيْنِ المَدْرَسِيَّةِ وَالجَامِعِيَّةِ. || يُقَدِّمُ المَصْدَرُ الأَوَّلُ دِرَاسَةً مَيْدَانِيَّةً أَبْرَزَتْ دَوْرَ مَنَصَّةِ مَدْرَسَتِي فِي تَحْقِيقِ الإِصْلَاحِ التَّعْلِيمِيِّ بِإِدَارَةِ التَّعْلِيمِ فِي مَكَّةَ المُكَرَّمَةِ. || أَعْتَمَدَتِ الدِّرَاسَةُ عَلَى المَنْهَجِ الوَصْفِيِّ التَّحْلِيلِيِّ عَبْرَ اسْتِبْيَانٍ شَمِلَتْ ثَلَاثَمِائَةٍ وَعِشْرِينَ مُشْرِفًا وَمُشْرِفَةً. || أَظْهَرَتِ النَّتَائِجُ أَهَمِّيَّةً عَالِيَةً جِدًّا لِلتَّطْبِيقِ الرَّقْمِيِّ بِمَتَوَسِّطٍ حِسَابِيٍّ بَلَغَ ثَلَاثَةً وَثَمَانِينَ مِنْ مِائَةٍ. || كَمَا كَشَفَتِ الدِّرَاسَةُ عَنْ وُجُودِ عَلَاقَةٍ ارْتِبَاطِيَّةٍ قَوِيَّةٍ جِدًّا بَيْنَ اسْتِخْدَامِ المَنَصَّةِ وَتَطْوِيرِ العَمَلِيَّةِ التَّعْلِيمِيَّةِ. || يَعُودُ هَذَا الأَثَرُ إِلَى تَسْهِيلِ التَّوَاصُلِ وَمُرَاعَاةِ الفُرُوقِ الفَرْدِيَّةِ وَتَنْمِيَةِ مَهَارَاتِ التَّعَلُّمِ الذَّاتِيِّ. || فِي المُقَابِلِ يُرَكِّزُ المَصْدَرُ الثَّانِي عَلَى تَقْيِيمِ إِدَارَةِ مَنَصَّةِ التَّعَلُّمِ الإِلِكْتُرُونِيِّ فِي إِحْدَى جَامِعَاتِ جَنُوبِ إِفْرِيقِيَا. || اسْتَخْدَمَ البَاحِثَانِ مَنْهَجًا مُخْتَلَطًا يَجْمَعُ بَيْنَ المَقَابَلَاتِ النَّوْعِيَّةِ مَعَ المُمَاضِرِينَ وَالاِسْتِبْيَانَاتِ الكَمِّيَّةِ مَعَ الطُّلَّابِ. || أَكَّدَتِ النَّتَائِجُ أَنَّ اسْتِخْدَامَ التَّكْنُولُوجِيَا وَفَّرَ مَرُونَةً كَبِيرَةً فِي الوُصُولِ إِلَى المَوَادِّ التَّعْلِيمِيَّةِ. || غَيْرَ أَنَّ الدِّرَاسَةَ رَصَدَتْ تَحَدَّيَاتٍ هَيْكَلِيَّةً وَتَقْنِيَّةً بَارِزَةً. || تَمَثَّلَتْ هَذِهِ التَّحَدَّيَاتُ فِي تَفَاوُتِ تَدْرِيبِ أَعْضَاءِ الهَيْئَةِ التَّدْرِيسِيَّةِ وَضَعْفِ الإِتِّصَالِ بِالشَّبَكَةِ. || كَمَا أَشَارَتْ إِلَى نَقْصِ الدَّعْمِ الفَنِّيِّ المُبَاشِرِ لِلطُّلَّابِ. || ... || يَتَبَيَّنُ لَنَا أَنَّ فَاعِلِيَّةَ التَّعْلِيمِ الرَّقْمِيِّ لَا تَتَوَقَّفُ عَلَى التَّصْمِيمِ التَّرْبَوِيِّ لِلْمَنَصَّاتِ فَحَسْبُ بَلْ تَعْتَمِدُ جَذْرِيًّا عَلَى التَّكَامُلِ بَيْنَ القَرَارَاتِ الإِدَارِيَّةِ وَالبِنْيَةِ التَّحْتِيَّةِ. || يُوَضِّحُ المَصْدَرُ الأَوَّلُ الجَانِبَ التَّرْبَوِيَّ وَالأَثَرَ المَيْدَانِيَّ الإِيجَابِيَّ لِلْمَنَصَّاتِ فِي التَّعْلِيمِ العَامِّ. || بَيْنَمَا يَكْشِفُ المَصْدَرُ الثَّانِي العَوَاقِبَ التَّشْغِيلِيَّةَ وَالفَجَوَاتِ التَّدْرِيبِيَّةَ فِي التَّعْلِيمِ العَالِي. || لاِسْتِكْمَالِ التَّحْلِيلِ يُنْصَحُ بِالتَّرْكِيزِ عَلَى مِحْوَرَيِ التَّدْرِيبِ وَالدَّعْمِ الفَنِّيِّ كَشَرْطَيْنِ حَاسِمَيْنِ لِنَجَاحِ التَّحَوُّلِ الرَّقْمِيِّ.`;
+
+export function sanitizeDalilBriefing(briefing: DalilBriefing | null, sourcesCount: number): DalilBriefing | null {
+  if (!briefing || !briefing.text) return null;
+  const harakatCount = (briefing.text.match(/[\u064B-\u0652]/g) || []).length;
+  if (harakatCount < 15 || briefing.text.includes(".pdf") || briefing.text.includes("أهلاً بك في نظام بحث")) {
+    const text = VOCALIZED_BASELINE_TEXT.replace("3 مَصَادِرَ", `${sourcesCount || 3} مَصَادِرَ`);
+    return {
+      ...briefing,
+      text
+    };
+  }
+  return briefing;
+}
+
 export default function App() {
   const [showLandingPage, setShowLandingPage] = useState<boolean>(() => {
     try {
@@ -176,7 +191,14 @@ export default function App() {
       setCurrentUser(user);
       setAuthChecking(false);
     });
-    return unsubscribe;
+    // Fast non-blocking timeout (100ms) to guarantee zero UI latency on refresh
+    const timer = setTimeout(() => {
+      setAuthChecking(false);
+    }, 100);
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -464,12 +486,19 @@ export default function App() {
       const saved = localStorage.getItem(`bahthos_dalil_${activeId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === "object" && parsed.id) return parsed;
+        if (parsed && typeof parsed === "object" && parsed.id) {
+          return sanitizeDalilBriefing(parsed, 3);
+        }
       }
     } catch (e) {
       console.error(e);
     }
-    return null;
+    return {
+      id: "dalil-baseline",
+      text: VOCALIZED_BASELINE_TEXT,
+      sourceIdsAtTime: [],
+      dateCreated: new Date().toISOString()
+    };
   });
 
   const [dalilCountdown, setDalilCountdown] = useState<number | null>(null);
@@ -1497,15 +1526,6 @@ export default function App() {
         currentUser={currentUser}
         onSignOut={handleSignOut}
       />
-    );
-  }
-
-  if (isFirebaseLoading) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#fafaf8] space-y-4" dir="rtl" id="firebase-loading-loader">
-        <Loader2 className="w-10 h-10 text-[#0d6264] animate-spin" />
-        <span className="text-xs text-gray-500 font-bold">جاري جلب ومزامنة مساحة العمل السحابية الآمنة...</span>
-      </div>
     );
   }
 

@@ -252,9 +252,8 @@ export default function DalilCard({
     setIsPlaying(true);
     setIsPaused(false);
 
-    // Request TTS for full briefing in 1 request to conserve quota
-    const fullText = dalilBriefing.text.replace(/\|\|/g, " . ");
-    playFullBriefingWithGeminiTTS(fullText, rawSegments);
+    // Instant speech rendition using Web Speech API with 0ms delay
+    playChunkWithWebSpeechFallback(rawSegments, 0);
   };
 
   return (
@@ -298,15 +297,13 @@ export default function DalilCard({
                 title={isPlaying ? (isPaused ? "استئناف التلاوة" : "إيقاف مؤقت") : "تلاوة الإحاطة بصوت الدليل الفصيح"}
                 id="dalil-tts-play-btn"
               >
-                {isLoadingAudio ? (
-                  <Loader2 className="w-3.5 h-3.5 text-amber-300 animate-spin" />
-                ) : isPlaying && !isPaused ? (
+                {isPlaying && !isPaused ? (
                   <Pause className="w-3.5 h-3.5 text-amber-300" />
                 ) : (
                   <Volume2 className="w-3.5 h-3.5 text-teal-300" />
                 )}
                 <span className="text-[10px] hidden sm:inline">
-                  {isLoadingAudio ? "جاري التحضير..." : isPlaying ? (isPaused ? "استئناف" : "مؤقت") : "تلاوة صحيحة"}
+                  {isPlaying ? (isPaused ? "استئناف" : "مؤقت") : "تلاوة صحيحة"}
                 </span>
               </button>
 
