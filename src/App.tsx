@@ -1192,8 +1192,10 @@ export default function App() {
     } finally {
       // Fallback briefing if API failed or returned empty text
       if (!briefingText && currentSourcesList.length > 0) {
-        const titles = currentSourcesList.map((s) => s.title || "مستند").join("، ");
-        briefingText = `أهلاً بك في نظام بحث OS. || يتضمن مشروعك البحثي حالياً ${currentSourcesList.length} من المصادر المرفقة: ${titles}. || أظهر التحليل الأولي وجود تقاطعات ومفاهيم بحثية هامة تستدعي التوليف والمقارنة. || يمكنك استخدام أدوات محرر التوليف أدناه لاستخراج مصفوفة الأدلة، تقرير الفجوات، والتوصيات الموثقة.`;
+        const cleanTitles = currentSourcesList
+          .map((s) => (s.title || "مستند").replace(/\.[a-z0-9]{2,4}$/i, "").trim())
+          .join("، ");
+        briefingText = `أهلاً بك في نظام بحث OS. || يتضمن مشروعك البحثي حالياً ${currentSourcesList.length} من المصادر المرفقة الأساسية: ${cleanTitles}. || أظهر التحليل التوليفي الأولي وجود تقاطعات ومفاهيم بحثية هامة تجمع بين الأطر النظرية والتطبيقات الميدانية للمشروع. || يمكنك استخدام أدوات محرر التوليف أدناه لاستخراج مصفوفة الأدلة والتفاضل بين المصادر، تقرير الفجوات البحثية، والتوصيات التنفيذية الموثقة.`;
       }
 
       if (briefingText) {

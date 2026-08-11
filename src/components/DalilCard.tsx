@@ -160,6 +160,7 @@ export default function DalilCard({
     setCurrentChunkIdx(idx);
     const cleanSegment = segments[idx]
       .replace(/[#*`_~\[\]()]/g, "")
+      .replace(/\.[a-z0-9]{2,4}\b/gi, "")
       .replace(/\.\.\./g, " .. ")
       .trim();
 

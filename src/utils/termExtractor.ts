@@ -154,6 +154,9 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     "higher education policy", "higher education", "public administration", "thought leadership",
     "public policy", "educational policy", "general management", "project management",
     "quality assurance", "social media", "educational system", "policy studies", "digital transformation",
+    "ministry of education strategy", "the education development strategy", "ministry of education",
+    "education development strategy", "education development", "higher education strategy",
+    "department of translation", "faculty of arts", "academic paper", "document title", "case study paper",
     "theory", "the theory", "methodology", "research methodology", "research", "the research",
     "study", "the study", "paper", "the paper", "analysis", "the analysis", "data", "results",
     "findings", "discussion", "literature review", "background", "theoretical framework",
@@ -511,11 +514,29 @@ export function cleanAndSanitizeAcademicTerm(
   // 6. Check if term matches SCHOLARLY_CONCEPTS_REGISTRY (English key or Arabic phrase)
   const lowerEng = termEng.toLowerCase();
   for (const [key, meta] of Object.entries(SCHOLARLY_CONCEPTS_REGISTRY)) {
-    if (lowerEng === key || termAr === meta.ar || areTermsEquivalent(termAr, meta.ar)) {
+    if (lowerEng === key || termAr === meta.ar || areTermsEquivalent(termAr, meta.ar) || lowerEng.includes(key) || key.includes(lowerEng)) {
       termEng = key;
       termAr = meta.ar;
       break;
     }
+  }
+
+  // If termAr lacks Arabic characters, attempt word-level translation via ACADEMIC_TERMS_MAP
+  if (!/[\u0600-\u06FF]/.test(termAr) && termEng) {
+    const wordTranslations = termEng
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w) => ACADEMIC_TERMS_MAP[w] || w)
+      .filter(Boolean);
+    const hasArabicWord = wordTranslations.some((w) => /[\u0600-\u06FF]/.test(w));
+    if (hasArabicWord) {
+      termAr = wordTranslations.join(" ");
+    }
+  }
+
+  // Reject if termAr STILL contains zero Arabic characters (untranslated English)
+  if (!/[\u0600-\u06FF]/.test(termAr)) {
+    return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
   // 7. Final trivial/citation check
@@ -744,6 +765,34 @@ export const SCHOLARLY_CONCEPTS_REGISTRY: Record<string, ScholarlyConceptMeta> =
   "path dependence": {
     ar: "الارتهان للمسار التاريخي",
     def: "مفهوم تحليلي يفيد بأن القرارات أو المؤسسات التي أُسست في الماضي تفرض قيوداً وتوجّه مسار القرارات اللاحقة."
+  },
+  "human capacity": {
+    ar: "الكفاءة البشرية (القدرات البشرية)",
+    def: "منظومة المهارات والمعارف والقدرات الهيكلية التي يمتلكها العنصر البشري وتدعم مستوى الأداء المؤسسي والتنمية."
+  },
+  "human competence": {
+    ar: "الكفاءة البشرية والمهارية",
+    def: "المعارف والمهارات المركبة والسلوكيات التنظيمية المكتسبة التي تمكّن الفرد أو المؤسسة من تحقيق نتائج جودة عالية."
+  },
+  "evaluating competence": {
+    ar: "تقويم الكفايات والمهارات",
+    def: "منهجية تحليلية لقياس مستوى الأداء الميداني وتحديد الفجوات المهارية لتطوير البرامج والممارسات العملية."
+  },
+  "learning system": {
+    ar: "المنظومة التعليمية الرقمية",
+    def: "الهيكل المتكامل للسياسات والأطر البيداغوجية والتقنيات الموجهة لتصميم وإدارة وتطوير عمليات التعلم والمعرفة."
+  },
+  "web-based learning model": {
+    ar: "نموذج التعلم الرقمي الشبكي",
+    def: "إطار بيداغوجي وتقني يصمم بيئات التعلم التفاعلية عبر الإنترنت لتسهيل الوصول للمعرفة وتعميق التعلم الذاتي."
+  },
+  "educational strategy": {
+    ar: "الاستراتيجية التعليمية والتربوية",
+    def: "منظومة التخطيط المنهجي والرؤى التنظيمية المصممة لتطوير المناهج والارتقاء بكفايات المتعلمين ونواتج التعلم."
+  },
+  "learning modality": {
+    ar: "نمط وأسلوب التعلم",
+    def: "الطريقة أو الوسيلة الحسية والذهنية المساندة التي يتلقى من خلالها المتعلم المعرفة ويستوعب المفاهيم."
   },
   "principal agent problem": {
     ar: "مشكلة الوكيل والأصيل",
@@ -1093,9 +1142,6 @@ export function buildContextDefinition(term: string, fullText: string, arabicTer
   if (cleanEng.includes("learning management") || cleanEng.includes("lms") || cleanAr.includes("إدارة التعلم") || cleanAr.includes("نظام التعلم") || cleanAr.includes("منصة تعليمية")) {
     return "منظومة رقمية ومنصة برمجية متكاملة تُستخدم لتصميم وإدارة وتوصيل المحتوى التعليمي وتتبع تقييم وتقدم المتعلمين.";
   }
-  if (cleanEng.includes("learning") || cleanEng.includes("education") || cleanEng.includes("pedagogy") || cleanAr.includes("تعليم") || cleanAr.includes("تعلم") || cleanAr.includes("بيداغوجيا") || cleanAr.includes("تدريس")) {
-    return "حقل دراسي وبيداغوجي يركز على تطوير استراتيجيات التدريس المنهجية واكتساب الكفايات وتطوير أساليب التقويم.";
-  }
   if (cleanEng.includes("corporate governance") || cleanEng.includes("strategic management") || cleanEng.includes("governance") || cleanAr.includes("حوكمة") || cleanAr.includes("إدارة الأعمال") || cleanAr.includes("إدارة استراتيجية")) {
     return "منظومة المبادئ والقواعد والتخطيط المنظم لتوجيه الموارد وتحقيق الكفاءة التشغيلية والنمو المؤسسي المستدام.";
   }
@@ -1154,6 +1200,6 @@ export function buildContextDefinition(term: string, fullText: string, arabicTer
     }
   }
 
-  return `مفهوم علمي ومنهجي يدرس الآليات والأبعاد النظرية والتطبيقية المتعلقة بـ (${cleanAr}) في أدبيات المجال والدراسات المتاحة.`;
+  return `مفهوم تحليلي وإطار تخصصي يدرس الأبعاد النظرية والممارسات التطبيقية المتعلقة بـ (${cleanAr}) في أدبيات المجال والدراسات المتاحة.`;
 }
 

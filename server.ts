@@ -833,13 +833,18 @@ app.post("/api/synthesize", async (req, res) => {
         newSources = activeSources;
       }
 
+      const cleanTitles = activeSources
+        .map((s: any) => (s?.title || "مستند").replace(/\.[a-z0-9]{2,4}$/i, "").trim())
+        .join("، ");
+
       let sourcesContext = "المصادر المرفقة في المشروع للتحليل والإحاطة:\n";
       activeSources.forEach((src: any, idx: number) => {
+        const cleanTitle = (src?.title || `مصدر ${idx + 1}`).replace(/\.[a-z0-9]{2,4}$/i, "").trim();
         const rawContent = src?.content || src?.summary || "";
         const safeContent = rawContent.length > 8000
           ? rawContent.substring(0, 8000) + "\n...[مختصر]"
           : rawContent;
-        sourcesContext += `\n---\nمصدر ${idx + 1}: ${src?.title || "بلا عنوان"} (اللغة: ${src?.language || "العربية"})\nالملخص: ${src?.summary || "غير متاح"}\nالمحتوى التفصيلي:\n${safeContent}\n`;
+        sourcesContext += `\n---\nمصدر ${idx + 1}: ${cleanTitle} (اللغة: ${src?.language || "العربية"})\nالملخص: ${src?.summary || "غير متاح"}\nالمحتوى التفصيلي:\n${safeContent}\n`;
       });
 
       const priorContext = priorBriefingText
@@ -856,6 +861,8 @@ app.post("/api/synthesize", async (req, res) => {
 2. استخدم علامة || فقط للفصل بين الجمل للتحكم بتلاوة الصوت والوقفات الشفوية.
 3. قدّم إحاطة توليفية تشمل أهم الأفكار، المحاور الرئيسية، والتوجيه العملي لاستكمال التحليل.
 4. حافظ على نبرة الصوت الموثوقة والمركزة.
+5. حظر مطلق: لا تذكر إطلاقًا صيغ امتداد الملفات مثل (.pdf, .docx, .txt) أو أسماء الملفات التقنية الخام. قم بتعريب وترجمة أسماء المستندات إلى عناوين موضوعية راقية باللغة العربية.
+6. اجعل الإحاطة غنية ومكثفة (تتكون من 3 فقرات متماسكة بطول إجمالي بين 200 و 350 كلمة) لتقديم رؤية علمية عميقة وسلسة التلاوة.
 
 ${priorContext}
 
@@ -877,8 +884,7 @@ ${sourcesContext}
       }
 
       // Clean local Arabic fallback briefing if AI fails
-      const titles = activeSources.map((s: any) => s.title || "مستند").join("، ");
-      const fallbackBriefing = `أهلاً بك في نظام بحث OS. || يتضمن مشروعك البحثي حالياً ${activeSources.length} من المصادر المرفقة: ${titles}. || أظهر التحليل الأولي وجود تقاطعات ومفاهيم بحثية هامة تستدعي التوليف والمقارنة. || يمكنك استخدام أدوات محرر التوليف أدناه لاستخراج مصفوفة الأدلة، تقرير الفجوات، والتوصيات الموثقة.`;
+      const fallbackBriefing = `أهلاً بك في نظام بحث OS. || يتضمن مشروعك البحثي حالياً ${activeSources.length} من المصادر المرفقة الأساسية: ${cleanTitles}. || أظهر التحليل التوليفي الأولي وجود تقاطعات ومفاهيم بحثية هامة تجمع بين الأطر النظرية والتطبيقات الميدانية. || يمكنك استخدام أدوات محرر التوليف أدناه لاستخراج مصفوفة الأدلة والتفاضل بين المصادر، تقرير الفجوات البحثية، والتوصيات التنفيذية الموثقة.`;
       
       return res.json({ text: fallbackBriefing, isFallback: true, silent: false });
     }
@@ -1363,6 +1369,90 @@ ${JSON.stringify(terms, null, 2)}`;
   } catch (error: any) {
     console.warn("Glossary sweep backend failed:", error);
     res.json({ terms: [] });
+  }
+});
+
+// Endpoint for high-quality Al-Dalil voice speech generation (Gemini TTS)
+app.post("/api/tts", async (req, res) => {
+  try {
+    const { text } = req.body || {};
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return res.status(400).json({ error: "الرجاء تزويد النص المراد تحويله إلى صوت." });
+    }
+
+    // Clean text for speech synthesis
+    const cleanText = text
+      .replace(/\|\|/g, " ")
+      .replace(/#[#\s]*/g, "")
+      .replace(/[*`_~]/g, "")
+      .replace(/\.[a-z0-9]{2,4}\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const ai = getAiClient();
+
+    // Primary attempt with gemini-3.1-flash-tts-preview
+    try {
+      const response = await generateContentWithRetry(ai, {
+        model: "gemini-3.1-flash-tts-preview",
+        contents: `اقرأ النص التالي بنبرة صوت راقية، عربية فصيحة، معبرة، وواضحة جداً:\n\n${cleanText}`,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: "Kore",
+              },
+            },
+          },
+        },
+      });
+
+      const candidate = response?.candidates?.[0];
+      const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
+      if (part && part.inlineData && part.inlineData.data) {
+        return res.json({
+          audio: part.inlineData.data,
+          mimeType: part.inlineData.mimeType || "audio/wav",
+        });
+      }
+    } catch (primaryErr: any) {
+      console.warn("Primary TTS model (gemini-3.1-flash-tts-preview) failed, trying fallback:", primaryErr?.message);
+    }
+
+    // Fallback attempt with gemini-3.6-flash with audio modality
+    try {
+      const fallbackResponse = await generateContentWithRetry(ai, {
+        model: "gemini-3.6-flash",
+        contents: `اقرأ النص التالي بلغة عربية فصيحة واضحة:\n\n${cleanText}`,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: "Puck",
+              },
+            },
+          },
+        },
+      });
+
+      const candidate = fallbackResponse?.candidates?.[0];
+      const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
+      if (part && part.inlineData && part.inlineData.data) {
+        return res.json({
+          audio: part.inlineData.data,
+          mimeType: part.inlineData.mimeType || "audio/wav",
+        });
+      }
+    } catch (fallbackErr: any) {
+      console.error("Fallback TTS model failed:", fallbackErr?.message);
+    }
+
+    return res.status(500).json({ error: "تعذر توليد التسجيل الصوتي عبر الخادم." });
+  } catch (error: any) {
+    console.error("TTS endpoint error:", error);
+    return res.status(500).json({ error: error?.message || "حدث خطأ غير متوقع في توليد الصوت." });
   }
 });
 
