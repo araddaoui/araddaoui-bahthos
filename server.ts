@@ -248,7 +248,7 @@ function pcmToWav(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitsPe
 // Endpoint for High-Quality Modern Standard Arabic Text-To-Speech (Gemini TTS)
 app.post("/api/tts", async (req, res) => {
   try {
-    const { text, voiceName = "Kore" } = req.body || {};
+    const { text, voiceName = "Aoede" } = req.body || {};
     if (!text || typeof text !== "string" || !text.trim()) {
       return res.status(400).json({ error: "No text provided for speech synthesis." });
     }
@@ -264,25 +264,25 @@ app.post("/api/tts", async (req, res) => {
     }
 
     const ai = getAiClient();
-    const candidateModels = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview"];
+    const candidateModels = ["gemini-2.5-flash", "gemini-3.6-flash"];
     let lastError: any = null;
 
     for (const ttsModel of candidateModels) {
       try {
         const response = await generateContentWithRetry(ai, {
           model: ttsModel,
-          contents: cleanSegment,
+          contents: [{ parts: [{ text: `اقرأ النص التالي بنبرة صوت عربية فصيحة، معبرة، وواضحة جداً:\n\n${cleanSegment}` }] }],
           config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
               voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: voiceName || "Kore" },
+                prebuiltVoiceConfig: { voiceName: voiceName || "Aoede" },
               },
             },
           },
         });
 
-        const candidate = response.candidates?.[0];
+        const candidate = response?.candidates?.[0];
         const parts = candidate?.content?.parts || [];
 
         for (const p of parts as any[]) {
@@ -1338,89 +1338,7 @@ ${JSON.stringify(terms, null, 2)}`;
   }
 });
 
-// Endpoint for high-quality Al-Dalil voice speech generation (Gemini TTS)
-app.post("/api/tts", async (req, res) => {
-  try {
-    const { text } = req.body || {};
-    if (!text || typeof text !== "string" || text.trim().length === 0) {
-      return res.status(400).json({ error: "الرجاء تزويد النص المراد تحويله إلى صوت." });
-    }
 
-    // Clean text for speech synthesis
-    const cleanText = text
-      .replace(/\|\|/g, " ")
-      .replace(/#[#\s]*/g, "")
-      .replace(/[*`_~]/g, "")
-      .replace(/\.[a-z0-9]{2,4}\b/gi, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const ai = getAiClient();
-
-    // Primary attempt with gemini-3.1-flash-tts-preview
-    try {
-      const response = await generateContentWithRetry(ai, {
-        model: "gemini-3.1-flash-tts-preview",
-        contents: [{ parts: [{ text: `اقرأ النص التالي بنبرة صوت راقية، عربية فصيحة، معبرة، وواضحة جداً:\n\n${cleanText}` }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: "Kore",
-              },
-            },
-          },
-        },
-      });
-
-      const candidate = response?.candidates?.[0];
-      const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
-      if (part && part.inlineData && part.inlineData.data) {
-        return res.json({
-          audio: part.inlineData.data,
-          mimeType: part.inlineData.mimeType || "audio/wav",
-        });
-      }
-    } catch (primaryErr: any) {
-      console.warn("Primary TTS model (gemini-3.1-flash-tts-preview) failed, trying fallback:", primaryErr?.message);
-    }
-
-    // Fallback attempt with gemini-3.6-flash with audio modality
-    try {
-      const fallbackResponse = await generateContentWithRetry(ai, {
-        model: "gemini-3.6-flash",
-        contents: `اقرأ النص التالي بلغة عربية فصيحة واضحة:\n\n${cleanText}`,
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: "Puck",
-              },
-            },
-          },
-        },
-      });
-
-      const candidate = fallbackResponse?.candidates?.[0];
-      const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
-      if (part && part.inlineData && part.inlineData.data) {
-        return res.json({
-          audio: part.inlineData.data,
-          mimeType: part.inlineData.mimeType || "audio/wav",
-        });
-      }
-    } catch (fallbackErr: any) {
-      console.error("Fallback TTS model failed:", fallbackErr?.message);
-    }
-
-    return res.status(500).json({ error: "تعذر توليد التسجيل الصوتي عبر الخادم." });
-  } catch (error: any) {
-    console.error("TTS endpoint error:", error);
-    return res.status(500).json({ error: error?.message || "حدث خطأ غير متوقع في توليد الصوت." });
-  }
-});
 
 // Serve frontend with Vite in dev, or statically in prod
 async function setupViteOrStatic() {

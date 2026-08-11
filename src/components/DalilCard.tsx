@@ -127,7 +127,13 @@ export default function DalilCard({
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioContextClass) return;
 
-        const tempCtx = new AudioContextClass({ sampleRate });
+        let tempCtx: AudioContext | null = null;
+        try {
+          tempCtx = new AudioContextClass();
+        } catch (_) {
+          return;
+        }
+
         const float32Samples = base64PcmToFloat32Array(data.audio);
         const audioBuf = tempCtx.createBuffer(1, float32Samples.length, sampleRate);
         audioBuf.getChannelData(0).set(float32Samples);
@@ -223,25 +229,31 @@ export default function DalilCard({
       } catch (_) {}
 
       const voices = synth.getVoices() || [];
-      const arVoice =
-        voices.find(
-          (v) =>
-            v.lang.toLowerCase().startsWith("ar") ||
-            v.name.toLowerCase().includes("arabic") ||
-            v.name.includes("عربي") ||
-            v.name.toLowerCase().includes("maged") ||
-            v.name.toLowerCase().includes("tarik") ||
-            v.name.toLowerCase().includes("salma") ||
-            v.name.toLowerCase().includes("laila") ||
-            v.name.toLowerCase().includes("naayf") ||
-            v.name.toLowerCase().includes("hoda")
-        ) || voices.find((v) => v.lang.toLowerCase().startsWith("ar"));
+      const arVoice = voices.find(
+        (v) =>
+          v.lang.toLowerCase().startsWith("ar") ||
+          v.name.toLowerCase().includes("arabic") ||
+          v.name.includes("عربي") ||
+          v.name.toLowerCase().includes("maged") ||
+          v.name.toLowerCase().includes("tarik") ||
+          v.name.toLowerCase().includes("salma") ||
+          v.name.toLowerCase().includes("laila") ||
+          v.name.toLowerCase().includes("naayf") ||
+          v.name.toLowerCase().includes("hoda")
+      );
+
+      if (!arVoice) {
+        // Strict guard: If no Arabic voice is installed in the browser,
+        // do not let browser fallback to French/English default voice.
+        setIsPlaying(true);
+        setIsPaused(false);
+        setTimeout(handleNext, minReadDuration);
+        return;
+      }
 
       const utterance = new SpeechSynthesisUtterance(cleanSegment);
-      utterance.lang = "ar-SA";
-      if (arVoice) {
-        utterance.voice = arVoice;
-      }
+      utterance.lang = arVoice.lang || "ar-SA";
+      utterance.voice = arVoice;
       utterance.rate = 0.95;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
