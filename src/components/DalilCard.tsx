@@ -161,7 +161,10 @@ export default function DalilCard({
     const cleanSegment = segments[idx]
       .replace(/[#*`_~\[\]()]/g, "")
       .replace(/\.[a-z0-9]{2,4}\b/gi, "")
+      .replace(/[a-zA-Z0-9_\-\.\/]{2,}\.(pdf|docx|txt|html|xlsx|pptx)/gi, "")
+      .replace(/[a-zA-Z]{2,}/g, "")
       .replace(/\.\.\./g, " .. ")
+      .replace(/\s+/g, " ")
       .trim();
 
     if (!cleanSegment) {
