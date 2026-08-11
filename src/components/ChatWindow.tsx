@@ -262,17 +262,6 @@ export default function ChatWindow({
         </div>
       </div>
 
-      {/* Al-Dalil Audio Briefing Banner */}
-      <div className="px-4 pt-3 pb-1 border-b border-[#e2e2dd] bg-[#094d4e]/5" id="chat-dalil-card-banner">
-        <DalilCard
-          dalilBriefing={dalilBriefing}
-          dalilCountdown={dalilCountdown}
-          isDalilGenerating={isDalilGenerating}
-          onTriggerDalilBriefing={onTriggerDalilBriefing}
-          compact={false}
-        />
-      </div>
-
       {/* Main Conversation Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (

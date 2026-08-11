@@ -263,17 +263,6 @@ export default function SourcesList({
 
       {activeSubTab === "sources" ? (
         <>
-          {/* Al-Dalil Audio Briefing Card */}
-          <div className="p-3 border-b border-[#e2e2dd] bg-[#094d4e]/5" id="sources-dalil-card-container">
-            <DalilCard
-              dalilBriefing={dalilBriefing}
-              dalilCountdown={dalilCountdown}
-              isDalilGenerating={isDalilGenerating}
-              onTriggerDalilBriefing={onTriggerDalilBriefing}
-              compact={true}
-            />
-          </div>
-
           {/* Controls: Search and Enable/Disable all */}
           <div className="p-3 border-b border-[#e2e2dd] flex flex-col gap-2 bg-[#fcfbfa]">
             <div className="relative">

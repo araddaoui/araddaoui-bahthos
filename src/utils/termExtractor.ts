@@ -145,12 +145,15 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
   // Too short or too long
   if (cleanTerm.length < 3 || cleanTerm.length > 55) return true;
 
-  // Reject broad academic disciplines and generic fields when standalone (e.g. "Computer Science", "Marketing", "Theory", "Research Methodology")
+  // Reject broad academic disciplines and generic fields when standalone or overly generic (e.g. "Computer Science", "Higher Education Policy", "Public Administration", "Thought Leadership")
   const genericDisciplinesAndBroadTerms = [
     "computer science", "marketing", "management", "finance", "accounting", "business",
     "economics", "law", "medicine", "engineering", "education", "sociology", "psychology",
     "philosophy", "history", "literature", "mathematics", "biology", "physics", "chemistry",
     "geography", "statistics", "linguistics", "anthropology", "political science", "journalism",
+    "higher education policy", "higher education", "public administration", "thought leadership",
+    "public policy", "educational policy", "general management", "project management",
+    "quality assurance", "social media", "educational system", "policy studies", "digital transformation",
     "theory", "the theory", "methodology", "research methodology", "research", "the research",
     "study", "the study", "paper", "the paper", "analysis", "the analysis", "data", "results",
     "findings", "discussion", "literature review", "background", "theoretical framework",
@@ -158,6 +161,8 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     "term", "terms", "definition", "definitions", "theories", "methodologies",
     "علوم الحاسوب", "علوم الكمبيوتر", "التسويق", "الإدارة", "العلوم المالية", "المحاسبة",
     "إدارة الأعمال", "الاقتصاد", "القانون", "الطب", "الهندسة", "التربية", "علم الاجتماع",
+    "سياسة التعليم العالي", "التعليم العالي", "الإدارة العامة", "الريادة الفكرية", "القيادة الفكرية",
+    "السياسات العامة", "السياسة التعليمية", "الإدارة العامة والسياسات", "إدارة المشاريع",
     "علم النفس", "الفلسفة", "التاريخ", "الأدب", "الرياضيات", "الأحياء", "الفيزياء", "الكيمياء",
     "الجغرافيا", "الإحصاء", "اللسانيات", "الأنثروبولوجيا", "العلوم السياسية", "الإعلام",
     "النظرية", "نظرية", "منهجية البحث", "منهجية", "البحث", "بحث", "الدراسة", "دراسة",
@@ -165,7 +170,7 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     "الإطار النظرى", "الإطار النظري", "الإطار المنهجي", "الإطار", "المقاربة", "المنهج", "المناهج",
     "المفهوم", "المفاهيم", "المصطلح", "المصطلحات"
   ];
-  if (genericDisciplinesAndBroadTerms.some(gd => cleanTerm === gd)) {
+  if (genericDisciplinesAndBroadTerms.some(gd => cleanTerm === gd || cleanTerm.replace(/^(the|a|an)\s+/, "") === gd)) {
     return true;
   }
 
@@ -179,16 +184,26 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
-  // Reject specific scholar names, author names, proper personal names
+  // Reject specific scholar names, author surnames, proper personal names, and citation fragments
   const scholarAndAuthorNames = [
-    "eleonora ardemagni", "ardemagni", "gregory gause", "gause", "gregory gause iii", "gause iii",
-    "elizabeth kendall", "kendall", "bernard lewis", "lewis", "joseph nye", "nye", "roberts to", "roberts",
-    "david b", "david", "tamim", "emir tamim", "john", "smith", "keohane", "waltz", "mearsheimer",
-    "huntington", "fukuyama", "morgenthau", "bull", "wendt", "walt", "kissinger", "weber", "chomsky",
-    "bourdieu", "foucault", "derrida", "habermas", "said", "lynch", "marc lynch", "barnett",
+    "creanga", "popa", "ionescu", "vasilescu", "dimitrescu", "smith", "johnson", "brown", "miller", "jones",
+    "davis", "garcia", "rodriguez", "wilson", "martinez", "anderson", "taylor", "thomas", "hernandez",
+    "moore", "martin", "jackson", "thompson", "white", "lopez", "lee", "gonzalez", "harris", "clark",
+    "lewis", "robinson", "walker", "perez", "hall", "young", "allen", "sanchez", "wright", "king",
+    "scott", "green", "baker", "adams", "nelson", "hill", "ramirez", "campbell", "mitchell", "roberts",
+    "carter", "phillips", "evans", "turner", "torres", "parker", "collins", "edwards", "stewart",
+    "flores", "morris", "nguyen", "murphy", "rivera", "cook", "rogers", "morgan", "peterson", "cooper",
+    "reed", "bailey", "bell", "gomez", "kelly", "howard", "ward", "cox", "diaz", "richardson", "wood",
+    "watson", "brooks", "bennett", "gray", "james", "reyes", "cruz", "hughes", "price", "myers", "long",
+    "foster", "sanders", "ross", "morales", "powell", "sullivan", "russell", "ortiz", "jenkins",
+    "gutierrez", "perry", "butler", "barnes", "fisher", "eleonora ardemagni", "ardemagni", "gregory gause",
+    "gause", "gregory gause iii", "gause iii", "elizabeth kendall", "kendall", "bernard lewis", "joseph nye",
+    "nye", "roberts to", "roberts", "david b", "david", "tamim", "emir tamim", "john", "keohane", "waltz",
+    "mearsheimer", "huntington", "fukuyama", "morgenthau", "bull", "wendt", "walt", "kissinger", "weber",
+    "chomsky", "bourdieu", "foucault", "derrida", "habermas", "said", "lynch", "marc lynch", "barnett",
     "michael barnett", "telhami", "shibley telhami", "nawaz", "ameer nawaz", "gregory", "eleonora"
   ];
-  if (scholarAndAuthorNames.some((sa) => cleanTerm === sa || cleanTerm.startsWith(sa + " ") || cleanTerm.endsWith(" " + sa) || cleanTerm.includes("gause") || cleanTerm.includes("ardemagni") || cleanTerm.includes("kendall"))) {
+  if (scholarAndAuthorNames.some((sa) => cleanTerm === sa || cleanTerm.includes(sa))) {
     return true;
   }
 

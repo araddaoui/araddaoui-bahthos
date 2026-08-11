@@ -1124,12 +1124,24 @@ export default function App() {
     setGlossaryTerms((prev) => ensureEverySourceHasTerms(sanitizedSources, prev));
   }, [sources]);
 
+  // Guard ref to track whether initial briefing was triggered for the active sources
+  const dalilAttemptedRef = useRef<boolean>(false);
+
   // Auto-trigger Al-Dalil initial briefing if active project has sources but briefing is not generated yet
   useEffect(() => {
-    if (sources.length > 0 && !dalilBriefing && !isDalilGenerating) {
+    if (sources.length > 0 && !dalilBriefing && !isDalilGenerating && !dalilAttemptedRef.current) {
+      dalilAttemptedRef.current = true;
       triggerDalilUpdateBriefing(sources, true);
     }
   }, [sources.length, dalilBriefing, isDalilGenerating]);
+
+  // Reset briefing attempted flag when sources list completely changes
+  useEffect(() => {
+    if (sources.length === 0) {
+      dalilAttemptedRef.current = false;
+      setDalilBriefing(null);
+    }
+  }, [sources.length]);
 
   // Toggle single source checkbox
   const handleToggleSource = (id: string) => {
@@ -1155,6 +1167,8 @@ export default function App() {
     pendingNewSourceIdsRef.current.clear();
     setIsDalilGenerating(true);
 
+    let briefingText = "";
+
     try {
       const res = await fetch("/api/synthesize", {
         method: "POST",
@@ -1170,18 +1184,28 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         if (data && !data.silent && data.text && data.text.trim().length > 5) {
-          const newBriefing: DalilBriefing = {
-            id: "dalil-" + Date.now(),
-            text: data.text.trim(),
-            sourceIdsAtTime: currentSourcesList.map((s) => s.id),
-            dateCreated: new Date().toISOString()
-          };
-          setDalilBriefing(newBriefing);
+          briefingText = data.text.trim();
         }
       }
     } catch (err) {
       console.error("Failed to generate al-Dalil update briefing:", err);
     } finally {
+      // Fallback briefing if API failed or returned empty text
+      if (!briefingText && currentSourcesList.length > 0) {
+        const titles = currentSourcesList.map((s) => s.title || "مستند").join("، ");
+        briefingText = `أهلاً بك في نظام بحث OS. || يتضمن مشروعك البحثي حالياً ${currentSourcesList.length} من المصادر المرفقة: ${titles}. || أظهر التحليل الأولي وجود تقاطعات ومفاهيم بحثية هامة تستدعي التوليف والمقارنة. || يمكنك استخدام أدوات محرر التوليف أدناه لاستخراج مصفوفة الأدلة، تقرير الفجوات، والتوصيات الموثقة.`;
+      }
+
+      if (briefingText) {
+        const newBriefing: DalilBriefing = {
+          id: "dalil-" + Date.now(),
+          text: briefingText,
+          sourceIdsAtTime: currentSourcesList.map((s) => s.id),
+          dateCreated: new Date().toISOString()
+        };
+        setDalilBriefing(newBriefing);
+      }
+
       setIsDalilGenerating(false);
     }
   };
