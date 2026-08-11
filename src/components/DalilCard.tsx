@@ -11,69 +11,6 @@ interface DalilCardProps {
   compact?: boolean;
 }
 
-// Convert base64 PCM (16-bit Little Endian, 24kHz) to Float32Array for Web Audio API
-function base64PcmToFloat32Array(base64Pcm: string): Float32Array {
-  const binaryString = atob(base64Pcm);
-  
-  // Skip 44-byte RIFF header if present
-  let offset = 0;
-  if (binaryString.length >= 44 && binaryString.substring(0, 4) === "RIFF" && binaryString.substring(8, 12) === "WAVE") {
-    offset = 44;
-  }
-
-  const bytesCount = binaryString.length - offset;
-  const samplesCount = Math.floor(bytesCount / 2);
-  const float32 = new Float32Array(samplesCount);
-
-  const buffer = new ArrayBuffer(binaryString.length);
-  const uint8 = new Uint8Array(buffer);
-  for (let i = 0; i < binaryString.length; i++) {
-    uint8[i] = binaryString.charCodeAt(i);
-  }
-  const dataView = new DataView(buffer);
-
-  for (let i = 0; i < samplesCount; i++) {
-    const int16 = dataView.getInt16(offset + i * 2, true); // true = Little Endian
-    float32[i] = int16 < 0 ? int16 / 32768 : int16 / 32767;
-  }
-
-  return float32;
-}
-
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-async function decodeAudioBase64(ctx: AudioContext, base64Data: string, mimeTypeStr?: string): Promise<AudioBuffer> {
-  const arrayBuffer = base64ToArrayBuffer(base64Data);
-  
-  // Method A: Native decodeAudioData on active AudioContext
-  try {
-    const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
-    if (decoded) return decoded;
-  } catch (err) {
-    console.warn("ctx.decodeAudioData fallback to PCM Float32 converter:", err);
-  }
-
-  // Method B: Manual Float32 PCM conversion on active AudioContext
-  let sampleRate = 24000;
-  if (mimeTypeStr && mimeTypeStr.includes("rate=")) {
-    const match = mimeTypeStr.match(/rate=(\d+)/);
-    if (match) sampleRate = parseInt(match[1], 10);
-  }
-
-  const float32Samples = base64PcmToFloat32Array(base64Data);
-  const audioBuf = ctx.createBuffer(1, float32Samples.length, sampleRate);
-  audioBuf.getChannelData(0).set(float32Samples);
-  return audioBuf;
-}
-
 export default function DalilCard({
   dalilBriefing,
   dalilCountdown,
@@ -87,8 +24,7 @@ export default function DalilCard({
   const [isExpanded, setIsExpanded] = useState(true);
   const [currentChunkIdx, setCurrentChunkIdx] = useState<number>(-1);
 
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const isStoppedRef = useRef<boolean>(false);
 
@@ -100,19 +36,13 @@ export default function DalilCard({
   const stopAllSpeech = () => {
     isStoppedRef.current = true;
 
-    if (audioSourceRef.current) {
+    if (audioRef.current) {
       try {
-        audioSourceRef.current.stop();
-      } catch (_) {}
-      try {
-        audioSourceRef.current.disconnect();
-      } catch (_) {}
-      audioSourceRef.current = null;
-    }
-
-    if (audioContextRef.current && audioContextRef.current.state === "running") {
-      try {
-        audioContextRef.current.suspend();
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        audioRef.current.ontimeupdate = null;
+        audioRef.current.onended = null;
+        audioRef.current.onerror = null;
       } catch (_) {}
     }
 
@@ -289,55 +219,6 @@ export default function DalilCard({
     }
   };
 
-  const playWithAudioBuffer = (ctx: AudioContext, audioBuffer: AudioBuffer, segments: string[]) => {
-    if (isStoppedRef.current) return;
-
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
-    audioSourceRef.current = source;
-
-    const startTime = ctx.currentTime;
-    const duration = audioBuffer.duration;
-    const totalLength = segments.reduce((acc, s) => acc + Math.max(1, s.length), 0);
-
-    const updateHighlight = () => {
-      if (isStoppedRef.current || !audioSourceRef.current) return;
-      const elapsed = ctx.currentTime - startTime;
-      const progress = Math.min(1, elapsed / duration);
-
-      let accumulatedRatio = 0;
-      for (let i = 0; i < segments.length; i++) {
-        accumulatedRatio += segments[i].length / totalLength;
-        if (progress <= accumulatedRatio || i === segments.length - 1) {
-          setCurrentChunkIdx(i);
-          break;
-        }
-      }
-
-      if (progress < 1.0) {
-        animationFrameRef.current = requestAnimationFrame(updateHighlight);
-      }
-    };
-
-    source.onended = () => {
-      if (!isStoppedRef.current) {
-        stopAllSpeech();
-      }
-    };
-
-    try {
-      source.start(0);
-      setIsPlaying(true);
-      setIsPaused(false);
-      setCurrentChunkIdx(0);
-      animationFrameRef.current = requestAnimationFrame(updateHighlight);
-    } catch (err) {
-      console.warn("AudioBufferSourceNode start failed, falling back to WebSpeech:", err);
-      playChunkWithWebSpeechFallback(segments, 0);
-    }
-  };
-
   const handleTogglePlay = async () => {
     if (!dalilBriefing?.text) return;
 
@@ -346,23 +227,10 @@ export default function DalilCard({
       return;
     }
 
-    // Initialize/resume AudioContext SYNCHRONOUSLY inside user click gesture tick
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!audioContextRef.current || audioContextRef.current.state === "closed") {
-      if (AudioContextClass) {
-        audioContextRef.current = new AudioContextClass();
-      }
-    }
-    const ctx = audioContextRef.current;
-    if (ctx && ctx.state === "suspended") {
-      try {
-        await ctx.resume();
-      } catch (_) {}
-    }
-
+    // 1. Pause logic if currently playing
     if (isPlaying && !isPaused) {
-      if (ctx && ctx.state === "running") {
-        ctx.suspend();
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
       } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.pause();
       }
@@ -370,9 +238,10 @@ export default function DalilCard({
       return;
     }
 
+    // 2. Resume logic if currently paused
     if (isPlaying && isPaused) {
-      if (ctx && ctx.state === "suspended") {
-        ctx.resume();
+      if (audioRef.current && audioRef.current.paused && audioRef.current.src) {
+        audioRef.current.play().catch(() => {});
       } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.resume();
       }
@@ -380,7 +249,21 @@ export default function DalilCard({
       return;
     }
 
-    // Reset previous audio and speech instances
+    // 3. Pre-unlock HTML5 Audio synchronously inside the user click gesture tick!
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+    const audio = audioRef.current;
+    audio.muted = false;
+    audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+    try {
+      const p = audio.play();
+      if (p !== undefined) {
+        p.catch(() => {});
+      }
+    } catch (_) {}
+
+    // Reset previous playback & speech instances
     stopAllSpeech();
     isStoppedRef.current = false;
 
@@ -391,50 +274,79 @@ export default function DalilCard({
 
     if (rawSegments.length === 0) return;
 
-    // 1. If audio is already pre-fetched in background
-    if (ctx && cachedAudioDataRef.current) {
+    // Retrieve or fetch TTS audio payload
+    let audioData = cachedAudioDataRef.current;
+
+    if (!audioData) {
       setIsLoadingAudio(true);
+      const fullText = dalilBriefing.text.replace(/\|\|/g, " . ");
+
       try {
-        const audioBuf = await decodeAudioBase64(ctx, cachedAudioDataRef.current.audio, cachedAudioDataRef.current.mimeType);
-        setIsLoadingAudio(false);
-        if (!isStoppedRef.current) {
-          playWithAudioBuffer(ctx, audioBuf, rawSegments);
-          return;
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: fullText }),
+        });
+
+        if (res.ok && !isStoppedRef.current) {
+          const data = await res.json();
+          if (data && data.audio) {
+            audioData = { audio: data.audio, mimeType: data.mimeType || "audio/wav" };
+            cachedAudioDataRef.current = audioData;
+          }
         }
       } catch (err) {
-        console.warn("Failed decoding pre-fetched audio:", err);
+        console.warn("On-demand TTS fetch error:", err);
       } finally {
         setIsLoadingAudio(false);
       }
     }
 
-    // 2. Otherwise fetch TTS audio on demand
-    setIsLoadingAudio(true);
-    const fullText = dalilBriefing.text.replace(/\|\|/g, " . ");
+    if (isStoppedRef.current) return;
 
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: fullText }),
-      });
+    // If Gemini TTS audio payload is ready, play through pre-unlocked HTML5 Audio element
+    if (audioData && audioData.audio) {
+      const mime = audioData.mimeType || "audio/wav";
+      audio.src = `data:${mime};base64,${audioData.audio}`;
+      audio.currentTime = 0;
 
-      if (res.ok && !isStoppedRef.current && ctx) {
-        const data = await res.json();
-        if (data.audio) {
-          cachedAudioDataRef.current = { audio: data.audio, mimeType: data.mimeType };
-          const audioBuffer = await decodeAudioBase64(ctx, data.audio, data.mimeType);
-          setIsLoadingAudio(false);
-          if (!isStoppedRef.current) {
-            playWithAudioBuffer(ctx, audioBuffer, rawSegments);
-            return;
+      const totalLength = rawSegments.reduce((acc, s) => acc + Math.max(1, s.length), 0);
+
+      audio.ontimeupdate = () => {
+        if (isStoppedRef.current || !audio.duration || audio.duration <= 0) return;
+        const progress = audio.currentTime / audio.duration;
+        let accumulatedRatio = 0;
+        for (let i = 0; i < rawSegments.length; i++) {
+          accumulatedRatio += rawSegments[i].length / totalLength;
+          if (progress <= accumulatedRatio || i === rawSegments.length - 1) {
+            setCurrentChunkIdx(i);
+            break;
           }
         }
+      };
+
+      audio.onended = () => {
+        if (!isStoppedRef.current) {
+          stopAllSpeech();
+        }
+      };
+
+      audio.onerror = (e) => {
+        console.warn("Audio element playback error, falling back to WebSpeech:", e);
+        if (!isStoppedRef.current) {
+          playChunkWithWebSpeechFallback(rawSegments, 0);
+        }
+      };
+
+      try {
+        await audio.play();
+        setIsPlaying(true);
+        setIsPaused(false);
+        setCurrentChunkIdx(0);
+        return;
+      } catch (playErr) {
+        console.warn("HTML5 audio.play() failed, falling back to WebSpeech:", playErr);
       }
-    } catch (err) {
-      console.warn("On-demand TTS fetch error:", err);
-    } finally {
-      setIsLoadingAudio(false);
     }
 
     if (!isStoppedRef.current) {
