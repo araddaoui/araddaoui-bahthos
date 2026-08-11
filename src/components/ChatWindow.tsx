@@ -20,6 +20,9 @@ import { parseDocumentFile } from "../utils/documentParser";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
 import { parseMarkdownToReact } from "../utils/reportFormatter";
 
+import { DalilBriefing } from "../types";
+import DalilCard from "./DalilCard";
+
 // Helper function to calculate the agreement score based on academic keyword matches
 const calculateAgreementMeter = (text: string) => {
   const agreementKeywords = ["تتفق", "اتفاق", "انسجام", "توافق", "تتلاقى", "تطابق", "يتوافق", "agree", "concur", "harmony", "consensus"];
@@ -73,6 +76,10 @@ interface ChatWindowProps {
     error?: string,
     terms?: any[]
   ) => void;
+  dalilBriefing?: DalilBriefing | null;
+  dalilCountdown?: number | null;
+  isDalilGenerating?: boolean;
+  onTriggerDalilBriefing?: () => void;
 }
 
 export default function ChatWindow({
@@ -82,6 +89,10 @@ export default function ChatWindow({
   isThinking,
   onSourceClick,
   onAddSource,
+  dalilBriefing = null,
+  dalilCountdown = null,
+  isDalilGenerating = false,
+  onTriggerDalilBriefing,
 }: ChatWindowProps) {
   const [inputText, setInputText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -243,13 +254,45 @@ export default function ChatWindow({
           </div>
         </div>
 
-        {activeSources.length === 0 && (
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-bold">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>يرجى تفعيل مصدر واحد على الأقل للدردشة!</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {onTriggerDalilBriefing && (
+            <button
+              onClick={onTriggerDalilBriefing}
+              disabled={isDalilGenerating || (dalilCountdown !== null && dalilCountdown !== undefined)}
+              className="px-3 py-1.5 bg-[#094d4e] hover:bg-[#073c3d] disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              id="chat-header-dalil-btn"
+              title="طلب إحاطة من الدليل"
+            >
+              {isDalilGenerating ? (
+                <Loader2 className="w-3.5 h-3.5 text-teal-200 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-teal-300" />
+              )}
+              <span>إحاطة الدليل</span>
+            </button>
+          )}
+
+          {activeSources.length === 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-bold">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>يرجى تفعيل مصدر واحد على الأقل للدردشة!</span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Al-Dalil Live Briefing Top Notification Banner in Chat */}
+      {(dalilBriefing || isDalilGenerating || (dalilCountdown !== null && dalilCountdown !== undefined)) && (
+        <div className="px-4 pt-3 pb-0" id="chat-dalil-banner-container">
+          <DalilCard
+            dalilBriefing={dalilBriefing}
+            dalilCountdown={dalilCountdown}
+            isDalilGenerating={isDalilGenerating}
+            onTriggerDalilBriefing={onTriggerDalilBriefing}
+            compact={true}
+          />
+        </div>
+      )}
 
       {/* Main Conversation Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

@@ -1125,8 +1125,8 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     setSources((prev) => prev.map((src) => ({ ...src, enabled: false })));
   };
 
-  const triggerDalilUpdateBriefing = async (currentSourcesList: Source[]) => {
-    if (pendingNewSourceIdsRef.current.size === 0) return;
+  const triggerDalilUpdateBriefing = async (currentSourcesList: Source[], force = false) => {
+    if (!force && pendingNewSourceIdsRef.current.size === 0 && currentSourcesList.length === 0) return;
     const newIds = Array.from(pendingNewSourceIdsRef.current);
     pendingNewSourceIdsRef.current.clear();
     setIsDalilGenerating(true);
@@ -1531,6 +1531,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
             dalilBriefing={dalilBriefing}
             dalilCountdown={dalilCountdown}
             isDalilGenerating={isDalilGenerating}
+            onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
           />
         </div>
 
@@ -1551,6 +1552,10 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
                   setActiveMainView("source");
                 }}
                 onAddSource={handleAddSource}
+                dalilBriefing={dalilBriefing}
+                dalilCountdown={dalilCountdown}
+                isDalilGenerating={isDalilGenerating}
+                onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
               />
             ) : (
               <SourceViewer
