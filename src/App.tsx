@@ -1124,6 +1124,13 @@ export default function App() {
     setGlossaryTerms((prev) => ensureEverySourceHasTerms(sanitizedSources, prev));
   }, [sources]);
 
+  // Auto-trigger Al-Dalil initial briefing if active project has sources but briefing is not generated yet
+  useEffect(() => {
+    if (sources.length > 0 && !dalilBriefing && !isDalilGenerating) {
+      triggerDalilUpdateBriefing(sources, true);
+    }
+  }, [sources.length, dalilBriefing, isDalilGenerating]);
+
   // Toggle single source checkbox
   const handleToggleSource = (id: string) => {
     setSources((prev) => {
@@ -1557,6 +1564,10 @@ export default function App() {
                   setActiveMainView("source");
                 }}
                 onAddSource={handleAddSource}
+                dalilBriefing={dalilBriefing}
+                dalilCountdown={dalilCountdown}
+                isDalilGenerating={isDalilGenerating}
+                onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
               />
             ) : (
               <SourceViewer

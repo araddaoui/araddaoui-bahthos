@@ -13,7 +13,8 @@ import {
   Plus,
   Paperclip
 } from "lucide-react";
-import { Message, Source } from "../types";
+import { Message, Source, DalilBriefing } from "../types";
+import DalilCard from "./DalilCard";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView";
 import ReportFollowUp from "./ReportFollowUp";
 import { parseDocumentFile } from "../utils/documentParser";
@@ -73,6 +74,10 @@ interface ChatWindowProps {
     error?: string,
     terms?: any[]
   ) => void;
+  dalilBriefing?: DalilBriefing | null;
+  dalilCountdown?: number | null;
+  isDalilGenerating?: boolean;
+  onTriggerDalilBriefing?: () => void;
 }
 
 export default function ChatWindow({
@@ -82,6 +87,10 @@ export default function ChatWindow({
   isThinking,
   onSourceClick,
   onAddSource,
+  dalilBriefing = null,
+  dalilCountdown = null,
+  isDalilGenerating = false,
+  onTriggerDalilBriefing,
 }: ChatWindowProps) {
   const [inputText, setInputText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -251,6 +260,17 @@ export default function ChatWindow({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Al-Dalil Audio Briefing Banner */}
+      <div className="px-4 pt-3 pb-1 border-b border-[#e2e2dd] bg-[#094d4e]/5" id="chat-dalil-card-banner">
+        <DalilCard
+          dalilBriefing={dalilBriefing}
+          dalilCountdown={dalilCountdown}
+          isDalilGenerating={isDalilGenerating}
+          onTriggerDalilBriefing={onTriggerDalilBriefing}
+          compact={false}
+        />
       </div>
 
       {/* Main Conversation Area */}
