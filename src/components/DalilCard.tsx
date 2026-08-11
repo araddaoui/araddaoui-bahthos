@@ -40,6 +40,40 @@ function base64PcmToFloat32Array(base64Pcm: string): Float32Array {
   return float32;
 }
 
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+async function decodeAudioBase64(ctx: AudioContext, base64Data: string, mimeTypeStr?: string): Promise<AudioBuffer> {
+  const arrayBuffer = base64ToArrayBuffer(base64Data);
+  
+  // Method A: Native decodeAudioData on active AudioContext
+  try {
+    const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    if (decoded) return decoded;
+  } catch (err) {
+    console.warn("ctx.decodeAudioData fallback to PCM Float32 converter:", err);
+  }
+
+  // Method B: Manual Float32 PCM conversion on active AudioContext
+  let sampleRate = 24000;
+  if (mimeTypeStr && mimeTypeStr.includes("rate=")) {
+    const match = mimeTypeStr.match(/rate=(\d+)/);
+    if (match) sampleRate = parseInt(match[1], 10);
+  }
+
+  const float32Samples = base64PcmToFloat32Array(base64Data);
+  const audioBuf = ctx.createBuffer(1, float32Samples.length, sampleRate);
+  audioBuf.getChannelData(0).set(float32Samples);
+  return audioBuf;
+}
+
 export default function DalilCard({
   dalilBriefing,
   dalilCountdown,
@@ -58,7 +92,7 @@ export default function DalilCard({
   const animationFrameRef = useRef<number | null>(null);
   const isStoppedRef = useRef<boolean>(false);
 
-  const cachedAudioBufferRef = useRef<AudioBuffer | null>(null);
+  const cachedAudioDataRef = useRef<{ audio: string; mimeType?: string } | null>(null);
   const cachedBriefingIdRef = useRef<string | null>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const utterancesKeepAliveRef = useRef<SpeechSynthesisUtterance[]>([]);
@@ -104,7 +138,7 @@ export default function DalilCard({
     if (!dalilBriefing?.text || dalilBriefing.id === cachedBriefingIdRef.current) return;
 
     cachedBriefingIdRef.current = dalilBriefing.id;
-    cachedAudioBufferRef.current = null;
+    cachedAudioDataRef.current = null;
 
     const fullText = dalilBriefing.text.replace(/\|\|/g, " . ");
 
@@ -114,34 +148,9 @@ export default function DalilCard({
       body: JSON.stringify({ text: fullText }),
     })
       .then((res) => (res.ok ? res.json() : null))
-      .then(async (data) => {
+      .then((data) => {
         if (!data || !data.audio) return;
-
-        let sampleRate = 24000;
-        const mimeType = data.mimeType || "audio/pcm;rate=24000";
-        if (mimeType.includes("rate=")) {
-          const match = mimeType.match(/rate=(\d+)/);
-          if (match) sampleRate = parseInt(match[1], 10);
-        }
-
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContextClass) return;
-
-        let tempCtx: AudioContext | null = null;
-        try {
-          tempCtx = new AudioContextClass();
-        } catch (_) {
-          return;
-        }
-
-        const float32Samples = base64PcmToFloat32Array(data.audio);
-        const audioBuf = tempCtx.createBuffer(1, float32Samples.length, sampleRate);
-        audioBuf.getChannelData(0).set(float32Samples);
-
-        cachedAudioBufferRef.current = audioBuf;
-        try {
-          tempCtx.close();
-        } catch (_) {}
+        cachedAudioDataRef.current = { audio: data.audio, mimeType: data.mimeType };
       })
       .catch((err) => {
         console.warn("Background TTS prefetch info:", err);
@@ -382,10 +391,21 @@ export default function DalilCard({
 
     if (rawSegments.length === 0) return;
 
-    // 1. If audio is already pre-fetched and decoded
-    if (ctx && cachedAudioBufferRef.current) {
-      playWithAudioBuffer(ctx, cachedAudioBufferRef.current, rawSegments);
-      return;
+    // 1. If audio is already pre-fetched in background
+    if (ctx && cachedAudioDataRef.current) {
+      setIsLoadingAudio(true);
+      try {
+        const audioBuf = await decodeAudioBase64(ctx, cachedAudioDataRef.current.audio, cachedAudioDataRef.current.mimeType);
+        setIsLoadingAudio(false);
+        if (!isStoppedRef.current) {
+          playWithAudioBuffer(ctx, audioBuf, rawSegments);
+          return;
+        }
+      } catch (err) {
+        console.warn("Failed decoding pre-fetched audio:", err);
+      } finally {
+        setIsLoadingAudio(false);
+      }
     }
 
     // 2. Otherwise fetch TTS audio on demand
@@ -402,21 +422,13 @@ export default function DalilCard({
       if (res.ok && !isStoppedRef.current && ctx) {
         const data = await res.json();
         if (data.audio) {
-          let sampleRate = 24000;
-          const mimeType = data.mimeType || "audio/pcm;rate=24000";
-          if (mimeType.includes("rate=")) {
-            const match = mimeType.match(/rate=(\d+)/);
-            if (match) sampleRate = parseInt(match[1], 10);
-          }
-
-          const float32Samples = base64PcmToFloat32Array(data.audio);
-          const audioBuffer = ctx.createBuffer(1, float32Samples.length, sampleRate);
-          audioBuffer.getChannelData(0).set(float32Samples);
-          cachedAudioBufferRef.current = audioBuffer;
-
+          cachedAudioDataRef.current = { audio: data.audio, mimeType: data.mimeType };
+          const audioBuffer = await decodeAudioBase64(ctx, data.audio, data.mimeType);
           setIsLoadingAudio(false);
-          playWithAudioBuffer(ctx, audioBuffer, rawSegments);
-          return;
+          if (!isStoppedRef.current) {
+            playWithAudioBuffer(ctx, audioBuffer, rawSegments);
+            return;
+          }
         }
       }
     } catch (err) {

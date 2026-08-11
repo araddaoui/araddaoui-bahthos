@@ -264,7 +264,7 @@ app.post("/api/tts", async (req, res) => {
     }
 
     const ai = getAiClient();
-    const candidateModels = ["gemini-2.5-flash", "gemini-3.6-flash"];
+    const candidateModels = ["gemini-3.1-flash-tts-preview"];
     let lastError: any = null;
 
     for (const ttsModel of candidateModels) {
