@@ -1361,7 +1361,7 @@ app.post("/api/tts", async (req, res) => {
     try {
       const response = await generateContentWithRetry(ai, {
         model: "gemini-3.1-flash-tts-preview",
-        contents: `اقرأ النص التالي بنبرة صوت راقية، عربية فصيحة، معبرة، وواضحة جداً:\n\n${cleanText}`,
+        contents: [{ parts: [{ text: `اقرأ النص التالي بنبرة صوت راقية، عربية فصيحة، معبرة، وواضحة جداً:\n\n${cleanText}` }] }],
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
