@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Sparkles, Loader2, Volume2, Pause, Square, ChevronDown, ChevronUp, Radio } from "lucide-react";
+import { Sparkles, Loader2, Volume2, Pause, Square, ChevronDown, ChevronUp, Radio, Download } from "lucide-react";
 import { DalilBriefing } from "../types";
+import { exportToWordDocument } from "../utils/reportFormatter";
 
 interface DalilCardProps {
   dalilBriefing: DalilBriefing | null;
@@ -26,6 +27,8 @@ export default function DalilCard({
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioCacheRef = useRef<Record<number, { audioUri: string; mimeType: string }>>({});
   const isStoppedRef = useRef<boolean>(false);
+  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const utterancesKeepAliveRef = useRef<SpeechSynthesisUtterance[]>([]);
 
   const stopAllSpeech = () => {
     isStoppedRef.current = true;
@@ -37,6 +40,8 @@ export default function DalilCard({
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+    activeUtteranceRef.current = null;
+    utterancesKeepAliveRef.current = [];
     audioCacheRef.current = {};
     setIsPlaying(false);
     setIsPaused(false);
@@ -44,91 +49,29 @@ export default function DalilCard({
     setCurrentChunkIdx(-1);
   };
 
+  // Keep-alive timer so browser SpeechSynthesis engine does not pause after 15s
+  useEffect(() => {
+    if (!isPlaying || isPaused) return;
+
+    const interval = setInterval(() => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        const synth = window.speechSynthesis;
+        if (synth.speaking && !synth.paused) {
+          synth.pause();
+          synth.resume();
+        }
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isPlaying, isPaused]);
+
   // Clean up speech synthesis when component unmounts or briefing changes
   useEffect(() => {
     return () => {
       stopAllSpeech();
     };
   }, [dalilBriefing?.id]);
-
-  const playFullBriefingWithGeminiTTS = async (fullText: string, segments: string[]) => {
-    if (isStoppedRef.current) return;
-
-    let audioUri = audioCacheRef.current[0]?.audioUri;
-
-    if (!audioUri) {
-      setIsLoadingAudio(true);
-      try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: fullText }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.audio) {
-            audioUri = `data:${data.mimeType || "audio/wav"};base64,${data.audio}`;
-            audioCacheRef.current[0] = {
-              audioUri,
-              mimeType: data.mimeType || "audio/wav",
-            };
-          }
-        }
-      } catch (err) {
-        console.warn("Gemini TTS fetch failed:", err);
-      } finally {
-        setIsLoadingAudio(false);
-      }
-    }
-
-    if (isStoppedRef.current) return;
-
-    if (audioUri) {
-      const audio = new Audio(audioUri);
-      currentAudioRef.current = audio;
-
-      audio.ontimeupdate = () => {
-        if (!isStoppedRef.current && audio.duration && segments.length > 0) {
-          const totalLength = segments.reduce((acc, s) => acc + Math.max(1, s.length), 0);
-          const progress = audio.currentTime / audio.duration;
-          let accumulatedRatio = 0;
-          for (let i = 0; i < segments.length; i++) {
-            accumulatedRatio += segments[i].length / totalLength;
-            if (progress <= accumulatedRatio || i === segments.length - 1) {
-              setCurrentChunkIdx(i);
-              break;
-            }
-          }
-        }
-      };
-
-      audio.onended = () => {
-        if (!isStoppedRef.current) {
-          stopAllSpeech();
-        }
-      };
-
-      audio.onerror = (e) => {
-        console.warn("Audio element playback error:", e);
-        if (!isStoppedRef.current) {
-          playChunkWithWebSpeechFallback(segments, 0);
-        }
-      };
-
-      try {
-        await audio.play();
-        setIsPlaying(true);
-        setIsPaused(false);
-        setCurrentChunkIdx(0);
-      } catch (playErr) {
-        console.warn("Audio play blocked or failed:", playErr);
-        playChunkWithWebSpeechFallback(segments, 0);
-      }
-    } else {
-      // Fallback to Web Speech API if server TTS didn't return audio or hit quota
-      playChunkWithWebSpeechFallback(segments, 0);
-    }
-  };
 
   const playChunkWithWebSpeechFallback = (segments: string[], idx: number) => {
     if (idx >= segments.length || isStoppedRef.current) {
@@ -142,6 +85,13 @@ export default function DalilCard({
     }
 
     const synth = window.speechSynthesis;
+
+    if (idx === 0) {
+      try {
+        synth.cancel();
+      } catch (_) {}
+    }
+
     try {
       synth.resume();
     } catch (_) {}
@@ -178,6 +128,11 @@ export default function DalilCard({
       utterance.voice = arVoice;
     }
     utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+
+    // Anchor utterance instance in refs so Garbage Collector NEVER deletes it mid-speech
+    activeUtteranceRef.current = utterance;
+    utterancesKeepAliveRef.current.push(utterance);
 
     const startTime = Date.now();
     let hasFinished = false;
@@ -185,22 +140,21 @@ export default function DalilCard({
     const handleNext = () => {
       if (hasFinished || isStoppedRef.current) return;
       hasFinished = true;
-      const elapsed = Date.now() - startTime;
-      const minReadDuration = Math.min(6000, Math.max(1200, cleanSegment.length * 65));
-      if (elapsed < 150 && cleanSegment.length > 5) {
-        setTimeout(() => {
-          if (!isStoppedRef.current) {
-            playChunkWithWebSpeechFallback(segments, idx + 1);
-          }
-        }, minReadDuration);
-      } else {
+
+      // Remove finished utterance from keepalive array
+      utterancesKeepAliveRef.current = utterancesKeepAliveRef.current.filter((u) => u !== utterance);
+      if (activeUtteranceRef.current === utterance) {
+        activeUtteranceRef.current = null;
+      }
+
+      if (!isStoppedRef.current) {
         playChunkWithWebSpeechFallback(segments, idx + 1);
       }
     };
 
     utterance.onend = handleNext;
     utterance.onerror = (e) => {
-      console.warn("Utterance error:", e);
+      console.warn("Utterance speech error:", e);
       handleNext();
     };
 
@@ -256,6 +210,12 @@ export default function DalilCard({
     playChunkWithWebSpeechFallback(rawSegments, 0);
   };
 
+  const handleExportMSW = () => {
+    if (!dalilBriefing?.text) return;
+    const cleanDocText = dalilBriefing.text.replace(/\|\|/g, "\n\n");
+    exportToWordDocument("إحاطة الدليل - الصوت المرشد", cleanDocText);
+  };
+
   return (
     <div
       className="p-3.5 bg-linear-to-b from-[#094d4e] via-[#084243] to-[#052d2e] text-white rounded-2xl shadow-sm border border-teal-800/80 transition-all relative"
@@ -288,23 +248,33 @@ export default function DalilCard({
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Text-To-Speech Controls */}
+          {/* MS Word Export Button */}
+          {dalilBriefing && !isDalilGenerating && (
+            <button
+              onClick={handleExportMSW}
+              className="px-2 py-1 bg-teal-800/60 hover:bg-teal-700/70 active:bg-teal-600/80 text-teal-200 hover:text-white rounded-lg border border-teal-600/50 transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-bold shadow-2xs"
+              title="تصدير الإحاطة إلى مستند MS Word (.doc/.docx)"
+              id="dalil-export-msw-btn"
+            >
+              <Download className="w-3.5 h-3.5 text-amber-300" />
+              <span className="text-[10px] hidden sm:inline">تصدير MSW</span>
+            </button>
+          )}
+
+          {/* Text-To-Speech Controls (Speaker icon only, toggling to Pause) */}
           {dalilBriefing && !isDalilGenerating && (
             <div className="flex items-center gap-1 bg-teal-950/60 p-1 rounded-lg border border-teal-700/50">
               <button
                 onClick={handleTogglePlay}
-                className="p-1 hover:bg-teal-700/50 active:bg-teal-600/60 text-teal-200 hover:text-white rounded transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-bold"
-                title={isPlaying ? (isPaused ? "استئناف التلاوة" : "إيقاف مؤقت") : "تلاوة الإحاطة بصوت الدليل الفصيح"}
+                className="p-1 hover:bg-teal-700/50 active:bg-teal-600/60 text-teal-200 hover:text-white rounded transition-colors cursor-pointer flex items-center justify-center"
+                title={isPlaying ? (isPaused ? "استئناف التلاوة" : "إيقاف مؤقت") : "تلاوة الإحاطة بصوت الدليل"}
                 id="dalil-tts-play-btn"
               >
                 {isPlaying && !isPaused ? (
-                  <Pause className="w-3.5 h-3.5 text-amber-300" />
+                  <Pause className="w-4 h-4 text-amber-300" />
                 ) : (
-                  <Volume2 className="w-3.5 h-3.5 text-teal-300" />
+                  <Volume2 className="w-4 h-4 text-teal-300" />
                 )}
-                <span className="text-[10px] hidden sm:inline">
-                  {isPlaying ? (isPaused ? "استئناف" : "مؤقت") : "تلاوة صحيحة"}
-                </span>
               </button>
 
               {isPlaying && (
@@ -314,7 +284,7 @@ export default function DalilCard({
                   title="إنهاء التلاوة"
                   id="dalil-tts-stop-btn"
                 >
-                  <Square className="w-3 h-3" />
+                  <Square className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>

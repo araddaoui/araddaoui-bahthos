@@ -301,12 +301,12 @@ export default function App() {
         }
 
         loadedProjectIdRef.current = activeId;
-        setSources(effectiveSources);
-        setMessages(cloudMessages);
-        setSyntheses(effectiveSyntheses);
-        setGlossaryTerms(effectiveGlossary);
-        setTemperature(cloudTemp);
-        setCurrentProjectId(activeId);
+        setSources((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSources) ? prev : effectiveSources));
+        setMessages((prev) => (JSON.stringify(prev) === JSON.stringify(cloudMessages) ? prev : cloudMessages));
+        setSyntheses((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSyntheses) ? prev : effectiveSyntheses));
+        setGlossaryTerms((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveGlossary) ? prev : effectiveGlossary));
+        setTemperature((prev) => (prev === cloudTemp ? prev : cloudTemp));
+        setCurrentProjectId((prev) => (prev === activeId ? prev : activeId));
 
       } catch (err) {
         console.error("Failed to load Firebase data:", err);
