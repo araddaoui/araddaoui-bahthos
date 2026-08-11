@@ -16,17 +16,29 @@ import {
   Download,
   ShieldCheck
 } from "lucide-react";
-import { Source, Synthesis } from "../types";
+import { Source, Synthesis, DalilBriefing } from "../types";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
 import { copyReportToClipboard, exportToWordDocument, deduplicateSources } from "../utils/reportFormatter";
 import { generateClientSynthesisFallback } from "../utils/synthesisFallback";
+import DalilCard from "./DalilCard";
 
 interface SynthesisEditorProps {
   sources: Source[];
   onSaveSynthesis: (synthesis: Synthesis) => void;
+  dalilBriefing?: DalilBriefing | null;
+  dalilCountdown?: number | null;
+  isDalilGenerating?: boolean;
+  onTriggerDalilBriefing?: () => void;
 }
 
-export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisEditorProps) {
+export default function SynthesisEditor({ 
+  sources, 
+  onSaveSynthesis,
+  dalilBriefing = null,
+  dalilCountdown = null,
+  isDalilGenerating = false,
+  onTriggerDalilBriefing
+}: SynthesisEditorProps) {
   const [topic, setTopic] = useState(() => {
     const active = sources.filter((s) => s.enabled);
     if (active.length > 0) {
@@ -171,7 +183,7 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
     <div className="w-full h-full flex flex-col bg-[#fafaf8] overflow-y-auto p-4 md:p-6" id="synthesis-editor-view">
       <div className="max-w-4xl mx-auto w-full space-y-6">
         {/* Centered Academic Heading and Subtitle */}
-        <div className="text-center pt-2 pb-4 max-w-md mx-auto space-y-1.5">
+        <div className="text-center pt-2 pb-2 max-w-md mx-auto space-y-1.5">
           <h1 className="text-2xl font-extrabold text-[#094d4e] tracking-tight">
             بحث OS
           </h1>
@@ -179,6 +191,14 @@ export default function SynthesisEditor({ sources, onSaveSynthesis }: SynthesisE
             ولّد تقريرًا موثقًا يحلل مصادر متعددة، ويستخلص أوجه الاتفاق والاختلاف، ويكشف الفجوات والمعرفة الميدانية، مع إسناد كل استنتاج إلى مصادره.
           </p>
         </div>
+
+        {/* Al-Dalil Guided Companion Card - Prominently Placed Under Synthesis Editor */}
+        <DalilCard
+          dalilBriefing={dalilBriefing}
+          dalilCountdown={dalilCountdown}
+          isDalilGenerating={isDalilGenerating}
+          onTriggerDalilBriefing={onTriggerDalilBriefing}
+        />
 
         {/* Configuration Panel */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">

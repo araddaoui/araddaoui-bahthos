@@ -21,6 +21,7 @@ import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage
 
 interface SourcesListProps {
   sources: Source[];
+  activeTab?: string;
   onToggleSource: (id: string) => void;
   onEnableAll: () => void;
   onDisableAll: () => void;
@@ -42,6 +43,7 @@ interface SourcesListProps {
 
 export default function SourcesList({
   sources,
+  activeTab = "sources",
   onToggleSource,
   onEnableAll,
   onDisableAll,
@@ -259,93 +261,83 @@ export default function SourcesList({
         </button>
       </div>
 
-      {/* Al-Dalil Permanent Guided Voice & Companion Component Card */}
-      <div className="mx-3 mt-3">
-        <DalilCard
-          dalilBriefing={dalilBriefing}
-          dalilCountdown={dalilCountdown}
-          isDalilGenerating={isDalilGenerating}
-          onTriggerDalilBriefing={onTriggerDalilBriefing}
-        />
-      </div>
-
       {activeSubTab === "sources" ? (
         <>
           {/* Controls: Search and Enable/Disable all */}
-      <div className="p-3 border-b border-[#e2e2dd] flex flex-col gap-2 bg-[#fcfbfa]">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="ابحث أو اطرح سؤالاً... (Search or ask...)"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && searchQuery.trim() && onAskQuestionFromSearch) {
-                e.preventDefault();
-                onAskQuestionFromSearch(searchQuery.trim());
-                setSearchQuery("");
-              }
-            }}
-            className={`w-full text-xs pr-8 py-2 border border-[#e2e2dd] rounded-lg bg-white text-[#1f1f1f] focus:outline-none focus:border-[#094d4e] transition-all ${
-              searchQuery.trim() ? "pl-14" : "pl-3"
-            }`}
-            id="sources-search-input"
-            title="Type to search sources, or type a question and hit Enter to ask bahthOS"
-          />
-          <Search className="w-4 h-4 text-gray-400 absolute right-2.5 top-2.5" />
-          {searchQuery.trim() && (
-            <button
-              onClick={() => {
-                if (onAskQuestionFromSearch) {
-                  onAskQuestionFromSearch(searchQuery.trim());
-                  setSearchQuery("");
-                }
-              }}
-              className="absolute left-1.5 top-1.5 px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-bold rounded transition-all shadow-3xs"
-              title="طرح هذا السؤال على بحث OS"
-              id="sidebar-ask-inline-btn"
-            >
-              اسأل ↵
-            </button>
-          )}
-        </div>
+          <div className="p-3 border-b border-[#e2e2dd] flex flex-col gap-2 bg-[#fcfbfa]">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="ابحث أو اطرح سؤالاً... (Search or ask...)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && searchQuery.trim() && onAskQuestionFromSearch) {
+                    e.preventDefault();
+                    onAskQuestionFromSearch(searchQuery.trim());
+                    setSearchQuery("");
+                  }
+                }}
+                className={`w-full text-xs pr-8 py-2 border border-[#e2e2dd] rounded-lg bg-white text-[#1f1f1f] focus:outline-none focus:border-[#094d4e] transition-all ${
+                  searchQuery.trim() ? "pl-14" : "pl-3"
+                }`}
+                id="sources-search-input"
+                title="Type to search sources, or type a question and hit Enter to ask bahthOS"
+              />
+              <Search className="w-4 h-4 text-gray-400 absolute right-2.5 top-2.5" />
+              {searchQuery.trim() && (
+                <button
+                  onClick={() => {
+                    if (onAskQuestionFromSearch) {
+                      onAskQuestionFromSearch(searchQuery.trim());
+                      setSearchQuery("");
+                    }
+                  }}
+                  className="absolute left-1.5 top-1.5 px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-bold rounded transition-all shadow-3xs"
+                  title="طرح هذا السؤال على بحث OS"
+                  id="sidebar-ask-inline-btn"
+                >
+                  اسأل ↵
+                </button>
+              )}
+            </div>
 
-        <div className="grid grid-cols-2 gap-2 text-[11px]">
-          <button
-            onClick={onEnableAll}
-            className="px-2.5 py-1 bg-[#eae9e2] text-gray-700 hover:text-[#1f1f1f] hover:bg-[#e2e2dd] transition-all rounded font-medium flex flex-col items-center justify-center line-tight"
-            id="btn-enable-all-sources"
-            title="Enable all sources for chat and analysis"
-          >
-            <span className="font-bold">تفعيل الكل</span>
-            <span className="text-[8px] opacity-60 font-sans font-normal">Enable All</span>
-          </button>
-          <button
-            onClick={onDisableAll}
-            className="px-2.5 py-1 bg-[#eae9e2] text-gray-700 hover:text-[#1f1f1f] hover:bg-[#e2e2dd] transition-all rounded font-medium flex flex-col items-center justify-center line-tight"
-            id="btn-disable-all-sources"
-            title="Disable all sources from chat and analysis"
-          >
-            <span className="font-bold font-sans">تعطيل الكل</span>
-            <span className="text-[8px] opacity-60 font-sans font-normal">Disable All</span>
-          </button>
-        </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <button
+                onClick={onEnableAll}
+                className="px-2.5 py-1 bg-[#eae9e2] text-gray-700 hover:text-[#1f1f1f] hover:bg-[#e2e2dd] transition-all rounded font-medium flex flex-col items-center justify-center line-tight"
+                id="btn-enable-all-sources"
+                title="Enable all sources for chat and analysis"
+              >
+                <span className="font-bold">تفعيل الكل</span>
+                <span className="text-[8px] opacity-60 font-sans font-normal">Enable All</span>
+              </button>
+              <button
+                onClick={onDisableAll}
+                className="px-2.5 py-1 bg-[#eae9e2] text-gray-700 hover:text-[#1f1f1f] hover:bg-[#e2e2dd] transition-all rounded font-medium flex flex-col items-center justify-center line-tight"
+                id="btn-disable-all-sources"
+                title="Disable all sources from chat and analysis"
+              >
+                <span className="font-bold font-sans">تعطيل الكل</span>
+                <span className="text-[8px] opacity-60 font-sans font-normal">Disable All</span>
+              </button>
+            </div>
 
-        {sources.length > 0 && (
-          <button
-            onClick={() => setShowDeleteAllModal(true)}
-            className="w-full py-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
-            id="btn-delete-all-sources"
-            title="حذف جميع المصادر وتفريغ التوليفات والمصطلحات"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-red-500" />
-            <span>حذف وتفريغ جميع المصادر ({sources.length})</span>
-          </button>
-        )}
-      </div>
+            {sources.length > 0 && (
+              <button
+                onClick={() => setShowDeleteAllModal(true)}
+                className="w-full py-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                id="btn-delete-all-sources"
+                title="حذف جميع المصادر وتفريغ التوليفات والمصطلحات"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                <span>حذف وتفريغ جميع المصادر ({sources.length})</span>
+              </button>
+            )}
+          </div>
 
-      {/* Sources List */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+          {/* Sources List */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3" id="sources-scrollable-container">
         {filteredSources.length === 0 ? (
           <div className="text-center py-6 px-4 text-gray-400 space-y-3 bg-white rounded-xl border border-[#e2e2dd] my-2 shadow-2xs" id="no-sources-fallback-container">
             <div className="text-xs font-medium">
@@ -505,7 +497,7 @@ export default function SourcesList({
       </div>
 
       {/* Footer Add Source Section */}
-      <div className="p-3 border-t border-[#e2e2dd] bg-[#f4f3ee]">
+      <div className="p-3 border-t border-[#e2e2dd] bg-[#f4f3ee] shrink-0 sticky bottom-0 z-10 shadow-sm">
         {!showAddForm ? (
           <button
             onClick={() => setShowAddForm(true)}

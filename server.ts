@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
@@ -220,6 +220,117 @@ Respond entirely in clear Modern Standard Arabic, regardless of the language of 
 
 
 // API routes FIRST
+
+// Helper function to convert raw 16-bit PCM audio buffer into a valid 44-byte WAV container
+function pcmToWav(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16): Buffer {
+  const header = Buffer.alloc(44);
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = pcmBuffer.length;
+
+  header.write("RIFF", 0);
+  header.writeUInt32LE(dataSize + 36, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
+  header.writeUInt16LE(1, 20); // AudioFormat (1 for PCM)
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+// Endpoint for High-Quality Modern Standard Arabic Text-To-Speech (Gemini TTS)
+app.post("/api/tts", async (req, res) => {
+  try {
+    const { text, voiceName = "Kore" } = req.body || {};
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return res.status(400).json({ error: "No text provided for speech synthesis." });
+    }
+
+    const cleanSegment = text
+      .replace(/[#*`_~\[\]()]/g, "")
+      .replace(/\|\|/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!cleanSegment) {
+      return res.status(400).json({ error: "Text is empty after cleaning." });
+    }
+
+    const ai = getAiClient();
+    const candidateModels = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview"];
+    let lastError: any = null;
+
+    for (const ttsModel of candidateModels) {
+      try {
+        const response = await generateContentWithRetry(ai, {
+          model: ttsModel,
+          contents: cleanSegment,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voiceName || "Kore" },
+              },
+            },
+          },
+        });
+
+        const candidate = response.candidates?.[0];
+        const parts = candidate?.content?.parts || [];
+
+        for (const p of parts as any[]) {
+          const rawData = p.inlineData?.data || p.inline_data?.data;
+          const rawMime = p.inlineData?.mimeType || p.inline_data?.mime_type || "audio/wav";
+
+          if (rawData) {
+            let finalAudioBase64 = rawData;
+            let finalMimeType = "audio/wav";
+
+            // If Gemini returned raw PCM / L16 audio, package it into a browser-playable WAV header
+            if (rawMime.toLowerCase().includes("pcm") || rawMime.toLowerCase().includes("l16") || rawMime.toLowerCase().includes("raw")) {
+              let sampleRate = 24000;
+              const rateMatch = rawMime.match(/rate=(\d+)/i);
+              if (rateMatch && rateMatch[1]) {
+                sampleRate = parseInt(rateMatch[1], 10);
+              }
+              const pcmBuf = Buffer.from(rawData, "base64");
+              const wavBuf = pcmToWav(pcmBuf, sampleRate);
+              finalAudioBase64 = wavBuf.toString("base64");
+            } else if (rawMime) {
+              finalMimeType = rawMime;
+            }
+
+            return res.json({
+              audio: finalAudioBase64,
+              mimeType: finalMimeType,
+            });
+          }
+        }
+      } catch (mErr: any) {
+        lastError = mErr;
+        console.warn(`TTS model ${ttsModel} attempt failed:`, mErr?.message || mErr);
+      }
+    }
+
+    console.warn("All Gemini TTS models unavailable, returning graceful fallback flag.");
+    return res.json({ audio: null, fallback: true, error: lastError?.message || "TTS unavailable" });
+  } catch (error: any) {
+    console.warn("Gemini TTS synthesis fallback:", error?.message || error);
+    return res.json({
+      audio: null,
+      fallback: true,
+      error: error?.message || "Gemini TTS unavailable",
+    });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
     const { messages, sources } = req.body || {};
@@ -539,7 +650,7 @@ function deduplicateSources(sources: any[]): any[] {
     if (!src) continue;
     const title = (src?.title || "").trim();
     const normTitle = title
-      .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+      .replace(/^[\s.\-–—:؛"']+|[\s.\-–—:؛"']+$/g, "")
       .toLowerCase()
       .replace(/\s+/g, " ");
 
@@ -717,51 +828,59 @@ app.post("/api/synthesize", async (req, res) => {
     if (toolType === "dalil-update") {
       const { newSourceIds, priorBriefingText } = req.body || {};
       const newIds = new Set(Array.isArray(newSourceIds) ? newSourceIds : []);
-      const newSources = activeSources.filter((s: any) => newIds.has(s.id));
-      const priorSources = activeSources.filter((s: any) => !newIds.has(s.id));
+      let newSources = activeSources.filter((s: any) => newIds.has(s.id));
+      if (newSources.length === 0) {
+        newSources = activeSources;
+      }
+
+      let sourcesContext = "المصادر المرفقة في المشروع للتحليل والإحاطة:\n";
+      activeSources.forEach((src: any, idx: number) => {
+        const rawContent = src?.content || src?.summary || "";
+        const safeContent = rawContent.length > 8000
+          ? rawContent.substring(0, 8000) + "\n...[مختصر]"
+          : rawContent;
+        sourcesContext += `\n---\nمصدر ${idx + 1}: ${src?.title || "بلا عنوان"} (اللغة: ${src?.language || "العربية"})\nالملخص: ${src?.summary || "غير متاح"}\nالمحتوى التفصيلي:\n${safeContent}\n`;
+      });
 
       const priorContext = priorBriefingText
-        ? "نص آخر إحاطة قدّمها الدليل لهذا المشروع (للمقارنة فقط، لا لإعادة سرده):\n" +
-          String(priorBriefingText).substring(0, 6000) + "\n"
-        : "لا توجد إحاطة سابقة من الدليل لهذا المشروع — إن وصلت إلى هذا الفرع رغم ذلك، عامِل الأمر كأنه لا يوجد أساس للمقارنة واكتفِ بالحالة أ (إقرار موجز).\n";
+        ? "نص الإحاطة السابقة:\n" + String(priorBriefingText).substring(0, 4000) + "\n"
+        : "لا توجد إحاطة سابقة.\n";
 
-      let priorSourcesContext = "المصادر التي كانت موجودة قبل هذه الإضافة:\n";
-      priorSources.forEach((src: any) => {
-        priorSourcesContext += "\n- " + (src?.title || "بلا عنوان") + ": " + (src?.summary || "غير متاح") + "\n";
-      });
+      const dalilPrompt = `${DALIL_SYSTEM_INSTRUCTION}
 
-      let newSourcesContext = "المصدر أو المصادر المضافة الآن:\n";
-      newSources.forEach((src: any, idx: number) => {
-        const rawContent = src?.content || src?.summary || "";
-        const safeContent = rawContent.length > 12000
-          ? rawContent.substring(0, 12000) + "\n...[مختصر]"
-          : rawContent;
-        newSourcesContext += "\n---\nمصدر جديد " + (idx + 1) + ": " + (src?.title || "بلا عنوان") +
-          " (اللغة: " + (src?.language || "غير معروفة") + ")\n" +
-          "الملخص: " + (src?.summary || "غير متاح") + "\n" +
-          "المحتوى: " + safeContent + "\n";
-      });
+أنتَ "الدليل" - الصوت المرشد والمحلل في نظام بحث OS.
+مهمتك تقديم إحاطة ملخصة ومُباشرة وشاملة ومفيدة جداً للباحث حول المصادر المرفقة (${activeSources.length} مصادر).
 
-      const dalilUserPrompt = DALIL_UPDATE_TASK_INSTRUCTION
-        + "\n\n" + priorContext
-        + "\n\n" + priorSourcesContext
-        + "\n\n" + newSourcesContext;
+قواعد صياغة الإحاطة:
+1. اكتب بلغة عربية فصيحة، راقية، وواضحة بدون أي رموز ماركداون (لا عناوين بـ ###، لا أسهم، لا نجوم، لا قوائم).
+2. استخدم علامة || فقط للفصل بين الجمل للتحكم بتلاوة الصوت والوقفات الشفوية.
+3. قدّم إحاطة توليفية تشمل أهم الأفكار، المحاور الرئيسية، والتوجيه العملي لاستكمال التحليل.
+4. حافظ على نبرة الصوت الموثوقة والمركزة.
+
+${priorContext}
+
+${sourcesContext}
+`;
 
       try {
         const response = await generateContentWithRetry(ai, {
           model: "gemini-3.6-flash",
-          contents: dalilUserPrompt,
+          contents: dalilPrompt,
           config: { systemInstruction: DALIL_SYSTEM_INSTRUCTION, temperature: 0.4 },
         });
 
         if (response?.text && response.text.trim().length > 5) {
-          return res.json({ text: response.text.trim(), isFallback: false });
+          return res.json({ text: response.text.trim(), isFallback: false, silent: false });
         }
       } catch (aiErr: any) {
-        console.error("al-Dalil update briefing generation failed:", aiErr);
+        console.error("al-Dalil briefing generation failed:", aiErr);
       }
 
-      return res.json({ text: "", isFallback: true, silent: true });
+      // Clean local Arabic fallback briefing if AI fails
+      const titles = activeSources.map((s: any) => s.title || "مستند").join("، ");
+      const fallbackBriefing = `أهلاً بك في نظام بحث OS. || يتضمن مشروعك البحثي حالياً ${activeSources.length} من المصادر المرفقة: ${titles}. || أظهر التحليل الأولي وجود تقاطعات ومفاهيم بحثية هامة تستدعي التوليف والمقارنة. || يمكنك استخدام أدوات محرر التوليف أدناه لاستخراج مصفوفة الأدلة، تقرير الفجوات، والتوصيات الموثقة.`;
+      
+      return res.json({ text: fallbackBriefing, isFallback: true, silent: false });
     }
 
     let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
@@ -1044,8 +1163,8 @@ app.post("/api/extract-glossary", async (req, res) => {
 "   استخرج فقط البناءات النظرية ذات العمق والأطر المنهجية المعتمدة التي تمتلك تعريفاً جوهرياً متعارفاً عليه (مثل: Human Competence, Soft Power, Path Dependence, Principal-Agent Problem, Process Tracing, Machine Learning).\n" +
 "2. تجريد وحظر أدوات الربط والجسيمات الزائدة والأرقام:\n" +
 "   استخرج الاسم المعرف السليم دائماً خاوياً من أي حروف زائدة ملتصقة (مثل: استخرج \"الكفاءة البشرية\" وليس \"كالكفاءة البشرية 2،\"). أحظر تماماً أرقام الصفحات والعلامات الملحقة.\n" +
-"3. الحظر الصارم للجمل والعبارات اللغوية الشائعة (Linguistic Fragments):\n" +
-"   يُمنع منعاً باتاً استخراج أي عبارات وصفية، أو أجزاء جمل، أو تراكيب لغوية عابرة وردت في النص (مثل: \"results show\", \"in this section\", \"data collected\", \"future studies\").\n" +
+"3. الحظر الصارم للكلمات العامة والهيكلية والجمل الشائعة (Linguistic & Generic Fragments):\n" +
+"   يُمنع منعاً باتاً استخراج أي كلمات هيكلية عامة أو مصطلحات فضفاضة غير متخصصة (مثل: \"Theory\", \"The Theory\", \"Research Methodology\", \"Methodology\", \"Research\", \"The Study\", \"Results\", \"Literature Review\", \"Discussion\")، كما يُمنع استخراج أي عبارات وصفية عابرة وردت في النص (مثل: \"results show\", \"data collected\", \"future studies\").\n" +
 "4. الجودة الصارمة للتعريب والتعريف الدقيق:\n" +
 "   لكل مصطلح، يجب تقديم المصطلح العربي المعيار المعتمد والمكافئ بدقة في حقل verified_term (يُمنع ترك verified_term باللغة الإنجليزية).\n" +
 "   صغ تعريفاً إجرائياً حقيقياً شارحاً لجوهره في جملة واحدة رصينة مفيدة، وتجنب العبارات القالبية الفارغة.\n" +

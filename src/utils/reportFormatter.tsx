@@ -153,7 +153,7 @@ export function deduplicateSources<T extends { title?: string; content?: string;
     if (!src) continue;
     const title = (src.title || "").trim();
     const normTitle = title
-      .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+      .replace(/^[\s.\-–—:؛"']+|[\s.\-–—:؛"']+$/g, "")
       .toLowerCase()
       .replace(/\s+/g, " ");
 

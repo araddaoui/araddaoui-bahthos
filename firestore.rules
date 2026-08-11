@@ -14,5 +14,10 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
       }
     }
+
+    // Allow test connection doc read
+    match /test/{docId} {
+      allow read: if true;
+    }
   }
 }

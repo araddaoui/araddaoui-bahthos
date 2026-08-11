@@ -22,7 +22,8 @@ import {
   loadProjectData,
   markProjectAsDeleted,
   isProjectDeleted,
-  clearDeletedProjectsRegistry
+  clearDeletedProjectsRegistry,
+  isQuotaExceeded
 } from "./firebase";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView";
@@ -183,10 +184,14 @@ export default function App() {
 
     const syncAndLoadFirebaseData = async () => {
       setIsFirebaseLoading(true);
+      if (isQuotaExceeded()) {
+        setIsFirebaseLoading(false);
+        return;
+      }
       try {
         let cloudProjects = await loadUserProjects(currentUser.uid);
         
-        if (cloudProjects.length === 0) {
+        if (!isQuotaExceeded() && cloudProjects.length === 0) {
           // Sync existing localStorage data on initial login
           const localProjectsStr = localStorage.getItem("bahthos_projects");
           let projectsToMigrate: Project[] = [];
@@ -208,7 +213,9 @@ export default function App() {
           }
 
           for (const proj of projectsToMigrate) {
+            if (isQuotaExceeded()) break;
             await saveUserProject(currentUser.uid, proj);
+            if (isQuotaExceeded()) break;
             const savedSources = localStorage.getItem(`bahthos_sources_${proj.id}`);
             const savedMessages = localStorage.getItem(`bahthos_messages_${proj.id}`);
             const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`);
@@ -226,18 +233,24 @@ export default function App() {
               glossaryTerms: localGlossary
             });
           }
-          cloudProjects = await loadUserProjects(currentUser.uid);
+          if (!isQuotaExceeded()) {
+            cloudProjects = await loadUserProjects(currentUser.uid);
+          }
         }
 
-        setProjects(cloudProjects);
+        if (cloudProjects.length > 0) {
+          setProjects(cloudProjects);
+        }
 
         let activeId = currentProjectId;
-        if (!cloudProjects.some(p => p.id === activeId)) {
+        if (cloudProjects.length > 0 && !cloudProjects.some(p => p.id === activeId)) {
           activeId = cloudProjects[0]?.id || "default";
         }
 
         const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
-          await loadProjectData(currentUser.uid, activeId);
+          isQuotaExceeded() 
+            ? { sources: [], messages: [], syntheses: [], glossaryTerms: [] } 
+            : await loadProjectData(currentUser.uid, activeId);
 
         const activeProjObj = cloudProjects.find(p => p.id === activeId);
         const cloudTemp = activeProjObj?.temperature ?? 0.2;
@@ -249,14 +262,14 @@ export default function App() {
         // If cloud sources is empty but local storage has uploaded sources, preserve local sources
         const effectiveSources = (cloudSources && cloudSources.length > 0) ? cloudSources : localSourcesParsed;
 
-// If effectiveSources is empty, glossary and syntheses MUST be empty
-const rawGlossary = cloudSources.length > 0 
-  ? cloudGlossary 
-  : (localStorage.getItem(`bahthos_glossary_${activeId}`) ? JSON.parse(localStorage.getItem(`bahthos_glossary_${activeId}`)!) : []);
-const effectiveGlossary = effectiveSources.length > 0 ? rawGlossary : [];
-const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
+        // If effectiveSources is empty, glossary and syntheses MUST be empty
+        const rawGlossary = cloudSources.length > 0 
+          ? cloudGlossary 
+          : (localStorage.getItem(`bahthos_glossary_${activeId}`) ? JSON.parse(localStorage.getItem(`bahthos_glossary_${activeId}`)!) : []);
+        const effectiveGlossary = effectiveSources.length > 0 ? rawGlossary : [];
+        const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
 
-        if (cloudSources.length === 0 && localSourcesParsed.length > 0) {
+        if (!isQuotaExceeded() && cloudSources.length === 0 && localSourcesParsed.length > 0) {
           saveProjectData(currentUser.uid, activeId, {
             sources: localSourcesParsed,
             messages: cloudMessages,
@@ -560,7 +573,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
   const handleSwitchProject = async (newProjectId: string) => {
     if (newProjectId === currentProjectId) return;
 
-    if (currentUser) {
+    if (currentUser && !isQuotaExceeded()) {
       setIsFirebaseLoading(true);
       try {
         // 1. Save current state of the old project to Firestore first if old project still exists in projects
@@ -667,7 +680,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       temperature: 0.2
     };
 
-    if (currentUser) {
+    if (currentUser && !isQuotaExceeded()) {
       try {
         await saveUserProject(currentUser.uid, newProj);
       } catch (err) {
@@ -711,7 +724,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     }
 
     // 5. Delete from Firestore asynchronously if user is logged in
-    if (currentUser) {
+    if (currentUser && !isQuotaExceeded()) {
       try {
         await deleteUserProject(currentUser.uid, projectId);
       } catch (err) {
@@ -742,7 +755,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         localStorage.setItem("bahthos_current_project_id", newProj.id);
       } catch (e) {}
 
-      if (currentUser) {
+      if (currentUser && !isQuotaExceeded()) {
         await saveUserProject(currentUser.uid, newProj);
         await saveProjectData(currentUser.uid, newProj.id, {
           sources: [],
@@ -764,7 +777,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
           localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
         } catch (e) {}
 
-        if (currentUser) {
+        if (currentUser && !isQuotaExceeded()) {
           setIsFirebaseLoading(true);
           try {
             const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
@@ -873,32 +886,36 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     }
   }, [dalilBriefing, currentProjectId]);
 
-  // Save sources, messages, syntheses, glossary terms, and dalilBriefings to Firebase Firestore when they change
+  // Save sources, messages, syntheses, glossary terms, and dalilBriefings to Firebase Firestore when they change (debounced)
   useEffect(() => {
-    if (!currentUser || isFirebaseLoading) return;
+    if (!currentUser || isFirebaseLoading || isQuotaExceeded()) return;
     if (currentProjectId !== loadedProjectIdRef.current) return;
     if (isProjectDeleted(currentProjectId)) return;
 
-    saveProjectData(currentUser.uid, currentProjectId, {
-      sources,
-      messages,
-      syntheses,
-      glossaryTerms,
-      dalilBriefings: dalilBriefing ? [dalilBriefing] : []
-    }).catch((err) => console.error("Failed to sync project data to Firestore:", err));
+    const timer = setTimeout(() => {
+      saveProjectData(currentUser.uid, currentProjectId, {
+        sources,
+        messages,
+        syntheses,
+        glossaryTerms,
+        dalilBriefings: dalilBriefing ? [dalilBriefing] : []
+      }).catch((err) => console.error("Failed to sync project data to Firestore:", err));
 
-    const currentProjectObj = projects.find((p) => p.id === currentProjectId);
-    if (currentProjectObj) {
-      saveUserProject(currentUser.uid, {
-        ...currentProjectObj,
-        temperature
-      }).catch((err) => console.error("Failed to sync project config to Firestore:", err));
-    }
+      const currentProjectObj = projects.find((p) => p.id === currentProjectId);
+      if (currentProjectObj) {
+        saveUserProject(currentUser.uid, {
+          ...currentProjectObj,
+          temperature
+        }).catch((err) => console.error("Failed to sync project config to Firestore:", err));
+      }
+    }, 2000);
+
+    return () => clearTimeout(timer);
   }, [sources, messages, syntheses, glossaryTerms, dalilBriefing, temperature, currentUser, currentProjectId, isFirebaseLoading]);
 
   const handleResetWorkspace = async () => {
     clearDeletedProjectsRegistry();
-    if (currentUser) {
+    if (currentUser && !isQuotaExceeded()) {
       setIsFirebaseLoading(true);
       try {
         for (const proj of projects) {
@@ -1197,7 +1214,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     }
 
     // Save immediately to Firestore
-    if (currentUser && currentProjectId) {
+    if (currentUser && currentProjectId && !isQuotaExceeded()) {
       saveProjectData(currentUser.uid, currentProjectId, { sources: nextSources, glossaryTerms }).catch(console.error);
     }
 
@@ -1205,30 +1222,17 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       setSelectedSourceId(newSrc.id);
       setActiveMainView("source");
 
-      // Register new source for al-Dalil update briefing and trigger 10s debounce countdown
+      // Register new source for al-Dalil update briefing and trigger briefing immediately
       pendingNewSourceIdsRef.current.add(newSrc.id);
 
       if (dalilTimerRef.current) {
         clearInterval(dalilTimerRef.current);
         dalilTimerRef.current = null;
       }
+      setDalilCountdown(null);
 
-      let count = 10;
-      setDalilCountdown(count);
-
-      dalilTimerRef.current = setInterval(() => {
-        count -= 1;
-        if (count > 0) {
-          setDalilCountdown(count);
-        } else {
-          if (dalilTimerRef.current) {
-            clearInterval(dalilTimerRef.current);
-            dalilTimerRef.current = null;
-          }
-          setDalilCountdown(null);
-          triggerDalilUpdateBriefing(nextSources);
-        }
-      }, 1000);
+      // Trigger briefing generation immediately right after document upload
+      triggerDalilUpdateBriefing(nextSources, true);
       
       // If terms were returned in the same payload, add them directly
       if (terms && terms.length > 0) {
@@ -1260,7 +1264,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
       setGlossaryTerms(nextTerms);
     }
 
-    if (currentUser && currentProjectId) {
+    if (currentUser && currentProjectId && !isQuotaExceeded()) {
       saveProjectData(currentUser.uid, currentProjectId, {
         sources: nextSources,
         glossaryTerms: nextSources.length === 0 ? [] : nextTerms,
@@ -1279,7 +1283,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
     setSelectedSourceId(null);
     setActiveMainView("chat");
 
-    if (currentUser && currentProjectId) {
+    if (currentUser && currentProjectId && !isQuotaExceeded()) {
       saveProjectData(currentUser.uid, currentProjectId, {
         sources: [],
         glossaryTerms: [],
@@ -1515,6 +1519,7 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
         }`}>
           <SourcesList
             sources={sources}
+            activeTab={activeTab}
             onToggleSource={handleToggleSource}
             onEnableAll={handleEnableAll}
             onDisableAll={handleDisableAll}
@@ -1552,10 +1557,6 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
                   setActiveMainView("source");
                 }}
                 onAddSource={handleAddSource}
-                dalilBriefing={dalilBriefing}
-                dalilCountdown={dalilCountdown}
-                isDalilGenerating={isDalilGenerating}
-                onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
               />
             ) : (
               <SourceViewer
@@ -1600,6 +1601,10 @@ const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
             <SynthesisEditor
               sources={sources}
               onSaveSynthesis={handleSaveSynthesis}
+              dalilBriefing={dalilBriefing}
+              dalilCountdown={dalilCountdown}
+              isDalilGenerating={isDalilGenerating}
+              onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
             />
           )}
 

@@ -107,12 +107,20 @@ export function normalizeArabicText(text?: string): string {
     "ترجمة آلي": "ترجمة آلية",
     "توصية مستند": "توصية مستندة",
     "فجوة معرفي": "فجوة معرفية",
-    "المترجمي": "المترجمين",
-    "الدراسا": "الدراسات",
   };
   for (const [corrupted, fixed] of Object.entries(replacements)) {
-    res = res.split(corrupted).join(fixed);
+    res = res.replace(new RegExp(`(?<![\\u0600-\\u06FF])${corrupted}(?![\\u0600-\\u06FF])`, "g"), fixed);
   }
+
+  // Safe whole-word replacements for word endings without appending extra letters
+  res = res.replace(/(?<![\u0600-\u06FF])الدراسا(?![\u0600-\u06FF])/g, "الدراسات");
+  res = res.replace(/(?<![\u0600-\u06FF])المترجمي(?![\u0600-\u06FF])/g, "المترجمين");
+
+  // Sanitize any accumulated trailing repeated letters (e.g. "الدراساتتتت" -> "الدراسات")
+  res = res.replace(/الدراسات{2,}/g, "الدراسات");
+  res = res.replace(/(?<=[\u0600-\u06FF])ت{2,}(?=[\s"').!»«،;؛:!؟\]]|$)/g, "ت");
+  res = res.replace(/(?<=[\u0600-\u06FF])ن{2,}(?=[\s"').!»«،;؛:!؟\]]|$)/g, "ن");
+  res = res.replace(/(?<=[\u0600-\u06FF])ة{2,}(?=[\s"').!»«،;؛:!؟\]]|$)/g, "ة");
 
   // 3. Fix remaining standalone alif madda inside normal Arabic words where Alif Madda does not belong
   // Preserve legitimate Alif Madda words: القرآن، الآن، آراء، آثار، آفاق، آلية، آلات، مرآة، مكافآت، منشآت، مآل، منشأة
@@ -137,16 +145,25 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
   // Too short or too long
   if (cleanTerm.length < 3 || cleanTerm.length > 55) return true;
 
-  // Reject broad academic disciplines and generic fields when standalone (e.g. "Computer Science", "Marketing")
+  // Reject broad academic disciplines and generic fields when standalone (e.g. "Computer Science", "Marketing", "Theory", "Research Methodology")
   const genericDisciplinesAndBroadTerms = [
     "computer science", "marketing", "management", "finance", "accounting", "business",
     "economics", "law", "medicine", "engineering", "education", "sociology", "psychology",
     "philosophy", "history", "literature", "mathematics", "biology", "physics", "chemistry",
     "geography", "statistics", "linguistics", "anthropology", "political science", "journalism",
+    "theory", "the theory", "methodology", "research methodology", "research", "the research",
+    "study", "the study", "paper", "the paper", "analysis", "the analysis", "data", "results",
+    "findings", "discussion", "literature review", "background", "theoretical framework",
+    "methodological framework", "framework", "approach", "method", "methods", "concept", "concepts",
+    "term", "terms", "definition", "definitions", "theories", "methodologies",
     "علوم الحاسوب", "علوم الكمبيوتر", "التسويق", "الإدارة", "العلوم المالية", "المحاسبة",
     "إدارة الأعمال", "الاقتصاد", "القانون", "الطب", "الهندسة", "التربية", "علم الاجتماع",
     "علم النفس", "الفلسفة", "التاريخ", "الأدب", "الرياضيات", "الأحياء", "الفيزياء", "الكيمياء",
-    "الجغرافيا", "الإحصاء", "اللسانيات", "الأنثروبولوجيا", "العلوم السياسية", "الإعلام"
+    "الجغرافيا", "الإحصاء", "اللسانيات", "الأنثروبولوجيا", "العلوم السياسية", "الإعلام",
+    "النظرية", "نظرية", "منهجية البحث", "منهجية", "البحث", "بحث", "الدراسة", "دراسة",
+    "الورقة البحثية", "التحليل", "البيانات", "النتائج", "المناقشة", "استعراض الأدبيات",
+    "الإطار النظرى", "الإطار النظري", "الإطار المنهجي", "الإطار", "المقاربة", "المنهج", "المناهج",
+    "المفهوم", "المفاهيم", "المصطلح", "المصطلحات"
   ];
   if (genericDisciplinesAndBroadTerms.some(gd => cleanTerm === gd)) {
     return true;
@@ -344,7 +361,14 @@ export function stripArabicParticlesAndNumbers(term: string): string {
       .replace(/آلتتعليمية|آلتتتعليمية|التتعليمية|التتتعليمية|تتعليمية/g, "التعليمية");
   }
 
-  return res.replace(/^["'«»()\[\]\s–—:-]+|["'«»()\[\]\s–—:-]+$/g, "").trim();
+  let cleaned = res.replace(/^["'«»\s–—:-]+|["'«»\s–—:-]+$/g, "").trim();
+  // Balance missing closing or opening parentheses
+  if (cleaned.includes("(") && !cleaned.includes(")")) {
+    cleaned = cleaned + ")";
+  } else if (cleaned.includes(")") && !cleaned.includes("(")) {
+    cleaned = "(" + cleaned;
+  }
+  return cleaned;
 }
 
 /**
@@ -387,22 +411,26 @@ export function spellcheckAndRepairArabicAndEnglishText(text: string): string {
   res = res.replace(/الظوآهر/g, "الظواهر");
   res = res.replace(/(آلتتتعليمية|آلتتعليمية|التتعليمية|التتتعليمية)/g, "التعليمية");
 
-  // 4. Additional phrase repairs
+  // 4. Additional phrase repairs using Arabic word boundaries
   const phraseRepairs: [RegExp, string][] = [
-    [/\bتعليمية إشكالية إجمالية\b/g, "الإشكالية التعليمية الإجمالية"],
-    [/\bإشكالية إجمالية\b/g, "الإشكالية الإجمالية"],
-    [/\bالآليية\b/g, "الآلية"],
-    [/\bالإصطناعي\b/g, "الاصطناعي"],
-    [/\bأوتوماتي\b/g, "أوتوماتيكي"],
-    [/\bترجمة آلي\b/g, "ترجمة آلية"],
-    [/\bتوصية مستند\b/g, "توصية مستندة"],
-    [/\bفجوة معرفي\b/g, "فجوة معرفية"],
-    [/\bالمترجمي\b/g, "المترجمين"],
-    [/\bالدراسا\b/g, "الدراسات"],
+    [/(?<![\u0600-\u06FF])تعليمية إشكالية إجمالية(?![\u0600-\u06FF])/g, "الإشكالية التعليمية الإجمالية"],
+    [/(?<![\u0600-\u06FF])إشكالية إجمالية(?![\u0600-\u06FF])/g, "الإشكالية الإجمالية"],
+    [/(?<![\u0600-\u06FF])الآليية(?![\u0600-\u06FF])/g, "الآلية"],
+    [/(?<![\u0600-\u06FF])الإصطناعي(?![\u0600-\u06FF])/g, "الاصطناعي"],
+    [/(?<![\u0600-\u06FF])أوتوماتي(?![\u0600-\u06FF])/g, "أوتوماتيكي"],
+    [/(?<![\u0600-\u06FF])ترجمة آلي(?![\u0600-\u06FF])/g, "ترجمة آلية"],
+    [/(?<![\u0600-\u06FF])توصية مستند(?![\u0600-\u06FF])/g, "توصية مستندة"],
+    [/(?<![\u0600-\u06FF])فجوة معرفي(?![\u0600-\u06FF])/g, "فجوة معرفية"],
+    [/(?<![\u0600-\u06FF])المترجمي(?![\u0600-\u06FF])/g, "المترجمين"],
+    [/(?<![\u0600-\u06FF])الدراسا(?![\u0600-\u06FF])/g, "الدراسات"],
   ];
   for (const [pattern, replacement] of phraseRepairs) {
     res = res.replace(pattern, replacement);
   }
+
+  // Purge any repeated letter artifacts at word end
+  res = res.replace(/الدراسات{2,}/g, "الدراسات");
+  res = res.replace(/(?<=[\u0600-\u06FF])ت{2,}(?=[\s"').!»«،;؛:!؟\]]|$)/g, "ت");
 
   // 5. Ensure prefix loops are purged
   res = res.replace(/(?:كالك){2,}/g, "الك");
@@ -515,6 +543,14 @@ export const SCHOLARLY_CONCEPTS_REGISTRY: Record<string, ScholarlyConceptMeta> =
   "editorial gatekeeping": {
     ar: "حراسة البوابة التحريرية",
     def: "آلية تصفية وتقييم الأخبار والمحتوى الإعلامي من قبل المحررين وصناع القرار قبل إجازة نشرها للجمهور."
+  },
+  "learning management system": {
+    ar: "نظام إدارة التعلم (LMS)",
+    def: "منظومة رقمية ومنصة برمجية متكاملة تُستخدم لتصميم وإدارة وتوصيل المحتوى التعليمي وتتبع تقييم وتقدم المتعلمين."
+  },
+  "lms": {
+    ar: "نظام إدارة التعلم (LMS)",
+    def: "منظومة رقمية ومنصة برمجية متكاملة تُستخدم لتصميم وإدارة وتوصيل المحتوى التعليمي وتتبع تقييم وتقدم المتعلمين."
   },
   "media literacy": {
     ar: "الدراية والوعي الإعلامي",
@@ -669,7 +705,7 @@ export const SCHOLARLY_CONCEPTS_REGISTRY: Record<string, ScholarlyConceptMeta> =
 
   // 7. Administration, Public Sector & Governance (الإدارة العامة والعمل المؤسسي والرقابة)
   "public administration": {
-    ar: "الإدارة العامة والقطاع الحكومي",
+    ar: "الإدارة العامة",
     def: "حقل علمي وتطبقي يعنى بإدارة وتنظيم الموارد والمؤسسات العامة وتنفيذ السياسات الحكومية بكفاءة عالية."
   },
   "bureaucratic efficiency": {
@@ -1039,7 +1075,13 @@ export function buildContextDefinition(term: string, fullText: string, arabicTer
   }
 
   // 2. Keyword-driven concept definitions across diverse professional and academic domains
-  if (cleanEng.includes("governance") || cleanEng.includes("management") || cleanAr.includes("حوكمة") || cleanAr.includes("إدارة") || cleanAr.includes("أعمال") || cleanAr.includes("استراتيجية")) {
+  if (cleanEng.includes("learning management") || cleanEng.includes("lms") || cleanAr.includes("إدارة التعلم") || cleanAr.includes("نظام التعلم") || cleanAr.includes("منصة تعليمية")) {
+    return "منظومة رقمية ومنصة برمجية متكاملة تُستخدم لتصميم وإدارة وتوصيل المحتوى التعليمي وتتبع تقييم وتقدم المتعلمين.";
+  }
+  if (cleanEng.includes("learning") || cleanEng.includes("education") || cleanEng.includes("pedagogy") || cleanAr.includes("تعليم") || cleanAr.includes("تعلم") || cleanAr.includes("بيداغوجيا") || cleanAr.includes("تدريس")) {
+    return "حقل دراسي وبيداغوجي يركز على تطوير استراتيجيات التدريس المنهجية واكتساب الكفايات وتطوير أساليب التقويم.";
+  }
+  if (cleanEng.includes("corporate governance") || cleanEng.includes("strategic management") || cleanEng.includes("governance") || cleanAr.includes("حوكمة") || cleanAr.includes("إدارة الأعمال") || cleanAr.includes("إدارة استراتيجية")) {
     return "منظومة المبادئ والقواعد والتخطيط المنظم لتوجيه الموارد وتحقيق الكفاءة التشغيلية والنمو المؤسسي المستدام.";
   }
   if (cleanEng.includes("journalism") || cleanEng.includes("media") || cleanEng.includes("framing") || cleanAr.includes("صحافة") || cleanAr.includes("إعلام") || cleanAr.includes("خبر") || cleanAr.includes("تأطير")) {

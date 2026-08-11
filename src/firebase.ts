@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, setLogLevel } from "firebase/app";
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
@@ -15,8 +15,8 @@ import {
   getDoc, 
   setDoc, 
   deleteDoc, 
-  getDocFromServer,
-  writeBatch
+  writeBatch,
+  disableNetwork
 } from "firebase/firestore";
 import { Project, Source, Synthesis, GlossaryTerm, Message, DalilBriefing } from "./types";
 
@@ -34,20 +34,51 @@ const DATABASE_ID = "ai-studio-bahthosos-387d5c26-c1cd-4070-97da-dc8503fc3a7f";
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+try {
+  setLogLevel("silent");
+} catch (e) {}
 const auth = getAuth(app);
 const db = getFirestore(app, DATABASE_ID);
 
-// Verify Connection as mandated by instructions
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, "test", "connection"));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("the client is offline")) {
-      console.error("Please check your Firebase configuration or internet connection.");
+// Global flag to track if Firestore daily quota has been exceeded, avoiding retry loops
+let isFirestoreQuotaExceeded = false;
+
+try {
+  const quotaTS = localStorage.getItem("bahthos_firestore_quota_exceeded");
+  if (quotaTS) {
+    const ts = parseInt(quotaTS, 10);
+    // If quota was exceeded within last 24 hours, keep network disabled
+    if (Date.now() - ts < 24 * 60 * 60 * 1000) {
+      isFirestoreQuotaExceeded = true;
+      disableNetwork(db).catch(() => {});
     }
   }
+} catch (e) {}
+
+export function isQuotaExceeded(): boolean {
+  return isFirestoreQuotaExceeded;
 }
-testConnection();
+
+function handleFirestoreError(error: any, actionName: string) {
+  const msg = error?.message || String(error || "");
+  if (
+    error?.code === "resource-exhausted" || 
+    msg.includes("resource-exhausted") || 
+    msg.includes("Quota limit exceeded") ||
+    msg.includes("quota")
+  ) {
+    if (!isFirestoreQuotaExceeded) {
+      isFirestoreQuotaExceeded = true;
+      try {
+        localStorage.setItem("bahthos_firestore_quota_exceeded", Date.now().toString());
+      } catch (e) {}
+      console.warn(`[Firestore] Daily quota limit reached during ${actionName}. Disabling network connection to prevent background retries.`);
+      disableNetwork(db).catch(() => {});
+    }
+  } else {
+    console.error(`[Firestore] Error during ${actionName}:`, error);
+  }
+}
 
 export { app, auth, db };
 
@@ -90,18 +121,24 @@ export function clearDeletedProjectsRegistry(): void {
 
 // Helper to load all user projects from Firestore
 export async function loadUserProjects(userId: string): Promise<Project[]> {
-  const projectsRef = collection(db, "users", userId, "projects");
-  const snapshot = await getDocs(projectsRef);
-  const projects: Project[] = [];
-  snapshot.forEach((doc) => {
-    if (!isProjectDeleted(doc.id)) {
-      projects.push({
-        id: doc.id,
-        ...doc.data()
-      } as Project);
-    }
-  });
-  return projects;
+  if (isFirestoreQuotaExceeded) return [];
+  try {
+    const projectsRef = collection(db, "users", userId, "projects");
+    const snapshot = await getDocs(projectsRef);
+    const projects: Project[] = [];
+    snapshot.forEach((doc) => {
+      if (!isProjectDeleted(doc.id)) {
+        projects.push({
+          id: doc.id,
+          ...doc.data()
+        } as Project);
+      }
+    });
+    return projects;
+  } catch (err) {
+    handleFirestoreError(err, "loadUserProjects");
+    return [];
+  }
 }
 
 // Helper to recursively remove undefined properties from objects so Firestore setDoc won't throw invalid data error
@@ -127,39 +164,55 @@ export function sanitizeForFirestore<T>(data: T): T {
 }
 
 // Helper to save/update a single project to Firestore
+const lastSavedProjects = new Map<string, string>();
+
 export async function saveUserProject(userId: string, project: Project): Promise<void> {
-  if (isProjectDeleted(project.id)) {
-    console.log(`[Firestore] Skipping saveUserProject for deleted project: ${project.id}`);
+  if (isFirestoreQuotaExceeded || isProjectDeleted(project.id)) {
     return;
   }
-  const projectDocRef = doc(db, "users", userId, "projects", project.id);
   const dataToSave = sanitizeForFirestore({
     id: project.id,
     name: project.name,
     dateCreated: project.dateCreated,
     temperature: project.temperature ?? 0.2
   });
-  await setDoc(projectDocRef, dataToSave, { merge: true });
+  const serialized = JSON.stringify(dataToSave);
+  if (lastSavedProjects.get(project.id) === serialized) {
+    return;
+  }
+
+  try {
+    const projectDocRef = doc(db, "users", userId, "projects", project.id);
+    await setDoc(projectDocRef, dataToSave, { merge: true });
+    lastSavedProjects.set(project.id, serialized);
+  } catch (err) {
+    handleFirestoreError(err, "saveUserProject");
+  }
 }
 
 // Helper to delete a project from Firestore
 export async function deleteUserProject(userId: string, projectId: string): Promise<void> {
   markProjectAsDeleted(projectId);
-  // Delete subcollection documents first in chunks, then the project document itself
-  const subcollections = ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"];
-  for (const sub of subcollections) {
-    const colRef = collection(db, "users", userId, "projects", projectId, sub);
-    const snap = await getDocs(colRef);
-    const docs = snap.docs;
-    for (let i = 0; i < docs.length; i += 400) {
-      const batch = writeBatch(db);
-      const chunk = docs.slice(i, i + 400);
-      chunk.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
+  lastSavedProjects.delete(projectId);
+  if (isFirestoreQuotaExceeded) return;
+  try {
+    const subcollections = ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"];
+    for (const sub of subcollections) {
+      const colRef = collection(db, "users", userId, "projects", projectId, sub);
+      const snap = await getDocs(colRef);
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = writeBatch(db);
+        const chunk = docs.slice(i, i + 400);
+        chunk.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
     }
+    const projectDocRef = doc(db, "users", userId, "projects", projectId);
+    await deleteDoc(projectDocRef);
+  } catch (err) {
+    handleFirestoreError(err, "deleteUserProject");
   }
-  const projectDocRef = doc(db, "users", userId, "projects", projectId);
-  await deleteDoc(projectDocRef);
 }
 
 // Reusable helper to diff and sync a collection in Firestore
@@ -169,28 +222,49 @@ export async function syncCollection<T extends { id?: string; term?: string }>(
   collectionName: string,
   items: T[] | undefined
 ): Promise<void> {
-  if (items === undefined) return;
+  if (isFirestoreQuotaExceeded || items === undefined) return;
 
-  const colRef = collection(db, "users", userId, "projects", projectId, collectionName);
-  const snap = await getDocs(colRef);
-  const getItemId = (item: T): string => item.id || item.term || "";
-  const newIds = new Set(items.map((item) => getItemId(item)));
+  try {
+    const colRef = collection(db, "users", userId, "projects", projectId, collectionName);
+    const snap = await getDocs(colRef);
+    const getItemId = (item: T): string => item.id || item.term || "";
+    const newIds = new Set(items.map((item) => getItemId(item)));
 
-  const batch = writeBatch(db);
-  snap.forEach((d) => {
-    if (!newIds.has(d.id)) {
-      batch.delete(d.ref);
+    const existingMap = new Map<string, any>();
+    snap.forEach((d) => {
+      existingMap.set(d.id, d.data());
+    });
+
+    const batch = writeBatch(db);
+    let opCount = 0;
+
+    snap.forEach((d) => {
+      if (!newIds.has(d.id)) {
+        batch.delete(d.ref);
+        opCount++;
+      }
+    });
+
+    for (const item of items) {
+      const docId = getItemId(item);
+      if (!docId) continue;
+
+      const sanitized = sanitizeForFirestore(item);
+      const existingData = existingMap.get(docId);
+
+      // Diff check: only write if document is new or changed
+      if (!existingData || JSON.stringify(existingData) !== JSON.stringify(sanitized)) {
+        const docRef = doc(db, "users", userId, "projects", projectId, collectionName, docId);
+        batch.set(docRef, sanitized, { merge: true });
+        opCount++;
+      }
     }
-  });
-  await batch.commit();
 
-  for (const item of items) {
-    const docId = getItemId(item);
-    if (!docId) continue;
-    await setDoc(
-      doc(db, "users", userId, "projects", projectId, collectionName, docId),
-      sanitizeForFirestore(item)
-    );
+    if (opCount > 0) {
+      await batch.commit();
+    }
+  } catch (err) {
+    handleFirestoreError(err, `syncCollection(${collectionName})`);
   }
 }
 
@@ -206,17 +280,20 @@ export async function saveProjectData(
     dalilBriefings?: DalilBriefing[];
   }
 ): Promise<void> {
-  if (isProjectDeleted(projectId)) {
-    console.log(`[Firestore] Skipping saveProjectData for deleted project: ${projectId}`);
+  if (isFirestoreQuotaExceeded || isProjectDeleted(projectId)) {
     return;
   }
   const { sources, messages, syntheses, glossaryTerms, dalilBriefings } = data;
 
-  await syncCollection(userId, projectId, "sources", sources);
-  await syncCollection(userId, projectId, "messages", messages);
-  await syncCollection(userId, projectId, "syntheses", syntheses);
-  await syncCollection(userId, projectId, "glossaryTerms", glossaryTerms);
-  await syncCollection(userId, projectId, "dalilBriefings", dalilBriefings);
+  try {
+    await syncCollection(userId, projectId, "sources", sources);
+    await syncCollection(userId, projectId, "messages", messages);
+    await syncCollection(userId, projectId, "syntheses", syntheses);
+    await syncCollection(userId, projectId, "glossaryTerms", glossaryTerms);
+    await syncCollection(userId, projectId, "dalilBriefings", dalilBriefings);
+  } catch (err) {
+    handleFirestoreError(err, "saveProjectData");
+  }
 }
 
 // Helper to load project state from Firestore
@@ -230,36 +307,44 @@ export async function loadProjectData(
   glossaryTerms: GlossaryTerm[];
   dalilBriefings: DalilBriefing[];
 }> {
-  const sourcesRef = collection(db, "users", userId, "projects", projectId, "sources");
-  const messagesRef = collection(db, "users", userId, "projects", projectId, "messages");
-  const synthesesRef = collection(db, "users", userId, "projects", projectId, "syntheses");
-  const glossaryTermsRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
-  const dalilBriefingsRef = collection(db, "users", userId, "projects", projectId, "dalilBriefings");
+  if (isFirestoreQuotaExceeded) {
+    return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
+  }
+  try {
+    const sourcesRef = collection(db, "users", userId, "projects", projectId, "sources");
+    const messagesRef = collection(db, "users", userId, "projects", projectId, "messages");
+    const synthesesRef = collection(db, "users", userId, "projects", projectId, "syntheses");
+    const glossaryTermsRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
+    const dalilBriefingsRef = collection(db, "users", userId, "projects", projectId, "dalilBriefings");
 
-  const [sourcesSnap, messagesSnap, synthesesSnap, glossarySnap, dalilSnap] = await Promise.all([
-    getDocs(sourcesRef),
-    getDocs(messagesRef),
-    getDocs(synthesesRef),
-    getDocs(glossaryTermsRef),
-    getDocs(dalilBriefingsRef)
-  ]);
+    const [sourcesSnap, messagesSnap, synthesesSnap, glossarySnap, dalilSnap] = await Promise.all([
+      getDocs(sourcesRef),
+      getDocs(messagesRef),
+      getDocs(synthesesRef),
+      getDocs(glossaryTermsRef),
+      getDocs(dalilBriefingsRef)
+    ]);
 
-  const sources: Source[] = [];
-  sourcesSnap.forEach((d) => sources.push(d.data() as Source));
+    const sources: Source[] = [];
+    sourcesSnap.forEach((d) => sources.push(d.data() as Source));
 
-  const messages: Message[] = [];
-  messagesSnap.forEach((d) => messages.push(d.data() as Message));
-  // Sort messages by timestamp if present, otherwise by ID or order
-  messages.sort((a, b) => new Date(a.timestamp || "").getTime() - new Date(b.timestamp || "").getTime());
+    const messages: Message[] = [];
+    messagesSnap.forEach((d) => messages.push(d.data() as Message));
+    // Sort messages by timestamp if present, otherwise by ID or order
+    messages.sort((a, b) => new Date(a.timestamp || "").getTime() - new Date(b.timestamp || "").getTime());
 
-  const syntheses: Synthesis[] = [];
-  synthesesSnap.forEach((d) => syntheses.push(d.data() as Synthesis));
+    const syntheses: Synthesis[] = [];
+    synthesesSnap.forEach((d) => syntheses.push(d.data() as Synthesis));
 
-  const glossaryTerms: GlossaryTerm[] = [];
-  glossarySnap.forEach((d) => glossaryTerms.push(d.data() as GlossaryTerm));
+    const glossaryTerms: GlossaryTerm[] = [];
+    glossarySnap.forEach((d) => glossaryTerms.push(d.data() as GlossaryTerm));
 
-  const dalilBriefings: DalilBriefing[] = [];
-  dalilSnap.forEach((d) => dalilBriefings.push(d.data() as DalilBriefing));
+    const dalilBriefings: DalilBriefing[] = [];
+    dalilSnap.forEach((d) => dalilBriefings.push(d.data() as DalilBriefing));
 
-  return { sources, messages, syntheses, glossaryTerms, dalilBriefings };
+    return { sources, messages, syntheses, glossaryTerms, dalilBriefings };
+  } catch (err) {
+    handleFirestoreError(err, "loadProjectData");
+    return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
+  }
 }

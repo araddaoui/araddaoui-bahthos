@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Sparkles, Loader2, Volume2, VolumeX, Pause, Play, Square, ChevronDown, ChevronUp, Radio } from "lucide-react";
+import { Sparkles, Loader2, Volume2, Pause, Square, ChevronDown, ChevronUp, Radio } from "lucide-react";
 import { DalilBriefing } from "../types";
 
 interface DalilCardProps {
@@ -19,105 +19,243 @@ export default function DalilCard({
 }: DalilCardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
-  const [hasArabicVoice, setHasArabicVoice] = useState(true);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [currentChunkIdx, setCurrentChunkIdx] = useState<number>(-1);
 
-  // Check speech synthesis availability and voices
-  useEffect(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      const updateVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        const arVoice = voices.find((v) => v.lang.startsWith("ar"));
-        setHasArabicVoice(!!arVoice || voices.length > 0);
-      };
-      updateVoices();
-      window.speechSynthesis.onvoiceschanged = updateVoices;
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCacheRef = useRef<Record<number, { audioUri: string; mimeType: string }>>({});
+  const isStoppedRef = useRef<boolean>(false);
+
+  const stopAllSpeech = () => {
+    isStoppedRef.current = true;
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
+      currentAudioRef.current = null;
     }
-  }, []);
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    audioCacheRef.current = {};
+    setIsPlaying(false);
+    setIsPaused(false);
+    setIsLoadingAudio(false);
+    setCurrentChunkIdx(-1);
+  };
 
   // Clean up speech synthesis when component unmounts or briefing changes
   useEffect(() => {
     return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopAllSpeech();
     };
   }, [dalilBriefing?.id]);
 
-  const handleTogglePlay = () => {
+  const playFullBriefingWithGeminiTTS = async (fullText: string, segments: string[]) => {
+    if (isStoppedRef.current) return;
+
+    let audioUri = audioCacheRef.current[0]?.audioUri;
+
+    if (!audioUri) {
+      setIsLoadingAudio(true);
+      try {
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: fullText }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.audio) {
+            audioUri = `data:${data.mimeType || "audio/wav"};base64,${data.audio}`;
+            audioCacheRef.current[0] = {
+              audioUri,
+              mimeType: data.mimeType || "audio/wav",
+            };
+          }
+        }
+      } catch (err) {
+        console.warn("Gemini TTS fetch failed:", err);
+      } finally {
+        setIsLoadingAudio(false);
+      }
+    }
+
+    if (isStoppedRef.current) return;
+
+    if (audioUri) {
+      const audio = new Audio(audioUri);
+      currentAudioRef.current = audio;
+
+      audio.ontimeupdate = () => {
+        if (!isStoppedRef.current && audio.duration && segments.length > 0) {
+          const totalLength = segments.reduce((acc, s) => acc + Math.max(1, s.length), 0);
+          const progress = audio.currentTime / audio.duration;
+          let accumulatedRatio = 0;
+          for (let i = 0; i < segments.length; i++) {
+            accumulatedRatio += segments[i].length / totalLength;
+            if (progress <= accumulatedRatio || i === segments.length - 1) {
+              setCurrentChunkIdx(i);
+              break;
+            }
+          }
+        }
+      };
+
+      audio.onended = () => {
+        if (!isStoppedRef.current) {
+          stopAllSpeech();
+        }
+      };
+
+      audio.onerror = (e) => {
+        console.warn("Audio element playback error:", e);
+        if (!isStoppedRef.current) {
+          playChunkWithWebSpeechFallback(segments, 0);
+        }
+      };
+
+      try {
+        await audio.play();
+        setIsPlaying(true);
+        setIsPaused(false);
+        setCurrentChunkIdx(0);
+      } catch (playErr) {
+        console.warn("Audio play blocked or failed:", playErr);
+        playChunkWithWebSpeechFallback(segments, 0);
+      }
+    } else {
+      // Fallback to Web Speech API if server TTS didn't return audio or hit quota
+      playChunkWithWebSpeechFallback(segments, 0);
+    }
+  };
+
+  const playChunkWithWebSpeechFallback = (segments: string[], idx: number) => {
+    if (idx >= segments.length || isStoppedRef.current) {
+      stopAllSpeech();
+      return;
+    }
+
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      alert("عذراً، تقنية التخليق الصوتي غير مدعومة في هذا المتصفح.");
+      stopAllSpeech();
       return;
     }
 
     const synth = window.speechSynthesis;
+    try {
+      synth.resume();
+    } catch (_) {}
+
+    const voices = synth.getVoices() || [];
+    const arVoice = voices.find(
+      (v) =>
+        v.lang.toLowerCase().startsWith("ar") ||
+        v.name.toLowerCase().includes("arabic") ||
+        v.name.includes("عربي") ||
+        v.name.toLowerCase().includes("maged") ||
+        v.name.toLowerCase().includes("tarik") ||
+        v.name.toLowerCase().includes("salma")
+    ) || voices.find((v) => v.lang.toLowerCase().startsWith("ar"));
+
+    setCurrentChunkIdx(idx);
+    const cleanSegment = segments[idx]
+      .replace(/[#*`_~\[\]()]/g, "")
+      .replace(/\.\.\./g, " .. ")
+      .trim();
+
+    if (!cleanSegment) {
+      playChunkWithWebSpeechFallback(segments, idx + 1);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(cleanSegment);
+    utterance.lang = "ar-SA";
+    if (arVoice) {
+      utterance.voice = arVoice;
+    }
+    utterance.rate = 0.9;
+
+    const startTime = Date.now();
+    let hasFinished = false;
+
+    const handleNext = () => {
+      if (hasFinished || isStoppedRef.current) return;
+      hasFinished = true;
+      const elapsed = Date.now() - startTime;
+      const minReadDuration = Math.min(6000, Math.max(1200, cleanSegment.length * 65));
+      if (elapsed < 150 && cleanSegment.length > 5) {
+        setTimeout(() => {
+          if (!isStoppedRef.current) {
+            playChunkWithWebSpeechFallback(segments, idx + 1);
+          }
+        }, minReadDuration);
+      } else {
+        playChunkWithWebSpeechFallback(segments, idx + 1);
+      }
+    };
+
+    utterance.onend = handleNext;
+    utterance.onerror = (e) => {
+      console.warn("Utterance error:", e);
+      handleNext();
+    };
+
+    try {
+      synth.speak(utterance);
+      setIsPlaying(true);
+      setIsPaused(false);
+    } catch (err) {
+      console.warn("SpeechSynthesis speak error:", err);
+      handleNext();
+    }
+  };
+
+  const handleTogglePlay = () => {
+    if (!dalilBriefing?.text) return;
 
     if (isPlaying && !isPaused) {
-      synth.pause();
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+      } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.pause();
+      }
       setIsPaused(true);
       return;
     }
 
     if (isPlaying && isPaused) {
-      synth.resume();
+      if (currentAudioRef.current) {
+        currentAudioRef.current.play().catch(console.warn);
+      } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.resume();
+      }
       setIsPaused(false);
       return;
     }
 
-    if (!dalilBriefing?.text) return;
+    // Reset any active speech and start fresh
+    stopAllSpeech();
+    isStoppedRef.current = false;
 
-    // Stop any ongoing speech
-    synth.cancel();
+    // Split text EXACTLY as rendered in UI by "||"
+    const rawSegments = dalilBriefing.text
+      .split("||")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-    // Clean text for natural reading: convert || pauses to natural commas/pauses
-    const cleanText = dalilBriefing.text
-      .replace(/\|\|/g, " ، ")
-      .replace(/\.\.\./g, " .. ");
+    if (rawSegments.length === 0) return;
 
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = "ar-SA";
-    utterance.rate = 0.92; // Clear, measured pace for academic reading
-    utterance.pitch = 1.0;
-
-    // Select Arabic voice if available
-    const voices = synth.getVoices();
-    const arVoice = voices.find((v) => v.lang.startsWith("ar-SA") || v.lang.startsWith("ar"));
-    if (arVoice) {
-      utterance.voice = arVoice;
-    }
-
-    utterance.onstart = () => {
-      setIsPlaying(true);
-      setIsPaused(false);
-    };
-
-    utterance.onend = () => {
-      setIsPlaying(false);
-      setIsPaused(false);
-    };
-
-    utterance.onerror = (e) => {
-      console.error("Speech synthesis error:", e);
-      setIsPlaying(false);
-      setIsPaused(false);
-    };
-
-    utteranceRef.current = utterance;
-    synth.speak(utterance);
-  };
-
-  const handleStopSpeech = () => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-    setIsPlaying(false);
+    setIsPlaying(true);
     setIsPaused(false);
+
+    // Request TTS for full briefing in 1 request to conserve quota
+    const fullText = dalilBriefing.text.replace(/\|\|/g, " . ");
+    playFullBriefingWithGeminiTTS(fullText, rawSegments);
   };
 
   return (
     <div
-      className="p-3.5 bg-linear-to-b from-[#094d4e] via-[#084243] to-[#052d2e] text-white rounded-2xl shadow-sm border border-teal-800/80 transition-all overflow-hidden relative"
+      className="p-3.5 bg-linear-to-b from-[#094d4e] via-[#084243] to-[#052d2e] text-white rounded-2xl shadow-sm border border-teal-800/80 transition-all relative"
       id="dalil-widget-card"
     >
       {/* Header Bar */}
@@ -153,22 +291,24 @@ export default function DalilCard({
               <button
                 onClick={handleTogglePlay}
                 className="p-1 hover:bg-teal-700/50 active:bg-teal-600/60 text-teal-200 hover:text-white rounded transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-bold"
-                title={isPlaying ? (isPaused ? "استئناف التلاوة" : "إيقاف مؤقت") : "تلاوة الإحاطة بصوت الدليل"}
+                title={isPlaying ? (isPaused ? "استئناف التلاوة" : "إيقاف مؤقت") : "تلاوة الإحاطة بصوت الدليل الفصيح"}
                 id="dalil-tts-play-btn"
               >
-                {isPlaying && !isPaused ? (
+                {isLoadingAudio ? (
+                  <Loader2 className="w-3.5 h-3.5 text-amber-300 animate-spin" />
+                ) : isPlaying && !isPaused ? (
                   <Pause className="w-3.5 h-3.5 text-amber-300" />
                 ) : (
                   <Volume2 className="w-3.5 h-3.5 text-teal-300" />
                 )}
                 <span className="text-[10px] hidden sm:inline">
-                  {isPlaying ? (isPaused ? "استئناف" : "مؤقت") : "قراءة بصوت الدليل"}
+                  {isLoadingAudio ? "جاري التحضير..." : isPlaying ? (isPaused ? "استئناف" : "مؤقت") : "تلاوة صحيحة"}
                 </span>
               </button>
 
               {isPlaying && (
                 <button
-                  onClick={handleStopSpeech}
+                  onClick={stopAllSpeech}
                   className="p-1 hover:bg-red-900/50 text-red-300 rounded transition-colors cursor-pointer"
                   title="إنهاء التلاوة"
                   id="dalil-tts-stop-btn"
@@ -251,10 +391,10 @@ export default function DalilCard({
             </span>
           </div>
 
-          {/* Scrollable Container with Max Height so text is never truncated */}
+          {/* Fully Scrollable Container with Max Height so text is never truncated */}
           <div
-            className={`text-xs leading-relaxed text-teal-50 font-medium whitespace-pre-wrap bg-teal-950/50 p-3 rounded-xl border border-teal-800/70 overflow-y-auto transition-all ${
-              compact ? "max-h-48" : "max-h-80"
+            className={`text-xs leading-relaxed text-teal-50 font-medium whitespace-pre-wrap bg-teal-950/60 p-3 rounded-xl border border-teal-800/70 overflow-y-auto transition-all ${
+              compact ? "max-h-48" : "max-h-64"
             } ${!isExpanded ? "max-h-16 overflow-hidden relative cursor-pointer" : ""}`}
             onClick={() => !isExpanded && setIsExpanded(true)}
             style={{ scrollbarWidth: "thin", scrollbarColor: "#0d6869 #032122" }}
@@ -262,9 +402,18 @@ export default function DalilCard({
           >
             {dalilBriefing.text.split("||").map((segment, idx, arr) => {
               const isDramaticPause = segment.includes("... ") || segment.startsWith("...");
+              const isCurrentlyBeingRead = currentChunkIdx === idx;
               return (
                 <React.Fragment key={idx}>
-                  <span className={isDramaticPause ? "font-bold text-amber-200" : ""}>
+                  <span
+                    className={`transition-all duration-200 ${
+                      isCurrentlyBeingRead
+                        ? "bg-teal-700/80 text-amber-200 px-1.5 py-0.5 rounded font-bold border border-amber-400/40 shadow-xs"
+                        : isDramaticPause
+                        ? "font-bold text-amber-100"
+                        : ""
+                    }`}
+                  >
                     {segment.trim()}
                   </span>
                   {idx < arr.length - 1 && (
@@ -311,3 +460,4 @@ export default function DalilCard({
     </div>
   );
 }
+

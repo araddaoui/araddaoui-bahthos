@@ -8,7 +8,12 @@ import { deduplicateSources, deduplicateReportBlocks } from "./reportFormatter";
 function extractDocSubstance(src: any, idx: number, safeTopic: string) {
   const rawTitle = src.title || `الوثيقة ${idx + 1}`;
   const title = rawTitle.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").trim();
-  const cleanTitle = title.replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "").trim() || `الوثيقة ${idx + 1}`;
+  let cleanTitle = title.replace(/^[\s.\-–—:؛"']+|[\s.\-–—:؛"']+$/g, "").trim() || `الوثيقة ${idx + 1}`;
+  if (cleanTitle.includes("(") && !cleanTitle.includes(")")) {
+    cleanTitle = cleanTitle + ")";
+  } else if (cleanTitle.includes(")") && !cleanTitle.includes("(")) {
+    cleanTitle = "(" + cleanTitle;
+  }
   const lowerTitle = cleanTitle.toLowerCase();
   
   // Clean up summary / content from any template residue
@@ -70,7 +75,7 @@ function extractDocSubstance(src: any, idx: number, safeTopic: string) {
         [/thought\s*leadership/g, "الريادة الفكرية والتأثير التحريري"],
         [/digital\s*storytelling/g, "السرد الرقمي والقصص التفاعلية"],
         [/content\s*strategy/g, "استراتيجية وصناعة المحتوى"],
-        [/public\s*administration/g, "الإدارة العامة والقطاع الحكومي"],
+        [/public\s*administration/g, "الإدارة العامة"],
         [/bureaucratic\s*efficiency/g, "الكفاءة البيروقراطية والتنظيمية"],
         [/compliance\s*management/g, "إدارة الامتثال والرقابة المؤسسية"],
         [/hermeneutics/g, "الهرمنيوطيقا والتأويل النصي"],
