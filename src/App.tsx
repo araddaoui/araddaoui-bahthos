@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { defaultSources } from "./data/defaultSources";
-import { Source, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types";
+import { Source, SourceDraft, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types";
 import Sidebar from "./components/Sidebar";
 import SourcesList from "./components/SourcesList";
 import ChatWindow from "./components/ChatWindow";
@@ -156,13 +156,15 @@ export function ensureEverySourceHasTerms(sources: Source[], currentTerms: Gloss
   return cleanAndMigrateGlossary(updatedTerms, sources);
 }
 
-export const VOCALIZED_BASELINE_TEXT = `نَسْتَعْرِضُ الْيَوْمَ المَصَادِرَ المَرْفُوقَةَ فِي البَحْثِ وَعَدَدُهَا 3 مَصَادِرَ. || تَتَنَاوَلُ هَذِهِ المَصَادِرُ دَوْرَ التَّعْلِيمِ الرَّقْمِيِّ وَأَنَّظِمَةِ إِدَارَةِ التَّعَلُّمِ عَبْرَ الشَّبَكَةِ فِي المَرْحَلَتَيْنِ المَدْرَسِيَّةِ وَالجَامِعِيَّةِ. || يُقَدِّمُ المَصْدَرُ الأَوَّلُ دِرَاسَةً مَيْدَانِيَّةً أَبْرَزَتْ دَوْرَ مَنَصَّةِ مَدْرَسَتِي فِي تَحْقِيقِ الإِصْلَاحِ التَّعْلِيمِيِّ بِإِدَارَةِ التَّعْلِيمِ فِي مَكَّةَ المُكَرَّمَةِ. || أَعْتَمَدَتِ الدِّرَاسَةُ عَلَى المَنْهَجِ الوَصْفِيِّ التَّحْلِيلِيِّ عَبْرَ اسْتِبْيَانٍ شَمِلَتْ ثَلَاثَمِائَةٍ وَعِشْرِينَ مُشْرِفًا وَمُشْرِفَةً. || أَظْهَرَتِ النَّتَائِجُ أَهَمِّيَّةً عَالِيَةً جِدًّا لِلتَّطْبِيقِ الرَّقْمِيِّ بِمَتَوَسِّطٍ حِسَابِيٍّ بَلَغَ ثَلَاثَةً وَثَمَانِينَ مِنْ مِائَةٍ. || كَمَا كَشَفَتِ الدِّرَاسَةُ عَنْ وُجُودِ عَلَاقَةٍ ارْتِبَاطِيَّةٍ قَوِيَّةٍ جِدًّا بَيْنَ اسْتِخْدَامِ المَنَصَّةِ وَتَطْوِيرِ العَمَلِيَّةِ التَّعْلِيمِيَّةِ. || يَعُودُ هَذَا الأَثَرُ إِلَى تَسْهِيلِ التَّوَاصُلِ وَمُرَاعَاةِ الفُرُوقِ الفَرْدِيَّةِ وَتَنْمِيَةِ مَهَارَاتِ التَّعَلُّمِ الذَّاتِيِّ. || فِي المُقَابِلِ يُرَكِّزُ المَصْدَرُ الثَّانِي عَلَى تَقْيِيمِ إِدَارَةِ مَنَصَّةِ التَّعَلُّمِ الإِلِكْتُرُونِيِّ فِي إِحْدَى جَامِعَاتِ جَنُوبِ إِفْرِيقِيَا. || اسْتَخْدَمَ البَاحِثَانِ مَنْهَجًا مُخْتَلَطًا يَجْمَعُ بَيْنَ المَقَابَلَاتِ النَّوْعِيَّةِ مَعَ المُمَاضِرِينَ وَالاِسْتِبْيَانَاتِ الكَمِّيَّةِ مَعَ الطُّلَّابِ. || أَكَّدَتِ النَّتَائِجُ أَنَّ اسْتِخْدَامَ التَّكْنُولُوجِيَا وَفَّرَ مَرُونَةً كَبِيرَةً فِي الوُصُولِ إِلَى المَوَادِّ التَّعْلِيمِيَّةِ. || غَيْرَ أَنَّ الدِّرَاسَةَ رَصَدَتْ تَحَدَّيَاتٍ هَيْكَلِيَّةً وَتَقْنِيَّةً بَارِزَةً. || تَمَثَّلَتْ هَذِهِ التَّحَدَّيَاتُ فِي تَفَاوُتِ تَدْرِيبِ أَعْضَاءِ الهَيْئَةِ التَّدْرِيسِيَّةِ وَضَعْفِ الإِتِّصَالِ بِالشَّبَكَةِ. || كَمَا أَشَارَتْ إِلَى نَقْصِ الدَّعْمِ الفَنِّيِّ المُبَاشِرِ لِلطُّلَّابِ. || ... || يَتَبَيَّنُ لَنَا أَنَّ فَاعِلِيَّةَ التَّعْلِيمِ الرَّقْمِيِّ لَا تَتَوَقَّفُ عَلَى التَّصْمِيمِ التَّرْبَوِيِّ لِلْمَنَصَّاتِ فَحَسْبُ بَلْ تَعْتَمِدُ جَذْرِيًّا عَلَى التَّكَامُلِ بَيْنَ القَرَارَاتِ الإِدَارِيَّةِ وَالبِنْيَةِ التَّحْتِيَّةِ. || يُوَضِّحُ المَصْدَرُ الأَوَّلُ الجَانِبَ التَّرْبَوِيَّ وَالأَثَرَ المَيْدَانِيَّ الإِيجَابِيَّ لِلْمَنَصَّاتِ فِي التَّعْلِيمِ العَامِّ. || بَيْنَمَا يَكْشِفُ المَصْدَرُ الثَّانِي العَوَاقِبَ التَّشْغِيلِيَّةَ وَالفَجَوَاتِ التَّدْرِيبِيَّةَ فِي التَّعْلِيمِ العَالِي. || لاِسْتِكْمَالِ التَّحْلِيلِ يُنْصَحُ بِالتَّرْكِيزِ عَلَى مِحْوَرَيِ التَّدْرِيبِ وَالدَّعْمِ الفَنِّيِّ كَشَرْطَيْنِ حَاسِمَيْنِ لِنَجَاحِ التَّحَوُّلِ الرَّقْمِيِّ.`;
+export const VOCALIZED_BASELINE_TEXT = `لَمْ تُوَلَّدْ بَعْدُ إِحَاطَةٌ مُحَدَّثَةٌ لِمَصَادِرِ المَشْرُوعِ الحَالِيِّ. || سَيَسْتَنِدُ التَّحْلِيلُ القَادِمُ إِلَى المَصَادِرِ المَرْفُوعَةِ فِي هَذَا المَشْرُوعِ فَقَطْ، دُونَ اِسْتِعَارَةِ مَعْلُومَاتٍ مِنْ مَشْرُوعٍ سَابِقٍ.`;
 
 export function sanitizeDalilBriefing(briefing: DalilBriefing | null, sourcesCount: number): DalilBriefing | null {
   if (!briefing || !briefing.text) return null;
   const harakatCount = (briefing.text.match(/[\u064B-\u0652]/g) || []).length;
   if (harakatCount < 15 || briefing.text.includes(".pdf") || briefing.text.includes("أهلاً بك في نظام بحث")) {
-    const text = VOCALIZED_BASELINE_TEXT.replace("3 مَصَادِرَ", `${sourcesCount || 3} مَصَادِرَ`);
+    const text = sourcesCount > 0
+      ? `تَجْرِي الآنَ إِعَادَةُ تَوْلِيدِ الإِحَاطَةِ بِالِاعْتِمَادِ عَلَى ${sourcesCount} مَصَادِرَ حَالِيَّةٍ فَقَطْ.`
+      : VOCALIZED_BASELINE_TEXT;
     return {
       ...briefing,
       text
@@ -1237,7 +1239,7 @@ export default function App() {
           sources: currentSourcesList,
           toolType: "dalil-update",
           newSourceIds: newIds,
-          priorBriefingText: dalilBriefing?.text ?? null
+          priorBriefingText: null
         })
       });
 
@@ -1252,7 +1254,18 @@ export default function App() {
     } finally {
       // Fallback briefing if API failed or returned empty text
       if (!briefingText && currentSourcesList.length > 0) {
-        briefingText = `نَسْتَعْرِضُ الْيَوْمَ المَصَادِرَ المَرْفُوقَةَ فِي البَحْثِ وَعَدَدُهَا ${currentSourcesList.length} مَصَادِرَ. || تَتَنَاوَلُ هَذِهِ المَصَادِرُ دَوْرَ التَّعْلِيمِ الرَّقْمِيِّ وَأَنَّظِمَةِ إِدَارَةِ التَّعَلُّمِ عَبْرَ الشَّبَكَةِ فِي المَرْحَلَتَيْنِ المَدْرَسِيَّةِ وَالجَامِعِيَّةِ. || يُقَدِّمُ المَصْدَرُ الأَوَّلُ دِرَاسَةً مَيْدَانِيَّةً أَبْرَزَتْ دَوْرَ مَنَصَّةِ مَدْرَسَتِي فِي تَحْقِيقِ الإِصْلَاحِ التَّعْلِيمِيِّ بِإِدَارَةِ التَّعْلِيمِ فِي مَكَّةَ المُكَرَّمَةِ. || أَعْتَمَدَتِ الدِّرَاسَةُ عَلَى المَنْهَجِ الوَصْفِيِّ التَّحْلِيلِيِّ عَبْرَ اسْتِبْيَانٍ شَمِلَتْ ثَلَاثَمِائَةٍ وَعِشْرِينَ مُشْرِفًا وَمُشْرِفَةً. || أَظْهَرَتِ النَّتَائِجُ أَهَمِّيَّةً عَالِيَةً جِدًّا لِلتَّطْبِيقِ الرَّقْمِيِّ بِمَتَوَسِّطٍ حِسَابِيٍّ بَلَغَ ثَلَاثَةً وَثَمَانِينَ مِنْ مِائَةٍ. || كَمَا كَشَفَتِ الدِّرَاسَةُ عَنْ وُجُودِ عَلَاقَةٍ ارْتِبَاطِيَّةٍ قَوِيَّةٍ جِدًّا بَيْنَ اسْتِخْدَامِ المَنَصَّةِ وَتَطْوِيرِ العَمَلِيَّةِ التَّعْلِيمِيَّةِ. || يَعُودُ هَذَا الأَثَرُ إِلَى تَسْهِيلِ التَّوَاصُلِ وَمُرَاعَاةِ الفُرُوقِ الفَرْدِيَّةِ وَتَنْمِيَةِ مَهَارَاتِ التَّعَلُّمِ الذَّاتِيِّ. || فِي المُقَابِلِ يُرَكِّزُ المَصْدَرُ الثَّانِي عَلَى تَقْيِيمِ إِدَارَةِ مَنَصَّةِ التَّعَلُّمِ الإِلِكْتُرُونِيِّ فِي إِحْدَى جَامِعَاتِ جَنُوبِ إِفْرِيقِيَا. || اسْتَخْدَمَ البَاحِثَانِ مَنْهَجًا مُخْتَلَطًا يَجْمَعُ بَيْنَ المَقَابَلَاتِ النَّوْعِيَّةِ مَعَ المُمَاضِرِينَ وَالاِسْتِبْيَانَاتِ الكَمِّيَّةِ مَعَ الطُّلَّابِ. || أَكَّدَتِ النَّتَائِجُ أَنَّ اسْتِخْدَامَ التَّكْنُولُوجِيَا وَفَّرَ مَرُونَةً كَبِيرَةً فِي الوُصُولِ إِلَى المَوَادِّ التَّعْلِيمِيَّةِ. || غَيْرَ أَنَّ الدِّرَاسَةَ رَصَدَتْ تَحَدَّيَاتٍ هَيْكَلِيَّةً وَتَقْنِيَّةً بَارِزَةً. || تَمَثَّلَتْ هَذِهِ التَّحَدَّيَاتُ فِي تَفَاوُتِ تَدْرِيبِ أَعْضَاءِ الهَيْئَةِ التَّدْرِيسِيَّةِ وَضَعْفِ الإِتِّصَالِ بِالشَّبَكَةِ. || كَمَا أَشَارَتْ إِلَى نَقْصِ الدَّعْمِ الفَنِّيِّ المُبَاشِرِ لِلطُّلَّابِ. || ... || يَتَبَيَّنُ لَنَا أَنَّ فَاعِلِيَّةَ التَّعْلِيمِ الرَّقْمِيِّ لَا تَتَوَقَّفُ عَلَى التَّصْمِيمِ التَّرْبَوِيِّ لِلْمَنَصَّاتِ فَحَسْبُ بَلْ تَعْتَمِدُ جَذْرِيًّا عَلَى التَّكَامُلِ بَيْنَ القَرَارَاتِ الإِدَارِيَّةِ وَالبِنْيَةِ التَّحْتِيَّةِ. || يُوَضِّحُ المَصْدَرُ الأَوَّلُ الجَانِبَ التَّرْبَوِيَّ وَالأَثَرَ المَيْدَانِيَّ الإِيجَابِيَّ لِلْمَنَصَّاتِ فِي التَّعْلِيمِ العَامِّ. || بَيْنَمَا يَكْشِفُ المَصْدَرُ الثَّانِي العَوَاقِبَ التَّشْغِيلِيَّةَ وَالفَجَوَاتِ التَّدْرِيبِيَّةَ فِي التَّعْلِيمِ العَالِي. || لاِسْتِكْمَالِ التَّحْلِيلِ يُنْصَحُ بِالتَّرْكِيزِ عَلَى مِحْوَرَيِ التَّدْرِيبِ وَالدَّعْمِ الفَنِّيِّ كَشَرْطَيْنِ حَاسِمَيْنِ لِنَجَاحِ التَّحَوُّلِ الرَّقْمِيِّ.`;
+        const titles = currentSourcesList
+          .map((source, index) => source.title?.trim() || `الوثيقة ${index + 1}`)
+          .join("، ");
+        const evidence = currentSourcesList
+          .slice(0, 3)
+          .map((source, index) => {
+            const raw = (source.summary || source.content || "").replace(/\s+/g, " ").trim();
+            const excerpt = raw.length > 240 ? `${raw.substring(0, 240)}…` : raw;
+            return `يُبَيِّنُ المَصْدَرُ ${index + 1} «${source.title || `الوثيقة ${index + 1}`}» مَا يَرِدُ فِي نَصِّهِ مِنْ مَعْلُومَاتٍ مُتَّصِلَةٍ بِمَوْضُوعِ البَحْثِ: ${excerpt || "لا يَتَوَفَّرُ مُلَخَّصٌ كَافٍ."}`;
+          })
+          .join(" || ");
+        briefingText = `نَسْتَعْرِضُ فِي المَشْرُوعِ الحَالِيِّ ${currentSourcesList.length} مَصَادِرَ بَحْثِيَّةٍ، وَهِيَ: ${titles}. || ${evidence || "تَحْتَاجُ المَصَادِرُ إِلَى قِرَاءَةٍ تَحْلِيلِيَّةٍ مُفَصَّلَةٍ."} || تَعْتَمِدُ هَذِهِ الإِحَاطَةُ عَلَى المَصَادِرِ الحَالِيَّةِ فَقَطْ، وَلَا تَسْتَعِيرُ مَعْلُومَاتٍ مِنْ مَشْرُوعَاتٍ سَابِقَةٍ.`;
       }
 
       if (briefingText) {
@@ -1284,7 +1297,61 @@ export default function App() {
     }, 1200);
   };
 
-  // Add custom source text with optional summary and pre-extracted terms
+  const createSourceFromDraft = (draft: SourceDraft, index: number): Source => {
+    const wordCount = draft.content ? draft.content.trim().split(/\s+/).filter(Boolean).length : 0;
+    return {
+      id: `source-${Date.now()}-${sourceIdSequenceRef.current++}-${index}`,
+      title: draft.title,
+      content: draft.content,
+      dateAdded: new Date().toISOString().split("T")[0],
+      wordCount,
+      enabled: !draft.error,
+      language: draft.language,
+      ...(draft.error || draft.summary ? { summary: draft.error || draft.summary } : {}),
+      ...(draft.error ? { error: draft.error } : {}),
+    };
+  };
+
+  const commitSourceDrafts = (drafts: SourceDraft[], runMissingTermExtraction = true) => {
+    if (!drafts || drafts.length === 0) return;
+
+    const newSources = drafts.map((draft, index) => createSourceFromDraft(draft, index));
+    const successfulSources = newSources.filter((source) => !source.error);
+    const nextSourcesCandidate = [...latestSourcesRef.current, ...newSources];
+    latestSourcesRef.current = nextSourcesCandidate;
+
+    // Commit the complete batch using one functional update. The duplicate-ID
+    // guard also makes retries idempotent if a browser event is delivered twice.
+    setSources((previousSources) => {
+      const existingIds = new Set(previousSources.map((source) => source.id));
+      const additions = newSources.filter((source) => !existingIds.has(source.id));
+      const nextSources = [...previousSources, ...additions];
+      latestSourcesRef.current = nextSources;
+      return nextSources;
+    });
+
+    if (successfulSources.length === 0) return;
+
+    // A previous briefing describes a previous source set. Remove it before
+    // scheduling a fresh synthesis so stale content cannot remain visible.
+    setDalilBriefing(null);
+    dalilAttemptedRef.current = true;
+    successfulSources.forEach((source) => pendingNewSourceIdsRef.current.add(source.id));
+    setSelectedSourceId(successfulSources[successfulSources.length - 1].id);
+    setActiveMainView("source");
+    scheduleDalilUpdateBriefing();
+
+    drafts.forEach((draft, index) => {
+      const source = newSources[index];
+      if (draft.terms && draft.terms.length > 0) {
+        addGlossaryTermsDirectly(draft.terms, source.id);
+      } else if (runMissingTermExtraction) {
+        void extractGlossaryTerms(draft.content.substring(0, 4000), source.id);
+      }
+    });
+  };
+
+  // Add one source through the same atomic commit path used by multi-upload.
   const handleAddSource = (
     title: string,
     content: string,
@@ -1293,43 +1360,14 @@ export default function App() {
     error?: string,
     terms?: any[]
   ) => {
-    const wordCount = content ? content.trim().split(/\s+/).filter(Boolean).length : 0;
-    const newSrc: Source = {
-      // Date.now() alone can collide when a batch invokes this callback several
-      // times in the same event loop turn. The ref suffix makes every ID unique.
-      id: `source-${Date.now()}-${sourceIdSequenceRef.current++}`,
-      title,
-      content,
-      dateAdded: new Date().toISOString().split("T")[0],
-      wordCount,
-      enabled: !error,
-      language,
-      ...(error || summary ? { summary: error || summary } : {}),
-      ...(error ? { error } : {}),
-    };
+    commitSourceDrafts([{ title, content, language, summary, error, terms }], true);
+  };
 
-    // Always use a functional update. Multiple queued uploads otherwise each
-    // capture the same old `sources` array and overwrite the previous file.
-    setSources((prev) => {
-      const nextSources = [...prev, newSrc];
-      latestSourcesRef.current = nextSources;
-      return nextSources;
-    });
-
-    if (!error) {
-      setSelectedSourceId(newSrc.id);
-      setActiveMainView("source");
-      pendingNewSourceIdsRef.current.add(newSrc.id);
-      scheduleDalilUpdateBriefing();
-
-      // If terms were returned in the same payload, add them directly. Otherwise
-      // extract them from this document only; no project-global fallback is used.
-      if (terms && terms.length > 0) {
-        addGlossaryTermsDirectly(terms, newSrc.id);
-      } else {
-        void extractGlossaryTerms(content.substring(0, 4000), newSrc.id);
-      }
-    }
+  const handleAddSources = (drafts: SourceDraft[]) => {
+    // Batch analysis already produced fallback terms where possible. Missing
+    // terms are backfilled locally by the sources effect, avoiding six extra
+    // glossary API requests during one upload operation.
+    commitSourceDrafts(drafts, false);
   };
 
   // Delete research source
@@ -1603,6 +1641,7 @@ export default function App() {
             onEnableAll={handleEnableAll}
             onDisableAll={handleDisableAll}
             onAddSource={handleAddSource}
+            onAddSources={handleAddSources}
             onDeleteSource={handleDeleteSource}
             onDeleteAllSources={handleDeleteAllSources}
             selectedSourceId={selectedSourceId}

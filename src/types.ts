@@ -10,6 +10,15 @@ export interface Source {
   error?: string;
 }
 
+export interface SourceDraft {
+  title: string;
+  content: string;
+  language: "ar" | "en" | "fr";
+  summary?: string;
+  error?: string;
+  terms?: any[];
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";

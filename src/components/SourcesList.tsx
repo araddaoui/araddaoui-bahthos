@@ -14,7 +14,7 @@ import {
   Loader2,
   FileText
 } from "lucide-react";
-import { Source, GlossaryTerm, DalilBriefing } from "../types";
+import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types";
 import DalilCard from "./DalilCard";
 import { parseDocumentFile } from "../utils/documentParser";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor";
@@ -26,6 +26,7 @@ interface UploadQueueItem {
   fileName: string;
   status: UploadQueueStatus;
   error?: string;
+  fileIndex: number;
 }
 
 interface SourcesListProps {
@@ -35,6 +36,7 @@ interface SourcesListProps {
   onEnableAll: () => void;
   onDisableAll: () => void;
   onAddSource: (title: string, content: string, language: "ar" | "en" | "fr", summary?: string, error?: string, terms?: any[]) => void;
+  onAddSources?: (drafts: SourceDraft[]) => void;
   onDeleteSource: (id: string) => void;
   onDeleteAllSources?: () => void;
   selectedSourceId: string | null;
@@ -57,6 +59,7 @@ export default function SourcesList({
   onEnableAll,
   onDisableAll,
   onAddSource,
+  onAddSources,
   onDeleteSource,
   onDeleteAllSources,
   selectedSourceId,
@@ -105,10 +108,11 @@ export default function SourcesList({
     );
   });
 
-  const createUploadQueue = (files: File[]) => files.map((file, index) => ({
+  const createUploadQueue = (files: File[]): UploadQueueItem[] => files.map((file, index) => ({
     id: `${file.name}-${file.lastModified}-${index}`,
     fileName: file.name,
     status: "queued" as UploadQueueStatus,
+    fileIndex: index,
   }));
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -158,10 +162,15 @@ export default function SourcesList({
 
     let completed = 0;
     let failed = 0;
+    const successfulDrafts: SourceDraft[] = [];
 
     for (const item of queue) {
-      const file = files.find((candidate, index) => item.id === `${candidate.name}-${candidate.lastModified}-${index}`);
-      if (!file) continue;
+      const file = files[item.fileIndex];
+      if (!file) {
+        failed += 1;
+        updateQueueItem(item.id, { status: "failed", error: "تعذر العثور على الملف في قائمة الرفع." });
+        continue;
+      }
 
       updateQueueItem(item.id, { status: "processing", error: undefined });
       setAnalysisStep(`جاري معالجة ${completed + failed + 1} من ${files.length}: ${file.name}`);
@@ -172,7 +181,19 @@ export default function SourcesList({
           throw new Error("لم يتم استخراج نص قابل للتحليل من المستند.");
         }
 
-        await runAutomaticAnalysis(parsed.text, parsed.base64, parsed.mimeType, parsed.fileName, false);
+        // Analyze each file sequentially, but do not mutate the parent source
+        // list until the batch has been analyzed. The parent then commits the
+        // batch atomically, eliminating stale React snapshots and lost files.
+        const draft = await runAutomaticAnalysis(
+          parsed.text,
+          parsed.base64,
+          parsed.mimeType,
+          parsed.fileName,
+          false,
+          false,
+        );
+        if (!draft) throw new Error("لم يتم إنشاء بيانات صالحة للمستند.");
+        successfulDrafts.push(draft);
         updateQueueItem(item.id, { status: "completed" });
         completed += 1;
       } catch (err: any) {
@@ -184,10 +205,20 @@ export default function SourcesList({
 
       setUploadProgress({ completed: completed + failed, total: files.length });
 
-      // A small gap prevents a burst of back-to-back Gemini requests while
-      // keeping the queue sequential and safely below the serverless timeout.
       if (completed + failed < files.length) {
         await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+
+    // One parent update for the complete successful batch. This preserves all
+    // documents and also reduces summary/glossary/Dalil re-render cascades.
+    if (successfulDrafts.length > 0) {
+      if (onAddSources) {
+        onAddSources(successfulDrafts);
+      } else {
+        successfulDrafts.forEach((draft) => {
+          onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms);
+        });
       }
     }
 
@@ -208,7 +239,8 @@ export default function SourcesList({
     mimeType?: string,
     fileName?: string,
     manageUi = true,
-  ) => {
+    commit = true,
+  ): Promise<SourceDraft | null> => {
     if (!content.trim() && !base64) {
       if (manageUi) {
         setErrorMsg("يرجى إدخال محتوى المستند أو لصقه أو رفع ملف صالح.");
@@ -268,7 +300,15 @@ export default function SourcesList({
       const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, data.originalText || content));
       const detectedLang = detectSourceLanguage(data.originalText || content, data.title, data.language);
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
-      onAddSource(cleanTitle, data.originalText || content, detectedLang, finalArabicSummary, undefined, data.terms);
+      const draft: SourceDraft = {
+        title: cleanTitle,
+        content: data.originalText || content,
+        language: detectedLang,
+        summary: finalArabicSummary,
+        terms: data.terms,
+      };
+      if (commit) onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms);
+      return draft;
       if (manageUi) {
         setNewContent("");
         setErrorMsg("");
@@ -286,7 +326,15 @@ export default function SourcesList({
       const detectedLang = detectSourceLanguage(textContent, cleanTitle);
       
       const fallbackTerms = extractFallbackTermsFromText(textContent, undefined, cleanTitle);
-      onAddSource(cleanTitle, textContent, detectedLang, autoSummary, undefined, fallbackTerms);
+      const draft: SourceDraft = {
+        title: cleanTitle,
+        content: textContent,
+        language: detectedLang,
+        summary: autoSummary,
+        terms: fallbackTerms,
+      };
+      if (commit) onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms);
+      return draft;
       if (manageUi) {
         setNewContent("");
         setErrorMsg("");
