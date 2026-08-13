@@ -242,6 +242,7 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) setIsFirebaseLoading(true);
       setCurrentUser(user);
       setAuthChecking(false);
     });
@@ -1574,7 +1575,7 @@ export default function App() {
     );
   }
 
-  if (authChecking) {
+  if (authChecking || (currentUser && isFirebaseLoading)) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#fafaf8] space-y-4" dir="rtl" id="auth-checking-loader">
         <Loader2 className="w-10 h-10 text-[#0d6264] animate-spin" />
