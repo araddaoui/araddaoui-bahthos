@@ -11,7 +11,7 @@ import SettingsView from "./components/SettingsView";
 import LandingPage from "./components/LandingPage";
 import TermsOfService from "./components/TermsOfService";
 import PrivacyPolicy from "./components/PrivacyPolicy";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./utils/termExtractor";
 import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { 
   auth, 
@@ -527,6 +527,18 @@ export default function App() {
     }
   }, [sources, currentProjectId]);
 
+  // Normalize summaries loaded from cloud/guest persistence. Older prompt versions
+  // could append a generic language claim unrelated to the source itself.
+  useEffect(() => {
+    setSources((previousSources) => {
+      const normalizedSources = previousSources.map((source) => {
+        const normalizedSummary = sanitizeSourceSummary(source.summary, source.title, source.content);
+        return normalizedSummary === source.summary ? source : { ...source, summary: normalizedSummary };
+      });
+      return JSON.stringify(previousSources) === JSON.stringify(normalizedSources) ? previousSources : normalizedSources;
+    });
+  }, [sources]);
+
   const [dalilCountdown, setDalilCountdown] = useState<number | null>(null);
   const [isDalilGenerating, setIsDalilGenerating] = useState(false);
   const dalilTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -640,6 +652,18 @@ export default function App() {
   // Project Switch, Create, and Delete handlers
   const handleSwitchProject = async (newProjectId: string) => {
     if (newProjectId === currentProjectId) return;
+
+    // Establish a hard source/context boundary before any asynchronous load.
+    // The old briefing must not remain visible while the next project is fetched.
+    setDalilBriefing(null);
+    pendingNewSourceIdsRef.current.clear();
+    dalilAttemptedRef.current = true;
+    latestSourcesRef.current = [];
+    latestGlossaryTermsRef.current = [];
+    setSources([]);
+    setMessages([]);
+    setSyntheses([]);
+    setGlossaryTerms([]);
 
     if (currentUser && !isQuotaExceeded()) {
       setIsFirebaseLoading(true);
@@ -767,6 +791,13 @@ export default function App() {
 
     // 1. Immediately mark project ID as deleted globally to block all race-condition auto-saves
     markProjectAsDeleted(projectId);
+    if (projectId === currentProjectId) {
+      setDalilBriefing(null);
+      pendingNewSourceIdsRef.current.clear();
+      dalilAttemptedRef.current = true;
+      latestSourcesRef.current = [];
+      latestGlossaryTermsRef.current = [];
+    }
 
     // 2. Filter project out of state immediately
     const updatedProjects = projects.filter((p) => p.id !== projectId);
@@ -817,6 +848,11 @@ export default function App() {
       setMessages([]);
       setSyntheses([]);
       setGlossaryTerms([]);
+      setDalilBriefing(null);
+      pendingNewSourceIdsRef.current.clear();
+      dalilAttemptedRef.current = false;
+      latestSourcesRef.current = [];
+      latestGlossaryTermsRef.current = [];
       setSelectedSourceId(null);
 
       try {
@@ -1060,10 +1096,13 @@ export default function App() {
     setCurrentProjectId("default");
     setSources([]);
     setMessages([]);
-    setSyntheses(initialSyntheses);
-    setTemperature(0.2);
-    setGlossaryTerms(initialGlossary);
-    setSelectedSourceId(null);
+      setSyntheses(initialSyntheses);
+      setTemperature(0.2);
+      setGlossaryTerms(initialGlossary);
+      setDalilBriefing(null);
+      pendingNewSourceIdsRef.current.clear();
+      dalilAttemptedRef.current = false;
+      setSelectedSourceId(null);
     setActiveMainView("chat");
     setActiveTab("home");
   };
@@ -1086,6 +1125,9 @@ export default function App() {
       setSyntheses(initialSyntheses);
       setTemperature(0.2);
       setGlossaryTerms(initialGlossary);
+      setDalilBriefing(null);
+      pendingNewSourceIdsRef.current.clear();
+      dalilAttemptedRef.current = false;
       setSelectedSourceId(null);
       setActiveMainView("chat");
       setActiveTab("home");

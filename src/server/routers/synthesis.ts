@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getAiClient, generateContentWithRetry } from "../ai";
-import { normalizeArabicText } from "../../utils/termExtractor";
+import { normalizeArabicText, sanitizeSourceSummary } from "../../utils/termExtractor";
 import { generateClientSynthesisFallback } from "../../utils/synthesisFallback";
 import { deduplicateSources, deduplicateReportText } from "../sourceUtils";
 import { DALIL_SYSTEM_INSTRUCTION } from "../prompts";
@@ -11,7 +11,10 @@ router.post("/api/synthesize", async (req, res) => {
   try {
     const { sources: rawSourcesInput, topic, toolType } = req.body || {};
     const sources = Array.isArray(rawSourcesInput) ? rawSourcesInput : [];
-    const activeSources = deduplicateSources(sources);
+    const activeSources = deduplicateSources(sources).map((source: any) => ({
+      ...source,
+      summary: sanitizeSourceSummary(source?.summary, source?.title, source?.content),
+    }));
     
     if (activeSources.length === 0) {
       return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
@@ -119,7 +122,8 @@ ${sourcesContext}
 "0. **قواعد التنسيق والتوثيق المتقدمة (TABLES & CITATIONS & TRANSLATION)**:\n" +
 "   - **تنظيم الجداول**: يُحظر تماماً ترك أي صفوف فارغة أو خلايا ناقصة في الجداول المعيارية؛ يجب ملء جميع الأعمدة بدقة، وفي حال عدم توفر معلومة يُكتب `-` أو `غير متوفر`.\n" +
 "   - **التوثيق المبسط**: استبدل الأسماء الببليوجرافية الطويلة أو الملفات الخام بعلامات توثيق مختصرة ونظيفة تعتمد على عنوان الوثيقة بالعربية بين قوسين (مثل [عنوان الوثيقة المختصر]) لتسهيل القراءة واستمرار تدفقها.\n" +
-"   - **ترجمة الاقتباسات الأجنبية**: عند إدراج اقتباسات أو مفاهيم أجنبية، قم بترجمتها بطلاقة إلى اللغة العربية الفصحى وأضف دائماً ملاحظة صريحة بأنها مترجمة (مثل: [ترجمة عربية للنص الأصلي]) للحفاظ على الأمانة العلمية.\n\n" +
+"   - **ترجمة الاقتباسات الأجنبية**: عند إدراج اقتباسات أو مفاهيم أجنبية، قم بترجمتها بطلاقة إلى اللغة العربية الفصحى وأضف دائماً ملاحظة صريحة بأنها مترجمة (مثل: [ترجمة عربية للنص الأصلي]) للحفاظ على الأمانة العلمية.\n" +
+"   - **عزل المشروع**: لا تذكر اللغة العربية أو التربية أو أي مجال أو مشروع سابق لمجرد أن لغة الإخراج عربية؛ لا تذكرها إلا إذا وردت في النص الحالي نفسه.\n\n" +
 "1. **اللغة العربية الفصحى الصافية والتوليف التام (PURE ARABIC SYNTHESIS)**:\n" +
 "   - اكتب بلغة عربية فصيحة سليمة مع مراعاة قواعد المطابقة اللغوية الكاملة.\n" +
 "   - يُحظر حظراً تاماً نقل ملخصات الإنجليزية أو الفرنسية بشكل حرفي أو مقتطع مبتور (مثل \"pays pa...\"). يجب ترجمة وتوليف كافة الأفكار والأدلة والمفاهيم الأجنبية إلى جمل عربية رصينة ومكتملة تماماً.\n" +

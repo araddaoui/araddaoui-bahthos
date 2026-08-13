@@ -2,7 +2,7 @@ import { Router } from "express";
 import { Type } from "@google/genai";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, normalizeArabicText, cleanAndSanitizeAcademicTerm, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "../../utils/termExtractor";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, normalizeArabicText, cleanAndSanitizeAcademicTerm, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "../../utils/termExtractor";
 import { getAiClient, generateContentWithRetry } from "../ai";
 
 const router = Router();
@@ -81,7 +81,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
     let defaultFallback: any = {
       title: spellcheckAndRepairArabicAndEnglishText(fileName || "مستند مرفق"),
       language: detectSourceLanguage(parsedContent || "", fileName || ""),
-      summary: spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", fileName || "مستند مرفق", parsedContent)),
+      summary: spellcheckAndRepairArabicAndEnglishText(sanitizeSourceSummary("", fileName || "مستند مرفق", parsedContent)),
       extractedText: parsedContent || "",
       terms: [],
     };
@@ -92,7 +92,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
   "نظام \"بحث OS\" هو منصة أبحاث وتوليف مستقلة ومحايدة تماماً، خالية من أي انحياز مسبق لمجال بعينه، ومصممة لخدمة المستخدمين والمستندات من جميع القطاعات والتخصصات الميدانية والأكاديمية والمهنية (سواء كان المجال: الصحافة والإعلام، إدارة الأعمال والتسويق، العلوم السياسية والسياسات العامة، النقد الأدبي والدراسات الأدبية، التدوين وصناعة المقالات والوسائط، البحث العلمي والأكاديمي، الإدارة العامة والعمل المؤسسي والتنفيذي، أو أي مجال آخر).\n\n" +
   "مهمتك الأساسية هي استخراج قائمة دقيقة ونقية جداً (من 2 إلى 3 مصطلحات فقط) للمفاهيم النظرية المتخصصة (Theoretical Concepts) والأطر المنهجية والمصطلحات المفتاحية الأصيلة النابعة مباشرة من الحقل المعرفي والتخصصي الخاص بالمستند المرفق حصراً، وصياغة ملخص تحليلي متكامل وشامل للمستند باللغة العربية الفصحى.\n\n" +
   "طبق القواعد الحاسمة التالية:\n" +
-  "1. الملخص (summary): يجب أن يكون ملخصاً تحليلياً تركيبياً شاملاً باللغة العربية الفصحى حصراً. يُحظر حظراً مطلقاً اقتباس نصوص خام أو جمل بالإنجليزية أو الفرنسية داخل الملخص، بل يجب صياغة الملخص بأسلوب عربي سلس يترجم ويشرح المضمون دون نقل أسطر أو اقتباسات من الأصل.\n" +
+  "1. الملخص (summary): يجب أن يكون ملخصاً تحليلياً تركيبياً شاملاً باللغة العربية الفصحى حصراً. لغة الإخراج العربية تعليمات صياغة فقط وليست موضوعاً للمستند؛ لا تذكر اللغة العربية أو أسلوبها أو أي مجال عام إلا إذا أثبته النص المصدر صراحة. يُحظر حظراً مطلقاً اقتباس نصوص خام أو جمل بالإنجليزية أو الفرنسية داخل الملخص، بل يجب صياغة الملخص بأسلوب عربي سلس يترجم ويشرح المضمون دون نقل أسطر أو اقتباسات من الأصل.\n" +
   "2. المصطلحات: استخراج 2 إلى 3 مفاهيم نظرية وأطر منهجية ومصطلحات مفتاحية أصيلة تعبر عن مضمون المستند وحقله المعرفي المباشر حصراً دون فرض أي مصطلحات من مجالات أخرى خارج نطاق المستند.\n" +
   "3. يُحظر حظراً مطلقاً استخراج أسماء المؤلفين والباحثين والأعلام والشخصيات، أو عناوين المقالات والأوراق والكتب، أو العبارات المجزأة والمبتورة المكتفية بحروف جر أو أفعال ناقصة.\n" +
   "4. يجب تقديم تعريف تحليلي أكاديمي متكامل باللغة العربية الفصحى لكل مصطلح يوضح معناه وسياقه المباشر في حقل النص (لا يقل عن 25 حرفاً) دون استخدام اقتباسات فارغة.\n\n" +
@@ -155,9 +155,9 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
       }
 
       if (resData.summary) {
-        resData.summary = ensureArabicSummary(resData.summary, resData.title || fileName, parsedContent);
+        resData.summary = sanitizeSourceSummary(resData.summary, resData.title || fileName, parsedContent);
       } else {
-        resData.summary = ensureArabicSummary("", resData.title || fileName, parsedContent);
+        resData.summary = sanitizeSourceSummary("", resData.title || fileName, parsedContent);
       }
 
       // Detect true source language (ar/en/fr) and repair spellings

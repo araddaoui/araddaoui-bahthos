@@ -11,6 +11,35 @@ interface DalilCardProps {
   compact?: boolean;
 }
 
+function cleanDalilDisplayText(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/https?:\/\/\S+|www\.\S+/gi, "")
+    .replace(/[A-Za-z][A-Za-z0-9_'’\-\s]{2,}?\s*\.\s*(?:pdf|docx?|txt)\b\s*\.?/gi, " ")
+    .replace(/\b(?:pdf|docx?|txt)\b/gi, "")
+    .replace(/\b[a-z0-9]+(?:-[a-z0-9]+){3,}-\d{4}-\d{2}-\d{2}(?:-\d{2}){0,2}\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([،؛:])/g, "$1")
+    .trim();
+}
+
+function waitForSpeechVoices(synth: SpeechSynthesis, timeoutMs = 1500): Promise<SpeechSynthesisVoice[]> {
+  const existing = synth.getVoices();
+  if (existing.length > 0) return Promise.resolve(existing);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      synth.removeEventListener("voiceschanged", finish);
+      resolve(synth.getVoices() || []);
+    };
+    synth.addEventListener("voiceschanged", finish);
+    window.setTimeout(finish, timeoutMs);
+  });
+}
+
 export default function DalilCard({
   dalilBriefing,
   dalilCountdown,
@@ -18,9 +47,13 @@ export default function DalilCard({
   onTriggerDalilBriefing,
   compact = false,
 }: DalilCardProps) {
+  const displayText = dalilBriefing?.text ? cleanDalilDisplayText(dalilBriefing.text) : "";
+  const displaySegments = displayText.split("||").map((segment) => segment.trim()).filter(Boolean);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [audioNotice, setAudioNotice] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(true);
   const [currentChunkIdx, setCurrentChunkIdx] = useState<number>(-1);
 
@@ -33,7 +66,7 @@ export default function DalilCard({
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const utterancesKeepAliveRef = useRef<SpeechSynthesisUtterance[]>([]);
 
-  const stopAllSpeech = () => {
+  const stopAllSpeech = (clearNotice = true) => {
     isStoppedRef.current = true;
 
     if (audioRef.current) {
@@ -43,6 +76,8 @@ export default function DalilCard({
         audioRef.current.ontimeupdate = null;
         audioRef.current.onended = null;
         audioRef.current.onerror = null;
+        audioRef.current.onplay = null;
+        audioRef.current.onpause = null;
       } catch (_) {}
     }
 
@@ -60,6 +95,7 @@ export default function DalilCard({
     setIsPlaying(false);
     setIsPaused(false);
     setIsLoadingAudio(false);
+    if (clearNotice) setAudioNotice(null);
     setCurrentChunkIdx(-1);
   };
 
@@ -70,7 +106,7 @@ export default function DalilCard({
     cachedBriefingIdRef.current = dalilBriefing.id;
     cachedAudioDataRef.current = null;
 
-    const fullText = dalilBriefing.text.replace(/\|\|/g, " . ");
+    const fullText = (displayText || dalilBriefing.text).replace(/\|\|/g, " . ");
 
     fetch("/api/tts", {
       method: "POST",
@@ -108,7 +144,7 @@ export default function DalilCard({
     };
   }, [dalilBriefing?.id]);
 
-  const playChunkWithWebSpeechFallback = (segments: string[], idx: number) => {
+  const playChunkWithWebSpeechFallback = async (segments: string[], idx: number) => {
     if (idx >= segments.length || isStoppedRef.current) {
       stopAllSpeech();
       return;
@@ -130,8 +166,6 @@ export default function DalilCard({
       return;
     }
 
-    const minReadDuration = Math.min(8000, Math.max(3000, cleanSegment.length * 90));
-    const startTime = Date.now();
     let hasFinished = false;
 
     const handleNext = () => {
@@ -145,19 +179,9 @@ export default function DalilCard({
         activeUtteranceRef.current = null;
       }
 
-      const elapsed = Date.now() - startTime;
-      if (elapsed < minReadDuration - 300) {
-        const remainingMs = minReadDuration - elapsed;
-        setTimeout(() => {
-          if (!isStoppedRef.current) {
-            playChunkWithWebSpeechFallback(segments, idx + 1);
-          }
-        }, remainingMs);
-      } else {
-        if (!isStoppedRef.current) {
-          playChunkWithWebSpeechFallback(segments, idx + 1);
-        }
-      }
+      // Advance only from a real speech/audio completion event. There is no
+      // timer-based visual progression, so silent strolling is impossible.
+      void playChunkWithWebSpeechFallback(segments, idx + 1);
     };
 
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -167,7 +191,8 @@ export default function DalilCard({
         synth.resume();
       } catch (_) {}
 
-      const voices = synth.getVoices() || [];
+      const voices = await waitForSpeechVoices(synth);
+      if (isStoppedRef.current) return;
       const arVoice = voices.find(
         (v) =>
           v.lang.toLowerCase().startsWith("ar") ||
@@ -181,18 +206,20 @@ export default function DalilCard({
           v.name.toLowerCase().includes("hoda")
       );
 
-      if (!arVoice) {
-        // Strict guard: If no Arabic voice is installed in the browser,
-        // do not let browser fallback to French/English default voice.
-        setIsPlaying(true);
-        setIsPaused(false);
-        setTimeout(handleNext, minReadDuration);
+        // Prefer an Arabic voice, but never silently advance without audio. Some browsers
+      // expose voices asynchronously or provide only a system default voice.
+      const selectedVoice = arVoice || voices.find((v) => v.default) || voices[0];
+      if (!selectedVoice && voices.length === 0) {
+        setAudioNotice("لا يتوفر محرك صوت في المتصفح حالياً؛ لم يتم تمرير النص بصمت.");
+        setIsPlaying(false);
+        setCurrentChunkIdx(-1);
+        isStoppedRef.current = true;
         return;
       }
 
       const utterance = new SpeechSynthesisUtterance(cleanSegment);
-      utterance.lang = arVoice.lang || "ar-SA";
-      utterance.voice = arVoice;
+      utterance.lang = selectedVoice?.lang || "ar-SA";
+      if (selectedVoice) utterance.voice = selectedVoice;
       utterance.rate = 0.95;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
@@ -200,10 +227,15 @@ export default function DalilCard({
       activeUtteranceRef.current = utterance;
       utterancesKeepAliveRef.current.push(utterance);
 
+      utterance.onstart = () => {
+        setIsPlaying(true);
+        setIsPaused(false);
+      };
       utterance.onend = handleNext;
       utterance.onerror = (e) => {
         console.warn("Utterance speech warning:", e);
-        handleNext();
+        stopAllSpeech(false);
+        setAudioNotice("تعذر تشغيل الصوت في المتصفح؛ تحقّق من مخرج الصوت أو أذونات التلاوة.");
       };
 
       try {
@@ -212,10 +244,12 @@ export default function DalilCard({
         setIsPaused(false);
       } catch (err) {
         console.warn("SpeechSynthesis speak error:", err);
-        handleNext();
+        stopAllSpeech(false);
+        setAudioNotice("تعذر بدء التلاوة في المتصفح؛ تحقّق من مخرج الصوت أو أذونات التلاوة.");
       }
     } else {
-      setTimeout(handleNext, minReadDuration);
+      stopAllSpeech(false);
+      setAudioNotice("لا تتوفر خدمة صوت في هذا المتصفح؛ لم يتم تحريك التمييز دون صوت.");
     }
   };
 
@@ -267,10 +301,7 @@ export default function DalilCard({
     stopAllSpeech();
     isStoppedRef.current = false;
 
-    const rawSegments = dalilBriefing.text
-      .split("||")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const rawSegments = displaySegments;
 
     if (rawSegments.length === 0) return;
 
@@ -279,7 +310,7 @@ export default function DalilCard({
 
     if (!audioData) {
       setIsLoadingAudio(true);
-      const fullText = dalilBriefing.text.replace(/\|\|/g, " . ");
+      const fullText = (displayText || dalilBriefing.text).replace(/\|\|/g, " . ");
 
       try {
         const res = await fetch("/api/tts", {
@@ -308,7 +339,17 @@ export default function DalilCard({
     if (audioData && audioData.audio) {
       const mime = audioData.mimeType || "audio/wav";
       audio.src = `data:${mime};base64,${audioData.audio}`;
+      audio.load();
       audio.currentTime = 0;
+      audio.onplay = () => {
+        setIsPlaying(true);
+        setIsPaused(false);
+      };
+      audio.onpause = () => {
+        if (!isStoppedRef.current && audio.currentTime > 0 && !audio.ended) {
+          setIsPaused(true);
+        }
+      };
 
       const totalLength = rawSegments.reduce((acc, s) => acc + Math.max(1, s.length), 0);
 
@@ -508,46 +549,47 @@ export default function DalilCard({
             </span>
           </div>
 
+          {audioNotice && (
+            <div className="mb-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold leading-5 text-amber-900">
+              {audioNotice}
+            </div>
+          )}
+
           {/* Fully Scrollable Container with Max Height so text is never truncated */}
           <div
-            className={`text-xs leading-relaxed text-teal-50 font-medium whitespace-pre-wrap bg-teal-950/60 p-3 rounded-xl border border-teal-800/70 overflow-y-auto transition-all ${
+            className={`text-sm leading-8 text-[#173d3b] font-medium whitespace-pre-wrap bg-white p-4 rounded-2xl border border-[#d7e8e1] shadow-inner shadow-[#073f40]/10 overflow-y-auto transition-all ${
               compact ? "max-h-48" : "max-h-64"
             } ${!isExpanded ? "max-h-16 overflow-hidden relative cursor-pointer" : ""}`}
             onClick={() => !isExpanded && setIsExpanded(true)}
-            style={{ scrollbarWidth: "thin", scrollbarColor: "#0d6869 #032122" }}
+            style={{ scrollbarWidth: "thin", scrollbarColor: "#80aaa0 #e4efeb" }}
             id="dalil-text-content-box"
           >
-            {dalilBriefing.text.split("||").map((segment, idx, arr) => {
-              const isDramaticPause = segment.includes("... ") || segment.startsWith("...");
-              const isCurrentlyBeingRead = currentChunkIdx === idx;
-              return (
-                <React.Fragment key={idx}>
-                  <span
+            <div className="space-y-2.5">
+              {displaySegments.map((segment, idx) => {
+                const cleanSeg = segment.trim();
+                if (!cleanSeg) return null;
+                const isCurrentlyBeingRead = currentChunkIdx === idx;
+                const isHeading = cleanSeg.startsWith("نَسْتَعْرِضُ") || cleanSeg.startsWith("تَعْتَمِدُ") || idx === 0;
+                return (
+                  <div
+                    key={idx}
                     className={`transition-all duration-200 ${
                       isCurrentlyBeingRead
-                        ? "bg-teal-700/80 text-amber-200 px-1.5 py-0.5 rounded font-bold border border-amber-400/40 shadow-xs"
-                        : isDramaticPause
-                        ? "font-bold text-amber-100"
-                        : ""
+                        ? "bg-[#0d6662] text-white p-2.5 rounded-xl font-bold border border-[#d9a441]/70 shadow-sm"
+                        : isHeading
+                        ? "text-[#0b5b59] font-bold border-r-2 border-[#d19a3b] pr-3 my-1"
+                        : "text-[#173d3b] leading-8"
                     }`}
                   >
-                    {segment.trim()}
-                  </span>
-                  {idx < arr.length - 1 && (
-                    <span
-                      className="inline-flex items-center mx-1 px-1.5 py-0.2 bg-teal-800/90 text-teal-200 rounded text-[10px] font-bold border border-teal-600/50 select-none shadow-2xs"
-                      title="وقفة التنفس الطبيعية للدليل"
-                    >
-                      ||
-                    </span>
-                  )}
-                </React.Fragment>
-              );
-            })}
+                    {cleanSeg}
+                  </div>
+                );
+              })}
+            </div>
 
             {!isExpanded && (
-              <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#032122] to-transparent flex items-end justify-center pb-0.5">
-                <span className="text-[10px] text-teal-300 font-bold bg-[#084243] px-2 py-0.5 rounded-full border border-teal-600/50 shadow-xs">
+              <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent flex items-end justify-center pb-0.5">
+                <span className="text-[10px] text-[#0b5b59] font-bold bg-[#dcece7] px-2.5 py-0.5 rounded-full border border-[#9fc7bc] shadow-xs">
                   اضغط لتوسيع النص كاملًا
                 </span>
               </div>

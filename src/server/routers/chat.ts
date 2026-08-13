@@ -36,7 +36,7 @@ router.post("/api/chat", async (req, res) => {
       sourcesContext = "\n\n(ملاحظة: لا توجد مصادر مفعلة حالياً للتحليل. يرجى تنبيه المستخدم باللغة العربية بضرورة تفعيل أو رفع وثيقة واحدة على الأقل قبل بدء التحليل).";
     }
 
-    const mergedSystemInstruction = SYSTEM_INSTRUCTIONS + sourcesContext;
+    const mergedSystemInstruction = SYSTEM_INSTRUCTIONS + sourcesContext + '\n\nتنبيه إلزامي: يجب أن تكون كافة الردود باللغة العربية الفصحى حصراً، مع تعريب وترجمة أي نصوص أجنبية وإرفاقها بعبارة (ترجمة عربية للنص الأصلي)، ومنع عرض الروابط أو النصوص الإنجليزية الخام.';
 
     // Filter valid messages for Gemini payload
     const validMessages = messages.filter((m: any) => m && m.text && typeof m.text === "string" && m.text.trim().length > 0);

@@ -891,8 +891,8 @@ export function cleanBibliographicClutterAndNormalizeArabic(text?: string): stri
 export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, content?: string): string {
   let arabicTitle = cleanTitle;
 
-  // Translate / map common English title terms into Arabic if the title is in English/Latin
-  if (!/[\u0600-\u06FF]/.test(cleanTitle)) {
+  // Translate / map common English title terms into Arabic, including mixed Arabic/Latin titles.
+  {
     let mapped = cleanTitle.toLowerCase();
     const mappings: [RegExp, string][] = [
       [/uae'?s?\s*regional\s*wars/gi, "الحروب الإقليمية ودور دولة الإمارات العربية المتحدة في التدخلات والتحالفات المسلحة"],
@@ -910,6 +910,7 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
       [/drone\s*strikes/gi, "الضربات الجوية بالطيران المسير واستجابات الأهداف الميدانية"],
       [/foreign\s*policy/gi, "محددات وتوجهات السياسة الخارجية للدول"],
       [/sovereignty/gi, "أبعاد السيادة الوطنية والتحديات الدولية"],
+      [/westphalian\s+eurocentrism/gi, "المركزية الأوروبية الوستفالية"],
       [/international\s*relations/gi, "تحولات العلاقات الدولية وتوازنات القوى"],
       [/corporate\s*governance/gi, "أطر الحوكمة المؤسسية والشفافية الهيكلية"],
       [/disruptive\s*innovation/gi, "استراتيجيات الابتكار الإرباكي والميزة التنافسية"],
@@ -928,7 +929,11 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
     });
 
     // Clean up leftover punctuation and filler
-    mapped = mapped.replace(/[._\-]+/g, " ").replace(/\s+/g, " ").trim();
+    mapped = mapped
+      .replace(/\b(?:pdf|docx?|txt)\b/gi, "")
+      .replace(/[._\-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     if (/[\u0600-\u06FF]/.test(mapped) && mapped.length > 5) {
       arabicTitle = mapped;
     } else {
@@ -954,18 +959,34 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
     return `تستعرض هذه الدراسة تحليلاً متخصصاً وحقلياً حول ${arabicTitle}، مسلطة الضوء على المحاور الأساسية والمعطيات الميدانية المدروسة. ومن أبرز النتائج والمؤشرات الواردة: ${contentHighlights}.`;
   }
 
-  return `تقدم هذه الدراسة قراءة تحليليّة أكاديمية متخصصة تناقش ${arabicTitle}، مع استعراض الأطر النظرية والمنهجية والممارسات السياقية ذات الصلة باللغة العربية الفصحى.`;
+  return `يقتصر هذا الوصف على العنوان والنص المتاحين من المصدر الحالي، ويعرض موضوعه دون إضافة مجال أو لغة أو سياق غير مثبت في المستند: ${arabicTitle}.`;
 }
 
 /**
  * Ensures a summary is strictly informative, document-specific, and normalized in Arabic.
  * Never returns raw verbatim English/foreign quote dumps or generic repetitive boilerplate.
  */
+/**
+ * Repairs summaries produced by older prompt versions when they contain generic
+ * language/domain claims not supported by the current source text.
+ */
+export function sanitizeSourceSummary(summary?: string, title?: string, content?: string): string {
+  const rawSummary = String(summary || "").trim();
+  const sourceText = `${title || ""} ${content || ""}`;
+  const sourceMentionsArabic = /اللغة العربية|العربية الفصحى|arabic language/i.test(sourceText);
+  const legacyGeneric = /الممارسات السياقية.*(?:اللغة العربية|العربية الفصحى)|ذات الصلة.*(?:اللغة العربية|العربية الفصحى)|صياغة.*(?:اللغة العربية|العربية الفصحى)/i.test(rawSummary);
+  if (legacyGeneric && !sourceMentionsArabic) {
+    return ensureArabicSummary("", title, content);
+  }
+  return ensureArabicSummary(rawSummary, title, content);
+}
+
 export function ensureArabicSummary(summary?: string, title?: string, content?: string): string {
   const cleanTitle = normalizeArabicText(title || "المستند المرفق")
     .replace(/\.[a-z0-9]+$/i, "")
-    .replace(/_/g, " ")
-    .replace(/[-]/g, " ")
+    .replace(/\s+(?:pdf|docx?|txt)$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 
   // 1. If summary exists, strip any raw non-Arabic verbatim quotes or boilerplate headers

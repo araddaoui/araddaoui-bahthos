@@ -34,6 +34,10 @@ export function deduplicateReportText(text: string): string {
 
   // Fix common Arabic typos and grammar agreement issues
   let cleanedText = text
+    .replace(/https?:\/\/[^\s]+/g, "")
+    .replace(/com\/[^\s]+/g, "")
+    .replace(/Published by\s+[^\n]+/gi, "")
+    .replace(/Wiley\s+on\s+behalf\s+of[^\n]+/gi, "")
     .replace(/\bقراءة\s+نقدي\b/g, "قراءة نقدية")
     .replace(/\bمستقبيلة\b/g, "مستقبلية")
     .replace(/\bباعتماها\b/g, "باعتمادها")
