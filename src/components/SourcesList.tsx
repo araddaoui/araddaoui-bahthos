@@ -19,6 +19,15 @@ import DalilCard from "./DalilCard";
 import { parseDocumentFile } from "../utils/documentParser";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor";
 
+type UploadQueueStatus = "queued" | "processing" | "completed" | "failed";
+
+interface UploadQueueItem {
+  id: string;
+  fileName: string;
+  status: UploadQueueStatus;
+  error?: string;
+}
+
 interface SourcesListProps {
   sources: Source[];
   activeTab?: string;
@@ -83,6 +92,8 @@ export default function SourcesList({
   const [uploadTab, setUploadTab] = useState<"upload" | "paste">("upload");
   const [sourceToDeleteId, setSourceToDeleteId] = useState<string | null>(null);
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const [uploadProgress, setUploadProgress] = useState({ completed: 0, total: 0 });
 
   const activeCount = sources.filter((s) => s.enabled).length;
 
@@ -94,11 +105,19 @@ export default function SourcesList({
     );
   });
 
+  const createUploadQueue = (files: File[]) => files.map((file, index) => ({
+    id: `${file.name}-${file.lastModified}-${index}`,
+    fileName: file.name,
+    status: "queued" as UploadQueueStatus,
+  }));
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      readAndAnalyzeFile(file);
+    const files = e.target.files ? Array.from(e.target.files) as File[] : [];
+    if (files.length > 0) {
+      void processFiles(files);
     }
+    // Allow selecting the same file(s) again after a completed or failed attempt.
+    e.target.value = "";
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -115,42 +134,100 @@ export default function SourcesList({
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      readAndAnalyzeFile(file);
+    const files = Array.from(e.dataTransfer.files || []) as File[];
+    if (files.length > 0) {
+      void processFiles(files);
     }
   };
 
-  const readAndAnalyzeFile = async (file: File) => {
+  const updateQueueItem = (id: string, patch: Partial<UploadQueueItem>) => {
+    setUploadQueue((current) => current.map((item) => (
+      item.id === id ? { ...item, ...patch } : item
+    )));
+  };
+
+  const processFiles = async (files: File[]) => {
+    if (isAnalyzing || files.length === 0) return;
+
+    const queue = createUploadQueue(files);
+    setUploadQueue(queue);
+    setUploadProgress({ completed: 0, total: files.length });
     setIsAnalyzing(true);
     setErrorMsg("");
-    setAnalysisStep("جاري استخراج واستلقاء نص المستند...");
+    setShowAddForm(true);
 
-    try {
-      const parsed = await parseDocumentFile(file);
-      await runAutomaticAnalysis(parsed.text, parsed.base64, parsed.mimeType, parsed.fileName);
-    } catch (err: any) {
-      console.error("Failed to parse document file:", err);
-      setErrorMsg("تعذر قراءة المستند. يرجى تجربة ملف آخر.");
-      setIsAnalyzing(false);
-      setAnalysisStep("");
+    let completed = 0;
+    let failed = 0;
+
+    for (const item of queue) {
+      const file = files.find((candidate, index) => item.id === `${candidate.name}-${candidate.lastModified}-${index}`);
+      if (!file) continue;
+
+      updateQueueItem(item.id, { status: "processing", error: undefined });
+      setAnalysisStep(`جاري معالجة ${completed + failed + 1} من ${files.length}: ${file.name}`);
+
+      try {
+        const parsed = await parseDocumentFile(file);
+        if (!parsed.text.trim() && !parsed.base64) {
+          throw new Error("لم يتم استخراج نص قابل للتحليل من المستند.");
+        }
+
+        await runAutomaticAnalysis(parsed.text, parsed.base64, parsed.mimeType, parsed.fileName, false);
+        updateQueueItem(item.id, { status: "completed" });
+        completed += 1;
+      } catch (err: any) {
+        console.error(`Failed to process ${file.name}:`, err);
+        const error = err?.message || "تعذر قراءة المستند أو تحليله.";
+        updateQueueItem(item.id, { status: "failed", error });
+        failed += 1;
+      }
+
+      setUploadProgress({ completed: completed + failed, total: files.length });
+
+      // A small gap prevents a burst of back-to-back Gemini requests while
+      // keeping the queue sequential and safely below the serverless timeout.
+      if (completed + failed < files.length) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+
+    setIsAnalyzing(false);
+    setAnalysisStep("");
+
+    if (failed === 0) {
+      setErrorMsg("");
+      setShowAddForm(false);
+    } else {
+      setErrorMsg(`اكتملت معالجة ${completed} من ${files.length} مستندات. يمكنك إعادة محاولة الملفات الفاشلة بشكل منفصل.`);
     }
   };
 
-  const runAutomaticAnalysis = async (content: string, base64?: string, mimeType?: string, fileName?: string) => {
+  const runAutomaticAnalysis = async (
+    content: string,
+    base64?: string,
+    mimeType?: string,
+    fileName?: string,
+    manageUi = true,
+  ) => {
     if (!content.trim() && !base64) {
-      setErrorMsg("يرجى إدخال محتوى المستند أو لصقه أو رفع ملف صالح.");
-      setIsAnalyzing(false);
-      setAnalysisStep("");
-      return;
+      if (manageUi) {
+        setErrorMsg("يرجى إدخال محتوى المستند أو لصقه أو رفع ملف صالح.");
+        setIsAnalyzing(false);
+        setAnalysisStep("");
+      }
+      throw new Error("لم يتم العثور على محتوى صالح للتحليل.");
     }
-    setIsAnalyzing(true);
-    setErrorMsg("");
-    setAnalysisStep("جاري قراءة محتوى الملف والمستند...");
+    if (manageUi) {
+      setIsAnalyzing(true);
+      setErrorMsg("");
+      setAnalysisStep("جاري قراءة محتوى الملف والمستند...");
+    }
     
     try {
-      setTimeout(() => setAnalysisStep("جاري فحص لغة المستند وترميز النص..."), 400);
-      setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بليغ باللغة العربية..."), 800);
+      if (manageUi) {
+        setTimeout(() => setAnalysisStep("جاري فحص لغة المستند وترميز النص..."), 400);
+        setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بليغ باللغة العربية..."), 800);
+      }
 
       const response = await fetch("/api/analyze-document", {
         method: "POST",
@@ -192,9 +269,11 @@ export default function SourcesList({
       const detectedLang = detectSourceLanguage(data.originalText || content, data.title, data.language);
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
       onAddSource(cleanTitle, data.originalText || content, detectedLang, finalArabicSummary, undefined, data.terms);
-      setNewContent("");
-      setErrorMsg("");
-      setShowAddForm(false);
+      if (manageUi) {
+        setNewContent("");
+        setErrorMsg("");
+        setShowAddForm(false);
+      }
     } catch (err: any) {
       console.warn("Server analysis unavailable or failed, using client-side fallback:", err);
       
@@ -208,12 +287,16 @@ export default function SourcesList({
       
       const fallbackTerms = extractFallbackTermsFromText(textContent, undefined, cleanTitle);
       onAddSource(cleanTitle, textContent, detectedLang, autoSummary, undefined, fallbackTerms);
-      setNewContent("");
-      setErrorMsg("");
-      setShowAddForm(false);
+      if (manageUi) {
+        setNewContent("");
+        setErrorMsg("");
+        setShowAddForm(false);
+      }
     } finally {
-      setIsAnalyzing(false);
-      setAnalysisStep("");
+      if (manageUi) {
+        setIsAnalyzing(false);
+        setAnalysisStep("");
+      }
     }
   };
 
@@ -535,13 +618,51 @@ export default function SourcesList({
             )}
 
             {isAnalyzing ? (
-              /* Loading Analysis state */
-              <div className="py-8 flex flex-col items-center justify-center text-center space-y-3">
+              /* Sequential batch ingestion state */
+              <div className="py-5 flex flex-col items-center justify-center text-center space-y-3">
                 <Loader2 className="w-8 h-8 text-[#094d4e] animate-spin" />
                 <div className="space-y-1">
-                  <p className="text-xs font-bold text-[#1f1f1f]">جاري معالجة مستندك البحثي...</p>
+                  <p className="text-xs font-bold text-[#1f1f1f]">جاري معالجة المستندات بالتتابع...</p>
                   <p className="text-[10px] text-[#094d4e] font-medium animate-pulse">{analysisStep}</p>
                 </div>
+
+                {uploadProgress.total > 1 && (
+                  <div className="w-full space-y-2" dir="rtl">
+                    <div className="flex items-center justify-between text-[10px] font-bold text-gray-500">
+                      <span>التقدم</span>
+                      <span>{uploadProgress.completed} / {uploadProgress.total}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#094d4e] transition-all duration-300"
+                        style={{ width: `${uploadProgress.total ? (uploadProgress.completed / uploadProgress.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="max-h-36 overflow-y-auto space-y-1 text-right">
+                      {uploadQueue.map((item) => (
+                        <div key={item.id} className="flex items-center gap-1.5 rounded-md bg-[#fafaf8] border border-gray-100 px-2 py-1">
+                          {item.status === "completed" ? (
+                            <FileCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          ) : item.status === "processing" ? (
+                            <Loader2 className="w-3.5 h-3.5 text-[#094d4e] animate-spin flex-shrink-0" />
+                          ) : item.status === "failed" ? (
+                            <AlertCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+                          ) : (
+                            <FileText className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                          )}
+                          <span className="truncate text-[10px] text-gray-600 flex-1" title={item.fileName}>{item.fileName}</span>
+                          <span className={`text-[9px] font-bold flex-shrink-0 ${
+                            item.status === "completed" ? "text-emerald-600" :
+                            item.status === "failed" ? "text-red-600" :
+                            item.status === "processing" ? "text-[#094d4e]" : "text-gray-400"
+                          }`}>
+                            {item.status === "completed" ? "تم" : item.status === "failed" ? "فشل" : item.status === "processing" ? "جاري" : "انتظار"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               /* Upload / Paste interface */
@@ -587,6 +708,7 @@ export default function SourcesList({
                   >
                     <input
                       type="file"
+                      multiple
                       accept=".txt,.pdf,.docx,.doc,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                       onChange={handleFileChange}
                       className="hidden"
@@ -595,8 +717,8 @@ export default function SourcesList({
                     <label htmlFor="file-input-uploader" className="cursor-pointer flex flex-col items-center space-y-2">
                       <UploadCloud className="w-8 h-8 text-[#094d4e] bg-teal-50 p-1.5 rounded-full border border-teal-100" />
                       <div className="space-y-0.5">
-                        <p className="text-[11px] font-bold text-gray-700">اسحب الملف هنا أو تصفح</p>
-                        <p className="text-[9px] text-gray-400">يدعم مستندات PDF والملفات النصية (.txt) وملفات Word (.docx)</p>
+                        <p className="text-[11px] font-bold text-gray-700">اسحب الملفات هنا أو تصفح</p>
+                        <p className="text-[9px] text-gray-400">يمكنك اختيار عدة ملفات PDF أو TXT أو Word دفعة واحدة</p>
                       </div>
                     </label>
                   </div>
