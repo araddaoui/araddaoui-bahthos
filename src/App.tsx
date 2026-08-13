@@ -304,7 +304,8 @@ export default function App() {
         setSources((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSources) ? prev : effectiveSources));
         setMessages((prev) => (JSON.stringify(prev) === JSON.stringify(cloudMessages) ? prev : cloudMessages));
         setSyntheses((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSyntheses) ? prev : effectiveSyntheses));
-        setGlossaryTerms((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveGlossary) ? prev : effectiveGlossary));
+        const isolatedGlossary = cleanAndMigrateGlossary(effectiveGlossary, effectiveSources);
+        setGlossaryTerms((prev) => (JSON.stringify(prev) === JSON.stringify(isolatedGlossary) ? prev : isolatedGlossary));
         setTemperature((prev) => (prev === cloudTemp ? prev : cloudTemp));
         setCurrentProjectId((prev) => (prev === activeId ? prev : activeId));
 
@@ -426,6 +427,12 @@ export default function App() {
     }
   });
 
+  // Live refs prevent asynchronous uploads, glossary requests, and project switches
+  // from writing results into a stale project or overwriting a newer source list.
+  const activeProjectIdRef = useRef<string>(currentProjectId);
+  const latestSourcesRef = useRef<Source[]>([]);
+  const sourceIdSequenceRef = useRef(0);
+
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
 
   // Lazily load messages for the current project
@@ -528,6 +535,13 @@ export default function App() {
 
   const [isSweeping, setIsSweeping] = useState(false);
   const [sweepCorrectionCount, setSweepCorrectionCount] = useState<number | null>(null);
+  const latestGlossaryTermsRef = useRef<GlossaryTerm[]>([]);
+
+  useEffect(() => {
+    activeProjectIdRef.current = currentProjectId;
+    latestSourcesRef.current = sources;
+    latestGlossaryTermsRef.current = glossaryTerms;
+  }, [currentProjectId, sources, glossaryTerms]);
 
   useEffect(() => {
     if (sources.length === 0) {
@@ -543,7 +557,9 @@ export default function App() {
 
   useEffect(() => {
     const runSweep = async () => {
-      const toSweep = glossaryTerms.filter((t) => !t.verified_term);
+      const projectIdAtStart = activeProjectIdRef.current;
+      const termsAtStart = latestGlossaryTermsRef.current;
+      const toSweep = termsAtStart.filter((t) => !t.verified_term);
       if (toSweep.length === 0 || isSweeping) return;
 
       setIsSweeping(true);
@@ -554,12 +570,14 @@ export default function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ terms: toSweep }),
         });
-        if (response.ok) {
+        if (response.ok && activeProjectIdRef.current === projectIdAtStart) {
           const data = await response.json();
           if (data.terms && Array.isArray(data.terms)) {
             let corrections = 0;
-            const updatedTerms = glossaryTerms.map((orig) => {
-              const matched = data.terms.find((t: any) => t.term.toLowerCase() === orig.term.toLowerCase());
+            const updatedTerms = termsAtStart.map((orig) => {
+              const matched = data.terms.find((t: any) =>
+                t.term && orig.term && t.term.toLowerCase() === orig.term.toLowerCase()
+              );
               if (matched) {
                 if (matched.draft_term !== matched.verified_term) {
                   corrections++;
@@ -579,15 +597,17 @@ export default function App() {
               };
             });
 
+            const currentSources = latestSourcesRef.current;
+            const isolatedTerms = cleanAndMigrateGlossary(updatedTerms, currentSources);
             setSweepCorrectionCount(corrections);
-            setGlossaryTerms(updatedTerms);
+            setGlossaryTerms(isolatedTerms);
             console.log(`Retroactive sweep completed. ${corrections} terms corrected.`);
           }
         }
       } catch (e) {
         console.warn("Failed to sweep glossary terms retroactively:", e);
       } finally {
-        setIsSweeping(false);
+          setIsSweeping(false);
       }
     };
 
@@ -1056,15 +1076,18 @@ export default function App() {
 
   // Passive background extraction of technical/academic terms
   const extractGlossaryTerms = async (text: string, sourceId?: string) => {
-    if (!text || text.trim().length < 10) return;
+    if (!text || text.trim().length < 10 || !sourceId) return;
+    const requestProjectId = activeProjectIdRef.current;
+    const existingTerms = latestGlossaryTermsRef.current;
     let extractedCount = 0;
+
     try {
       const response = await fetch("/api/extract-glossary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, existingTerms: glossaryTerms }),
+        body: JSON.stringify({ text, sourceId, existingTerms }),
       });
-      if (response.ok) {
+      if (response.ok && activeProjectIdRef.current === requestProjectId) {
         const data = await response.json();
         if (data.terms && Array.isArray(data.terms) && data.terms.length > 0) {
           addGlossaryTermsDirectly(data.terms, sourceId);
@@ -1075,9 +1098,14 @@ export default function App() {
       console.warn("Passive glossary extraction API failed:", e);
     }
 
-    // Always run local fallback extractor if server API returned 0 terms
-    if (extractedCount === 0) {
-      const fallbackTerms = extractFallbackTermsFromText(text, sourceId, undefined, glossaryTerms);
+    // Always run local fallback extractor if server API returned 0 terms.
+    if (extractedCount === 0 && activeProjectIdRef.current === requestProjectId) {
+      const fallbackTerms = extractFallbackTermsFromText(
+        text,
+        sourceId,
+        undefined,
+        latestGlossaryTermsRef.current,
+      );
       if (fallbackTerms.length > 0) {
         addGlossaryTermsDirectly(fallbackTerms, sourceId);
       }
@@ -1088,8 +1116,11 @@ export default function App() {
   const addGlossaryTermsDirectly = (terms: any[], targetSourceId?: string) => {
     if (!terms || !Array.isArray(terms) || terms.length === 0) return;
 
-    const resolvedSourceId = targetSourceId || sources?.[0]?.id || "default-source";
-    if (!resolvedSourceId) return;
+    const resolvedSourceId = targetSourceId;
+    const activeSourceIds = new Set(latestSourcesRef.current.map((source) => source.id));
+    // Never attach a term to an arbitrary first source or a synthetic default ID.
+    // Every generated concept must belong to a currently active source.
+    if (!resolvedSourceId || !activeSourceIds.has(resolvedSourceId)) return;
 
     setGlossaryTerms((prev) => {
       const normalizedNewTerms = terms
@@ -1123,9 +1154,9 @@ export default function App() {
       );
 
       if (filteredNew.length > 0) {
-        return cleanAndMigrateGlossary([...prev, ...filteredNew], sources);
+        return cleanAndMigrateGlossary([...prev, ...filteredNew], latestSourcesRef.current);
       }
-      return cleanAndMigrateGlossary(prev, sources);
+      return cleanAndMigrateGlossary(prev, latestSourcesRef.current);
     });
   };
 
@@ -1238,6 +1269,21 @@ export default function App() {
     }
   };
 
+  const scheduleDalilUpdateBriefing = () => {
+    if (dalilTimerRef.current) {
+      clearTimeout(dalilTimerRef.current);
+    }
+
+    // Debounce the briefing request so a six-file upload produces one synthesis
+    // request after the queue completes instead of six concurrent requests.
+    setDalilCountdown(1);
+    dalilTimerRef.current = setTimeout(() => {
+      dalilTimerRef.current = null;
+      setDalilCountdown(null);
+      void triggerDalilUpdateBriefing(latestSourcesRef.current, true);
+    }, 1200);
+  };
+
   // Add custom source text with optional summary and pre-extracted terms
   const handleAddSource = (
     title: string,
@@ -1247,11 +1293,11 @@ export default function App() {
     error?: string,
     terms?: any[]
   ) => {
-    // Basic word count logic
     const wordCount = content ? content.trim().split(/\s+/).filter(Boolean).length : 0;
-    
     const newSrc: Source = {
-      id: "source-" + Date.now(),
+      // Date.now() alone can collide when a batch invokes this callback several
+      // times in the same event loop turn. The ref suffix makes every ID unique.
+      id: `source-${Date.now()}-${sourceIdSequenceRef.current++}`,
       title,
       content,
       dateAdded: new Date().toISOString().split("T")[0],
@@ -1262,43 +1308,26 @@ export default function App() {
       ...(error ? { error } : {}),
     };
 
-    const nextSources = [...sources, newSrc];
-    setSources(nextSources);
-
-    // Save immediately to localStorage
-    try {
-      localStorage.setItem(`bahthos_sources_${currentProjectId}`, JSON.stringify(nextSources));
-    } catch (e) {
-      console.error("Failed to save sources to localStorage:", e);
-    }
-
-    // Save immediately to Firestore
-    if (currentUser && currentProjectId && !isQuotaExceeded()) {
-      saveProjectData(currentUser.uid, currentProjectId, { sources: nextSources, glossaryTerms }).catch(console.error);
-    }
+    // Always use a functional update. Multiple queued uploads otherwise each
+    // capture the same old `sources` array and overwrite the previous file.
+    setSources((prev) => {
+      const nextSources = [...prev, newSrc];
+      latestSourcesRef.current = nextSources;
+      return nextSources;
+    });
 
     if (!error) {
       setSelectedSourceId(newSrc.id);
       setActiveMainView("source");
-
-      // Register new source for al-Dalil update briefing and trigger briefing immediately
       pendingNewSourceIdsRef.current.add(newSrc.id);
+      scheduleDalilUpdateBriefing();
 
-      if (dalilTimerRef.current) {
-        clearInterval(dalilTimerRef.current);
-        dalilTimerRef.current = null;
-      }
-      setDalilCountdown(null);
-
-      // Trigger briefing generation immediately right after document upload
-      triggerDalilUpdateBriefing(nextSources, true);
-      
-      // If terms were returned in the same payload, add them directly
+      // If terms were returned in the same payload, add them directly. Otherwise
+      // extract them from this document only; no project-global fallback is used.
       if (terms && terms.length > 0) {
         addGlossaryTermsDirectly(terms, newSrc.id);
       } else {
-        // Passively extract terms if not already provided
-        extractGlossaryTerms(content.substring(0, 4000), newSrc.id);
+        void extractGlossaryTerms(content.substring(0, 4000), newSrc.id);
       }
     }
   };
