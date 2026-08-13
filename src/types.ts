@@ -48,6 +48,7 @@ export interface DalilBriefing {
   id: string;
   text: string;
   sourceIdsAtTime: string[];
+  sourceFingerprint?: string;
   dateCreated: string;
 }
 

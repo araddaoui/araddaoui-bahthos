@@ -28,6 +28,58 @@ import {
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView";
 
+const GUEST_STORAGE_PREFIX = "bahthos:guest:";
+
+function guestStorageKey(name: string, projectId?: string): string {
+  return `${GUEST_STORAGE_PREFIX}${name}${projectId ? `:${projectId}` : ""}`;
+}
+
+function purgeLegacySharedStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const legacyPrefixes = ["bahthos_", "tawlif_", "al_dalil_"];
+    const keep = new Set(["bahthos_entered_app", "bahthos_firestore_quota_exceeded"]);
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && legacyPrefixes.some((prefix) => key.startsWith(prefix)) && !keep.has(key)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+  } catch (error) {
+    console.warn("Unable to purge legacy shared project storage", error);
+  }
+}
+
+purgeLegacySharedStorage();
+
+export function computeSourceFingerprint(sources: Source[]): string {
+  let hash = 2166136261;
+  const snapshot = JSON.stringify((sources || []).map((source) => ({
+    id: source.id,
+    title: source.title,
+    content: source.content,
+    summary: source.summary || "",
+    language: source.language,
+  })));
+  for (let index = 0; index < snapshot.length; index += 1) {
+    hash ^= snapshot.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${sources.length}:${(hash >>> 0).toString(16)}`;
+}
+
+export function isBriefingCurrent(briefing: DalilBriefing | null, sources: Source[]): boolean {
+  if (!briefing || !Array.isArray(sources) || sources.length === 0) return false;
+  const currentIds = sources.map((source) => source.id);
+  const briefingIds = Array.isArray(briefing.sourceIdsAtTime) ? briefing.sourceIdsAtTime : [];
+  if (briefingIds.length !== currentIds.length || briefingIds.some((id) => !currentIds.includes(id))) {
+    return false;
+  }
+  return Boolean(briefing.sourceFingerprint) && briefing.sourceFingerprint === computeSourceFingerprint(sources);
+}
+
 // Default glossary terms to populate on first load (empty by default)
 const initialGlossary: GlossaryTerm[] = [];
 
@@ -204,6 +256,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (currentUser) {
+      loadedProjectIdRef.current = "__loading_authenticated_project__";
+      setProjects([]);
+      setCurrentProjectId("default");
+      setSources([]);
+      setMessages([]);
+      setSyntheses([]);
+      setGlossaryTerms([]);
+      setDalilBriefing(null);
+      setIsFirebaseLoading(true);
+    }
+  }, [currentUser?.uid]);
+
+  useEffect(() => {
     if (!currentUser) return;
 
     const syncAndLoadFirebaseData = async () => {
@@ -216,50 +282,14 @@ export default function App() {
         let cloudProjects = await loadUserProjects(currentUser.uid);
         
         if (!isQuotaExceeded() && cloudProjects.length === 0) {
-          // Sync existing localStorage data on initial login
-          const localProjectsStr = localStorage.getItem("bahthos_projects");
-          let projectsToMigrate: Project[] = [];
-          if (localProjectsStr) {
-            try {
-              projectsToMigrate = JSON.parse(localProjectsStr);
-            } catch (e) {}
-          }
-          
-          if (projectsToMigrate.length === 0) {
-            projectsToMigrate = [
-              {
-                id: "default",
-                name: "المشروع التجريبي الأول",
-                dateCreated: new Date().toISOString().split("T")[0],
-                temperature: 0.2
-              }
-            ];
-          }
-
-          for (const proj of projectsToMigrate) {
-            if (isQuotaExceeded()) break;
-            await saveUserProject(currentUser.uid, proj);
-            if (isQuotaExceeded()) break;
-            const savedSources = localStorage.getItem(`bahthos_sources_${proj.id}`);
-            const savedMessages = localStorage.getItem(`bahthos_messages_${proj.id}`);
-            const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${proj.id}`);
-            const savedGlossary = localStorage.getItem(`bahthos_glossary_${proj.id}`);
-            
-            const localSources = savedSources ? JSON.parse(savedSources) : [];
-            const localMessages = savedMessages ? JSON.parse(savedMessages) : [];
-            const localSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
-            const localGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
-            
-            await saveProjectData(currentUser.uid, proj.id, {
-              sources: localSources,
-              messages: localMessages,
-              syntheses: localSyntheses,
-              glossaryTerms: localGlossary
-            });
-          }
-          if (!isQuotaExceeded()) {
-            cloudProjects = await loadUserProjects(currentUser.uid);
-          }
+          const defaultProject: Project = {
+            id: "default",
+            name: "المشروع التجريبي الأول",
+            dateCreated: new Date().toISOString().split("T")[0],
+            temperature: 0.2,
+          };
+          await saveUserProject(currentUser.uid, defaultProject);
+          cloudProjects = [defaultProject];
         }
 
         if (cloudProjects.length > 0) {
@@ -279,28 +309,11 @@ export default function App() {
         const activeProjObj = cloudProjects.find(p => p.id === activeId);
         const cloudTemp = activeProjObj?.temperature ?? 0.2;
 
-        // Retrieve local backup from localStorage for activeId
-        const savedLocalSources = localStorage.getItem(`bahthos_sources_${activeId}`);
-        const localSourcesParsed: Source[] = savedLocalSources ? JSON.parse(savedLocalSources) : [];
-
-        // If cloud sources is empty but local storage has uploaded sources, preserve local sources
-        const effectiveSources = (cloudSources && cloudSources.length > 0) ? cloudSources : localSourcesParsed;
-
-        // If effectiveSources is empty, glossary and syntheses MUST be empty
-        const rawGlossary = cloudSources.length > 0 
-          ? cloudGlossary 
-          : (localStorage.getItem(`bahthos_glossary_${activeId}`) ? JSON.parse(localStorage.getItem(`bahthos_glossary_${activeId}`)!) : []);
-        const effectiveGlossary = effectiveSources.length > 0 ? rawGlossary : [];
+        // Authenticated users read only from their own Firestore subtree.
+        // Guest localStorage is deliberately never used as an account fallback.
+        const effectiveSources = cloudSources || [];
+        const effectiveGlossary = effectiveSources.length > 0 ? cloudGlossary : [];
         const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
-
-        if (!isQuotaExceeded() && cloudSources.length === 0 && localSourcesParsed.length > 0) {
-          saveProjectData(currentUser.uid, activeId, {
-            sources: localSourcesParsed,
-            messages: cloudMessages,
-            syntheses: effectiveSyntheses,
-            glossaryTerms: effectiveGlossary
-          }).catch(console.error);
-        }
 
         loadedProjectIdRef.current = activeId;
         setSources((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSources) ? prev : effectiveSources));
@@ -352,7 +365,7 @@ export default function App() {
   // Projects list
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
-      const saved = localStorage.getItem("bahthos_projects");
+      const saved = localStorage.getItem(guestStorageKey("projects"));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -375,7 +388,7 @@ export default function App() {
   // Active project ID
   const [currentProjectId, setCurrentProjectId] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem("bahthos_current_project_id");
+      const saved = localStorage.getItem(guestStorageKey("current_project_id"));
       if (saved) return saved;
     } catch (e) {
       console.error(e);
@@ -389,31 +402,33 @@ export default function App() {
   // Sync active project ID to the ref
   useEffect(() => {
     loadedProjectIdRef.current = currentProjectId;
-  }, [currentProjectId]);
+  }, [currentProjectId, currentUser]);
 
   // Save projects on change
   useEffect(() => {
+    if (currentUser) return;
     try {
-      localStorage.setItem("bahthos_projects", JSON.stringify(projects));
+      localStorage.setItem(guestStorageKey("projects"), JSON.stringify(projects));
     } catch (e) {
       console.error(e);
     }
-  }, [projects]);
+  }, [projects, currentUser]);
 
   // Save active project ID on change
   useEffect(() => {
+    if (currentUser) return;
     try {
-      localStorage.setItem("bahthos_current_project_id", currentProjectId);
+      localStorage.setItem(guestStorageKey("current_project_id"), currentProjectId);
     } catch (e) {
       console.error(e);
     }
-  }, [currentProjectId]);
+  }, [currentProjectId, currentUser]);
 
   // Lazily load sources for the current project
   const [sources, setSources] = useState<Source[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
-      const saved = localStorage.getItem(`bahthos_sources_${activeId}`);
+      const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      const saved = localStorage.getItem(guestStorageKey("sources", activeId));
       let rawSources: Source[] = [];
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -440,8 +455,8 @@ export default function App() {
   // Lazily load messages for the current project
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
-      const saved = localStorage.getItem(`bahthos_messages_${activeId}`);
+      const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      const saved = localStorage.getItem(guestStorageKey("messages", activeId));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
@@ -459,13 +474,13 @@ export default function App() {
   // Lazily load syntheses for the current project
   const [syntheses, setSyntheses] = useState<Synthesis[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
-      const savedSources = localStorage.getItem(`bahthos_sources_${activeId}`);
+      const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      const savedSources = localStorage.getItem(guestStorageKey("sources", activeId));
       const parsedSources = savedSources ? JSON.parse(savedSources) : [];
       if (!Array.isArray(parsedSources) || parsedSources.length === 0) {
         return [];
       }
-      const saved = localStorage.getItem(`bahthos_syntheses_${activeId}`);
+      const saved = localStorage.getItem(guestStorageKey("syntheses", activeId));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
@@ -479,8 +494,8 @@ export default function App() {
   // Lazily load temperature for the current project
   const [temperature, setTemperature] = useState(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
-      const saved = localStorage.getItem(`bahthos_temperature_${activeId}`);
+      const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      const saved = localStorage.getItem(guestStorageKey("temperature", activeId));
       if (saved) return parseFloat(saved);
     } catch (e) {
       console.error(e);
@@ -491,24 +506,25 @@ export default function App() {
   // Lazily load Dalil briefing for the current project
   const [dalilBriefing, setDalilBriefing] = useState<DalilBriefing | null>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
-      const saved = localStorage.getItem(`bahthos_dalil_${activeId}`);
+      const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      const saved = localStorage.getItem(guestStorageKey("dalil", activeId));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === "object" && parsed.id) {
-          return sanitizeDalilBriefing(parsed, 3);
+          return null;
         }
       }
     } catch (e) {
       console.error(e);
     }
-    return {
-      id: "dalil-baseline",
-      text: VOCALIZED_BASELINE_TEXT,
-      sourceIdsAtTime: [],
-      dateCreated: new Date().toISOString()
-    };
+    return null;
   });
+
+  useEffect(() => {
+    if (!isBriefingCurrent(dalilBriefing, sources)) {
+      if (dalilBriefing !== null) setDalilBriefing(null);
+    }
+  }, [sources, currentProjectId]);
 
   const [dalilCountdown, setDalilCountdown] = useState<number | null>(null);
   const [isDalilGenerating, setIsDalilGenerating] = useState(false);
@@ -518,13 +534,13 @@ export default function App() {
   // Lazily load glossary terms for the current project
   const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>(() => {
     try {
-      const activeId = localStorage.getItem("bahthos_current_project_id") || "default";
-      const savedSources = localStorage.getItem(`bahthos_sources_${activeId}`);
+      const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      const savedSources = localStorage.getItem(guestStorageKey("sources", activeId));
       const parsedSources = savedSources ? JSON.parse(savedSources) : [];
       if (!Array.isArray(parsedSources) || parsedSources.length === 0) {
         return [];
       }
-      const saved = localStorage.getItem(`bahthos_glossary_${activeId}`);
+      const saved = localStorage.getItem(guestStorageKey("glossary", activeId));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return cleanAndMigrateGlossary(parsed, parsedSources);
@@ -650,7 +666,8 @@ export default function App() {
         setMessages(cloudMessages);
         setSyntheses(cloudSyntheses);
         setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary, cloudSources));
-        setDalilBriefing(cloudDalil && cloudDalil.length > 0 ? cloudDalil[cloudDalil.length - 1] : null);
+        const cloudBriefing = cloudDalil && cloudDalil.length > 0 ? cloudDalil[cloudDalil.length - 1] : null;
+        setDalilBriefing(isBriefingCurrent(cloudBriefing, cloudSources) ? cloudBriefing : null);
         setTemperature(cloudTemp);
         setCurrentProjectId(newProjectId);
 
@@ -667,16 +684,16 @@ export default function App() {
     // 1. Save current state of the old project to its specific keys if it still exists
     if (currentProjectId && projects.some((p) => p.id === currentProjectId)) {
       try {
-        localStorage.setItem(`bahthos_sources_${currentProjectId}`, JSON.stringify(sources));
-        localStorage.setItem(`bahthos_messages_${currentProjectId}`, JSON.stringify(messages));
-        localStorage.setItem(`bahthos_syntheses_${currentProjectId}`, JSON.stringify(syntheses));
-        localStorage.setItem(`bahthos_glossary_${currentProjectId}`, JSON.stringify(glossaryTerms));
+        localStorage.setItem(guestStorageKey("sources", currentProjectId), JSON.stringify(sources));
+        localStorage.setItem(guestStorageKey("messages", currentProjectId), JSON.stringify(messages));
+        localStorage.setItem(guestStorageKey("syntheses", currentProjectId), JSON.stringify(syntheses));
+        localStorage.setItem(guestStorageKey("glossary", currentProjectId), JSON.stringify(glossaryTerms));
         if (dalilBriefing) {
-          localStorage.setItem(`bahthos_dalil_${currentProjectId}`, JSON.stringify(dalilBriefing));
+          localStorage.setItem(guestStorageKey("dalil", currentProjectId), JSON.stringify(dalilBriefing));
         } else {
-          localStorage.removeItem(`bahthos_dalil_${currentProjectId}`);
+          localStorage.removeItem(guestStorageKey("dalil", currentProjectId));
         }
-        localStorage.setItem(`bahthos_temperature_${currentProjectId}`, temperature.toString());
+        localStorage.setItem(guestStorageKey("temperature", currentProjectId), temperature.toString());
       } catch (e) {
         console.error("Failed to save state during switch:", e);
       }
@@ -684,12 +701,12 @@ export default function App() {
 
     // 2. Load the new project's state
     try {
-      const savedSources = localStorage.getItem(`bahthos_sources_${newProjectId}`);
-      const savedMessages = localStorage.getItem(`bahthos_messages_${newProjectId}`);
-      const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${newProjectId}`);
-      const savedGlossary = localStorage.getItem(`bahthos_glossary_${newProjectId}`);
-      const savedDalil = localStorage.getItem(`bahthos_dalil_${newProjectId}`);
-      const savedTemp = localStorage.getItem(`bahthos_temperature_${newProjectId}`);
+      const savedSources = localStorage.getItem(guestStorageKey("sources", newProjectId));
+      const savedMessages = localStorage.getItem(guestStorageKey("messages", newProjectId));
+      const savedSyntheses = localStorage.getItem(guestStorageKey("syntheses", newProjectId));
+      const savedGlossary = localStorage.getItem(guestStorageKey("glossary", newProjectId));
+      const savedDalil = localStorage.getItem(guestStorageKey("dalil", newProjectId));
+      const savedTemp = localStorage.getItem(guestStorageKey("temperature", newProjectId));
 
       const loadedSources = savedSources ? JSON.parse(savedSources) : [];
       const loadedMessages = savedMessages ? JSON.parse(savedMessages) : [];
@@ -706,7 +723,7 @@ export default function App() {
       setMessages(loadedMessages);
       setSyntheses(loadedSyntheses);
       setGlossaryTerms(cleanAndMigrateGlossary(loadedGlossary, loadedSources));
-      setDalilBriefing(loadedDalil);
+      setDalilBriefing(isBriefingCurrent(loadedDalil, loadedSources) ? loadedDalil : null);
       setTemperature(loadedTemp);
       
       // 5. Update current project ID
@@ -847,11 +864,11 @@ export default function App() {
             setIsFirebaseLoading(false);
           }
         } else {
-          const savedSources = localStorage.getItem(`bahthos_sources_${nextActiveProject.id}`);
-          const savedMessages = localStorage.getItem(`bahthos_messages_${nextActiveProject.id}`);
-          const savedSyntheses = localStorage.getItem(`bahthos_syntheses_${nextActiveProject.id}`);
-          const savedGlossary = localStorage.getItem(`bahthos_glossary_${nextActiveProject.id}`);
-          const savedTemp = localStorage.getItem(`bahthos_temperature_${nextActiveProject.id}`);
+          const savedSources = localStorage.getItem(guestStorageKey("sources", nextActiveProject.id));
+          const savedMessages = localStorage.getItem(guestStorageKey("messages", nextActiveProject.id));
+          const savedSyntheses = localStorage.getItem(guestStorageKey("syntheses", nextActiveProject.id));
+          const savedGlossary = localStorage.getItem(guestStorageKey("glossary", nextActiveProject.id));
+          const savedTemp = localStorage.getItem(guestStorageKey("temperature", nextActiveProject.id));
 
           const nextSources = savedSources ? JSON.parse(savedSources) : [];
           const nextMessages = savedMessages ? JSON.parse(savedMessages) : [];
@@ -875,67 +892,67 @@ export default function App() {
 
   // Save sources to localStorage on change
   useEffect(() => {
-    if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
-      localStorage.setItem(`bahthos_sources_${currentProjectId}`, JSON.stringify(sources));
+      localStorage.setItem(guestStorageKey("sources", currentProjectId), JSON.stringify(sources));
     } catch (e) {
       console.error("Failed to save sources to localStorage", e);
     }
-  }, [sources, currentProjectId]);
+  }, [sources, currentProjectId, currentUser]);
 
   // Save messages to localStorage on change
   useEffect(() => {
-    if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
-      localStorage.setItem(`bahthos_messages_${currentProjectId}`, JSON.stringify(messages));
+      localStorage.setItem(guestStorageKey("messages", currentProjectId), JSON.stringify(messages));
     } catch (e) {
       console.error("Failed to save messages to localStorage", e);
     }
-  }, [messages, currentProjectId]);
+  }, [messages, currentProjectId, currentUser]);
 
   // Save syntheses to localStorage on change
   useEffect(() => {
-    if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
-      localStorage.setItem(`bahthos_syntheses_${currentProjectId}`, JSON.stringify(syntheses));
+      localStorage.setItem(guestStorageKey("syntheses", currentProjectId), JSON.stringify(syntheses));
     } catch (e) {
       console.error("Failed to save syntheses to localStorage", e);
     }
-  }, [syntheses, currentProjectId]);
+  }, [syntheses, currentProjectId, currentUser]);
 
   // Save temperature to localStorage on change
   useEffect(() => {
-    if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
-      localStorage.setItem(`bahthos_temperature_${currentProjectId}`, temperature.toString());
+      localStorage.setItem(guestStorageKey("temperature", currentProjectId), temperature.toString());
     } catch (e) {
       console.error(e);
     }
-  }, [temperature, currentProjectId]);
+  }, [temperature, currentProjectId, currentUser]);
 
   // Save glossary to localStorage on change
   useEffect(() => {
-    if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
-      localStorage.setItem(`bahthos_glossary_${currentProjectId}`, JSON.stringify(glossaryTerms));
+      localStorage.setItem(guestStorageKey("glossary", currentProjectId), JSON.stringify(glossaryTerms));
     } catch (e) {
       console.error("Failed to save glossary to localStorage", e);
     }
-  }, [glossaryTerms, currentProjectId]);
+  }, [glossaryTerms, currentProjectId, currentUser]);
 
   // Save dalilBriefing to localStorage on change
   useEffect(() => {
-    if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
-      if (dalilBriefing) {
-        localStorage.setItem(`bahthos_dalil_${currentProjectId}`, JSON.stringify(dalilBriefing));
+      if (dalilBriefing && isBriefingCurrent(dalilBriefing, sources)) {
+        localStorage.setItem(guestStorageKey("dalil", currentProjectId), JSON.stringify(dalilBriefing));
       } else {
-        localStorage.removeItem(`bahthos_dalil_${currentProjectId}`);
+        localStorage.removeItem(guestStorageKey("dalil", currentProjectId));
       }
     } catch (e) {
       console.error("Failed to save dalilBriefing to localStorage", e);
     }
-  }, [dalilBriefing, currentProjectId]);
+  }, [dalilBriefing, currentProjectId, currentUser, sources]);
 
   // Save sources, messages, syntheses, glossary terms, and dalilBriefings to Firebase Firestore when they change (debounced)
   useEffect(() => {
@@ -996,19 +1013,19 @@ export default function App() {
     try {
       // Clear all project localStorage keys
       projects.forEach((p) => {
-        localStorage.removeItem(`bahthos_sources_${p.id}`);
-        localStorage.removeItem(`bahthos_messages_${p.id}`);
-        localStorage.removeItem(`bahthos_syntheses_${p.id}`);
-        localStorage.removeItem(`bahthos_glossary_${p.id}`);
-        localStorage.removeItem(`bahthos_temperature_${p.id}`);
+        localStorage.removeItem(guestStorageKey("sources", p.id));
+        localStorage.removeItem(guestStorageKey("messages", p.id));
+        localStorage.removeItem(guestStorageKey("syntheses", p.id));
+        localStorage.removeItem(guestStorageKey("glossary", p.id));
+        localStorage.removeItem(guestStorageKey("temperature", p.id));
         localStorage.removeItem(`tawlif_sources_${p.id}`);
         localStorage.removeItem(`tawlif_messages_${p.id}`);
         localStorage.removeItem(`tawlif_syntheses_${p.id}`);
         localStorage.removeItem(`tawlif_glossary_${p.id}`);
         localStorage.removeItem(`tawlif_temperature_${p.id}`);
       });
-      localStorage.removeItem("bahthos_projects");
-      localStorage.removeItem("bahthos_current_project_id");
+      localStorage.removeItem(guestStorageKey("projects"));
+      localStorage.removeItem(guestStorageKey("current_project_id"));
       localStorage.removeItem("tawlif_projects");
       localStorage.removeItem("tawlif_current_project_id");
 
@@ -1239,7 +1256,6 @@ export default function App() {
           sources: currentSourcesList,
           toolType: "dalil-update",
           newSourceIds: newIds,
-          priorBriefingText: null
         })
       });
 
@@ -1273,6 +1289,7 @@ export default function App() {
           id: "dalil-" + Date.now(),
           text: briefingText,
           sourceIdsAtTime: currentSourcesList.map((s) => s.id),
+          sourceFingerprint: computeSourceFingerprint(currentSourcesList),
           dateCreated: new Date().toISOString()
         };
         setDalilBriefing(newBriefing);

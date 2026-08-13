@@ -1,12 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper to check if user is authenticated and matching the user path ID
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    // Rules for user profile and all nested subcollections
+    // Every user profile and every project subcollection is private to the
+    // authenticated Firebase user whose UID is present in the path.
     match /users/{userId} {
       allow read, write: if isOwner(userId);
 
@@ -15,9 +15,14 @@ service cloud.firestore {
       }
     }
 
-    // Allow test connection doc read
-    match /test/{docId} {
-      allow read: if true;
+    // No public test or diagnostic documents. Keep the database deny-by-default
+    // outside the owner-scoped hierarchy above.
+    match /test/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
