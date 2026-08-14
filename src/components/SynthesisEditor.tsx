@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { 
   Sparkles, 
   Save, 
@@ -51,6 +51,19 @@ function SynthesisEditor({
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(
     sources.map((s) => s.id)
   );
+  const topicEditedRef = useRef(false);
+  const selectionTouchedRef = useRef(false);
+
+  useEffect(() => {
+    // The warmed editor can mount before Firebase/local project data arrives.
+    // Hydrate its initial selection and topic once the current project sources exist.
+    if (sources.length > 0 && !selectionTouchedRef.current) {
+      setSelectedSourceIds(sources.map((source) => source.id));
+    }
+    if (sources.length > 0 && !topicEditedRef.current) {
+      setTopic(`مقارنة وتحليل شامل للمصادر المرفقة (${sources.slice(0, 2).map((source) => source.title).join("، ")})`);
+    }
+  }, [sources]);
   
   const [toolType, setToolType] = useState<"general" | "matrix" | "gap" | "briefing" | "faq">("general");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -63,6 +76,7 @@ function SynthesisEditor({
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
 
   const handleToggleSelect = (id: string) => {
+    selectionTouchedRef.current = true;
     setSelectedSourceIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
@@ -226,7 +240,10 @@ function SynthesisEditor({
             <input
               type="text"
               value={topic}
-              onChange={(e) => setTopic(e.target.value)}
+              onChange={(e) => {
+                topicEditedRef.current = true;
+                setTopic(e.target.value);
+              }}
               placeholder="مثال: مقارنة وتقاطع نتائج ومفاهيم الوثائق المرفقة..."
               className="w-full text-xs px-3 py-2.5 border border-[#e2e2dd] rounded-lg bg-white text-[#1f1f1f] focus:outline-none focus:border-[#094d4e]"
               id="synthesis-topic-input"

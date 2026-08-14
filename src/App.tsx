@@ -10,7 +10,10 @@ const loadSynthesisHistory = () => import("./components/SynthesisHistory.js");
 const loadSettingsView = () => import("./components/SettingsView.js");
 
 const SourceViewer = lazy(loadSourceViewer);
-const SynthesisEditor = lazy(loadSynthesisEditor);
+// Start downloading the editor chunk as soon as the main bundle evaluates.
+// This removes the first-click network wait without eagerly rendering the editor.
+const synthesisEditorModule = loadSynthesisEditor();
+const SynthesisEditor = lazy(() => synthesisEditorModule);
 const SynthesisHistory = lazy(loadSynthesisHistory);
 const SettingsView = lazy(loadSettingsView);
 import LandingPage from "./components/LandingPage.js";
@@ -1611,14 +1614,24 @@ export default function App() {
 
   // These hooks must run on every render, including landing, terms, and privacy routes.
   const [, startTransition] = useTransition();
+  const [isEditorWarmed, setIsEditorWarmed] = useState(false);
 
   useEffect(() => {
-    // Warm the code-split workspace views while the researcher is on the landing page.
-    // The imports are cached by the browser, so opening a tab does not suspend the UI.
-    void loadSourceViewer();
-    void loadSynthesisEditor();
-    void loadSynthesisHistory();
-    void loadSettingsView();
+    // Render the editor shell during an idle window, after the initial workspace is responsive.
+    // The hidden shell stays mounted but passes isActive=false, so DalilCard does not fetch TTS.
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const warmEditor = () => setIsEditorWarmed(true);
+
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(warmEditor, { timeout: 900 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timer = window.setTimeout(warmEditor, 350);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const enabledSourcesCount = useMemo(
@@ -1829,21 +1842,7 @@ export default function App() {
             )
           )}
 
-          {activeTab === "editor" && (
-            <div className="h-full w-full flex">
-              <SynthesisEditor
-                sources={sources}
-                onSaveSynthesis={handleSaveSynthesis}
-                dalilBriefing={dalilBriefing}
-                dalilCountdown={dalilCountdown}
-                isDalilGenerating={isDalilGenerating}
-                isActive
-                onTriggerDalilBriefing={handleTriggerDalilBriefing}
-              />
-            </div>
-          )}
-
-          {activeTab === "history" && (
+                    {activeTab === "history" && (
             <SynthesisHistory
               syntheses={syntheses}
               sources={sources}
@@ -1868,6 +1867,28 @@ export default function App() {
             />
           )}
           </Suspense>
+
+          {/* Keep exactly one editor instance warm in the background. It is hidden with CSS,
+              not unmounted, so tab three reveals an already-initialized shell instantly. */}
+          {(isEditorWarmed || activeTab === "editor") && (
+            <div
+              className={activeTab === "editor" ? "absolute inset-0 z-10 flex bg-[#fafaf8]" : "hidden"}
+              aria-hidden={activeTab !== "editor"}
+            >
+              <Suspense fallback={activeTab === "editor" ? <WorkspaceViewFallback /> : null}>
+                <SynthesisEditor
+                  key={currentProjectId || "guest"}
+                  sources={sources}
+                  onSaveSynthesis={handleSaveSynthesis}
+                  dalilBriefing={dalilBriefing}
+                  dalilCountdown={dalilCountdown}
+                  isDalilGenerating={isDalilGenerating}
+                  isActive={activeTab === "editor"}
+                  onTriggerDalilBriefing={handleTriggerDalilBriefing}
+                />
+              </Suspense>
+            </div>
+          )}
         </main>
       </div>
     </div>
