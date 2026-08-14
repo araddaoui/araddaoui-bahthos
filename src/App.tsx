@@ -10,20 +10,10 @@ const loadSynthesisHistory = () => import("./components/SynthesisHistory.js");
 const loadSettingsView = () => import("./components/SettingsView.js");
 
 const SourceViewer = lazy(loadSourceViewer);
-const SynthesisEditor = lazy(loadSynthesisEditor);
+const synthesisEditorModule = loadSynthesisEditor();
+const SynthesisEditor = lazy(() => synthesisEditorModule);
 const SynthesisHistory = lazy(loadSynthesisHistory);
 const SettingsView = lazy(loadSettingsView);
-
-// Eagerly preload all route chunks in the background after initial render
-// so slow connections (e.g. 4.5 Mbps) never stall tab navigation.
-if (typeof window !== "undefined") {
-  setTimeout(() => {
-    void loadSourceViewer();
-    void loadSynthesisEditor();
-    void loadSynthesisHistory();
-    void loadSettingsView();
-  }, 500);
-}
 import LandingPage from "./components/LandingPage.js";
 import TermsOfService from "./components/TermsOfService.js";
 import PrivacyPolicy from "./components/PrivacyPolicy.js";
@@ -1689,6 +1679,13 @@ export default function App() {
     void triggerDalilUpdateBriefing(sources, true);
   }, [sources, triggerDalilUpdateBriefing]);
 
+  const preloadWorkspaceTab = (tab: ActiveTab) => {
+    if (tab === "editor") void loadSynthesisEditor();
+    else if (tab === "history") void loadSynthesisHistory();
+    else if (tab === "settings") void loadSettingsView();
+    else if (tab === "home") void loadSourceViewer();
+  };
+
   const handleWorkspaceTabChange = (tab: ActiveTab) => {
     // Keep this handler synchronous and minimal. The selected tab paints first;
     // the heavy view is mounted only after the next animation frame.
@@ -1783,6 +1780,7 @@ export default function App() {
         onCreateProject={handleCreateProject}
         onDeleteProject={handleDeleteProject}
         onShowLandingPage={() => setShowLandingPage(true)}
+        onNavigateIntent={preloadWorkspaceTab}
       />
 
       {/* Main Grid Wrapper for responsive layout:

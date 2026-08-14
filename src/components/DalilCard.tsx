@@ -21,6 +21,10 @@ type AudioChunk = {
   endOffset: number;
 };
 
+// Keep only one look-ahead request. More parallel requests saturate a slow
+// connection and delay the first sentence instead of improving continuity.
+const AUDIO_PREFETCH_AHEAD = 1;
+
 function cleanDalilDisplayText(text: string): string {
   if (!text) return "";
   return text
@@ -140,6 +144,7 @@ export default function DalilCard({
 
   const cachedAudioChunksRef = useRef<Map<number, AudioData>>(new Map());
   const pendingAudioChunksRef = useRef<Map<number, Promise<AudioData | null>>>(new Map());
+  const audioAbortControllerRef = useRef<AbortController | null>(null);
   const cachedBriefingIdRef = useRef<string | null>(null);
   const playbackRunIdRef = useRef(0);
   const activeChunkResolveRef = useRef<(() => void) | null>(null);
@@ -177,6 +182,7 @@ export default function DalilCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: chunk.text }),
+        signal: audioAbortControllerRef.current?.signal,
       });
 
       if (!res.ok) {
@@ -202,11 +208,26 @@ export default function DalilCard({
     }
   };
 
+  const prefetchAudioWindow = (startIndex: number) => {
+    const nextIndex = startIndex;
+    if (nextIndex < 0 || nextIndex >= audioChunks.length) return;
+    void fetchAudioChunk(nextIndex).catch((err) => {
+      if ((err as Error)?.name !== "AbortError") {
+        console.warn(`Background Arabic TTS prefetch info for chunk ${nextIndex}:`, err);
+      }
+    });
+  };
+
   const stopAllSpeech = (clearNotice = true) => {
     isStoppedRef.current = true;
     playbackRunIdRef.current += 1;
     activeChunkResolveRef.current?.();
     activeChunkResolveRef.current = null;
+
+    audioAbortControllerRef.current?.abort();
+    audioAbortControllerRef.current = null;
+    cachedAudioChunksRef.current.clear();
+    pendingAudioChunksRef.current.clear();
 
     if (audioRef.current) {
       try {
@@ -285,6 +306,7 @@ export default function DalilCard({
 
     stopAllSpeech();
     isStoppedRef.current = false;
+    audioAbortControllerRef.current = new AbortController();
     const runId = playbackRunIdRef.current;
 
     if (!audioRef.current) audioRef.current = new Audio();
@@ -309,14 +331,6 @@ export default function DalilCard({
 
     setIsLoadingAudio(true);
     setAudioNotice(null);
-
-    // Fire off parallel background pre-fetching for ALL chunks immediately
-    // so slow network connections (e.g. 4.5 Mbps) download all audio concurrently.
-    audioChunks.forEach((_, idx) => {
-      void fetchAudioChunk(idx).catch((err) => {
-        console.warn(`Parallel prefetch info for chunk ${idx}:`, err);
-      });
-    });
 
     try {
       for (let chunkIndex = 0; chunkIndex < audioChunks.length; chunkIndex += 1) {
@@ -386,10 +400,11 @@ export default function DalilCard({
         setIsPlaying(true);
         setIsPaused(false);
 
-        // Fetch the following bounded request while this one is being heard.
-        void fetchAudioChunk(chunkIndex + 1).catch((err) => {
-          console.warn("Background Arabic TTS next-chunk prefetch info:", err);
-        });
+        // Fetch only the next chunk while this one is being heard. This is a
+        // sliding window of one look-ahead request, avoiding bandwidth bursts.
+        if (AUDIO_PREFETCH_AHEAD > 0) {
+          prefetchAudioWindow(chunkIndex + AUDIO_PREFETCH_AHEAD);
+        }
         await endedPromise;
         // Give the media element a clean boundary before the next sentence.
         // Playback never overlaps; this pause also prevents the final word of

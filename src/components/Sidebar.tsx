@@ -28,6 +28,7 @@ interface SidebarProps {
   onCreateProject: (name: string) => void;
   onDeleteProject: (id: string) => void;
   onShowLandingPage?: () => void;
+  onNavigateIntent?: (tab: ActiveTab) => void;
 }
 
 export default function Sidebar({ 
@@ -39,7 +40,8 @@ export default function Sidebar({
   onSwitchProject,
   onCreateProject,
   onDeleteProject,
-  onShowLandingPage
+  onShowLandingPage,
+  onNavigateIntent,
 }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -269,6 +271,9 @@ export default function Sidebar({
             return (
               <button
                 key={item.id}
+                onPointerEnter={() => onNavigateIntent?.(item.id)}
+                onFocus={() => onNavigateIntent?.(item.id)}
+                onPointerDown={() => onNavigateIntent?.(item.id)}
                 onClick={() => setActiveTab(item.id)}
                 className={`group relative flex items-center gap-3.5 px-3 py-3 rounded-lg text-sm font-medium transition-all duration-200 justify-center md:justify-start ${
                   isActive
