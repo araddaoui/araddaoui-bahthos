@@ -29,7 +29,15 @@ export async function generateContentWithRetry(
 ) {
   let attempt = 1;
   const maxAttempts = 3;
-  let currentModel = params.model || "gemini-3.6-flash";
+  const requestedModel = params.model || "gemini-3-flash-preview";
+  const normalizedRequestedModel = requestedModel === "gemini-3.6-flash" || requestedModel === "gemini-flash-latest"
+    ? "gemini-3-flash-preview"
+    : requestedModel;
+  const modelCandidates = normalizedRequestedModel === "gemini-3.1-pro-preview"
+    ? ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
+    : [normalizedRequestedModel, "gemini-3.1-pro-preview"];
+  let modelIndex = 0;
+  let currentModel = modelCandidates[modelIndex];
 
   while (true) {
     try {
@@ -67,11 +75,10 @@ export async function generateContentWithRetry(
         attempt++;
         const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1000 : 2000);
         
-        if (currentModel === "gemini-3.6-flash") {
-          currentModel = "gemini-flash-latest";
-        } else {
-          currentModel = "gemini-3.6-flash";
+        if (modelIndex < modelCandidates.length - 1) {
+          modelIndex += 1;
         }
+        currentModel = modelCandidates[modelIndex];
 
         console.warn(`[Retry System] Attempt ${attempt}/${maxAttempts}: Retrying request using model '${currentModel}' due to ${isQuota ? "429 quota/rate limit" : "error"}. Retrying in ${delay}ms...`);
         

@@ -484,6 +484,14 @@ export default function App() {
   const sourceIdSequenceRef = useRef(0);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
+  // Paint the sidebar selection first, then hand the heavy view to React on the
+  // next animation frame. Unlike useDeferredValue, this cannot remain stale for
+  // seconds when the editor or source list is expensive to mount.
+  const [renderedTab, setRenderedTab] = useState<ActiveTab>(activeTab);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setRenderedTab(activeTab));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab]);
 
   // Lazily load messages for the current project
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -1777,13 +1785,13 @@ export default function App() {
             On smaller viewports, it's only shown if the user explicitly opens the "sources" tab.
         */}
         <div className={`h-full flex-shrink-0 ${
-          activeTab === "sources" 
+          renderedTab === "sources" 
             ? "w-full md:w-80 flex" 
             : "hidden lg:w-80 lg:flex"
         }`}>
           <SourcesList
             sources={sources}
-            activeTab={activeTab}
+            activeTab={renderedTab}
             onToggleSource={handleToggleSource}
             onEnableAll={handleEnableAll}
             onDisableAll={handleDisableAll}
@@ -1807,13 +1815,13 @@ export default function App() {
 
         {/* 3. MAIN COLUMN (Content Area) */}
         <main className={`flex-1 h-full overflow-hidden relative ${
-          activeTab === "sources" && selectedSourceId === null ? "hidden md:flex" : "flex"
+          renderedTab === "sources" && selectedSourceId === null ? "hidden md:flex" : "flex"
         }`}>
           <Suspense
             fallback={<WorkspaceViewFallback />}
           >
             {/* Render content based on selected tab and reading state */}
-          {activeTab === "home" && (
+          {renderedTab === "home" && (
             activeMainView === "chat" || !activeSelectedSource ? (
               <ChatWindow
                 messages={messages}
@@ -1842,7 +1850,7 @@ export default function App() {
             )
           )}
 
-          {activeTab === "sources" && (
+          {renderedTab === "sources" && (
             activeSelectedSource ? (
               <SourceViewer
                 source={activeSelectedSource}
@@ -1869,7 +1877,7 @@ export default function App() {
             )
           )}
 
-                    {activeTab === "history" && (
+                    {renderedTab === "history" && (
             <SynthesisHistory
               syntheses={syntheses}
               sources={sources}
@@ -1877,7 +1885,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === "settings" && (
+          {renderedTab === "settings" && (
             <SettingsView
               temperature={temperature}
               setTemperature={setTemperature}
@@ -1895,7 +1903,7 @@ export default function App() {
           )}
           </Suspense>
 
-          {activeTab === "editor" && (
+          {renderedTab === "editor" && (
             <div className="absolute inset-0 z-10 flex bg-[#fafaf8]">
               <Suspense fallback={<WorkspaceViewFallback />}>
                 <SynthesisEditor

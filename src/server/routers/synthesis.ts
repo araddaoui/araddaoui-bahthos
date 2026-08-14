@@ -42,7 +42,9 @@ function isSubstantiveDalilText(text: string): boolean {
   const clean = text.replace(/\s+/g, " ").trim();
   const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
   const forbiddenMeta = /تتناول هذه الإحاطة|تركز المقارنة|من الناحية المنهجية|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(clean);
-  return clean.length >= 1400 && paragraphs.length >= 6 && !forbiddenMeta && isArabicFirstText(clean);
+  const evidenceSignals = (clean.match(/«[^»]{2,80}»|الوثيقة\s+(?:الأولى|الثانية|الثالثة|الرابعة|الخامسة)|\d+(?:[.,٪%])?/g) || []).length;
+  const genericSignals = (clean.match(/تحتاج إلى مزيد من البحث|تتسم هذه القضية بالتعقيد|من المهم الإشارة|تلعب دوراً مهماً|يسهم في تعزيز|يقدم رؤى مهمة|لا يمكن فهمها بمعزل عن الأخرى/g) || []).length;
+  return clean.length >= 1400 && paragraphs.length >= 6 && evidenceSignals >= 4 && genericSignals < 4 && !forbiddenMeta && isArabicFirstText(clean);
 }
 
 function buildDalilFallback(activeSources: any[]): string {
@@ -93,18 +95,14 @@ router.post("/api/synthesize", async (req, res) => {
         newSources = activeSources;
       }
 
-      const cleanTitles = activeSources
-        .map((s: any) => (s?.title || "مستند").replace(/\.[a-z0-9]{2,4}$/i, "").trim())
-        .join("، ");
-
       let sourcesContext = "المصادر المرفقة في المشروع للتحليل والإحاطة:\n";
       activeSources.forEach((src: any, idx: number) => {
-        const cleanTitle = (src?.title || `مصدر ${idx + 1}`).replace(/\.[a-z0-9]{2,4}$/i, "").trim();
-        const rawContent = src?.content || src?.summary || "";
-        const safeContent = rawContent.length > 8000
-          ? rawContent.substring(0, 8000) + "\n...[مختصر]"
+        const reference = shortReference(src?.title, idx);
+        const rawContent = String(src?.content || src?.summary || "").trim();
+        const safeContent = rawContent.length > 6000
+          ? rawContent.substring(0, 6000) + "\n...[اختصار تقني للنص، لا تستنتج من الجزء المحذوف]"
           : rawContent;
-        sourcesContext += `\n---\nمصدر ${idx + 1}: ${cleanTitle} (اللغة: ${src?.language || "العربية"})\nالملخص: ${src?.summary || "غير متاح"}\nالمحتوى التفصيلي:\n${safeContent}\n`;
+        sourcesContext += `\n---\nالمرجع المختصر: «${reference}»\nرقم الوثيقة: الوثيقة ${idx + 1}\nلغة النص الأصلي: ${src?.language || "غير محددة"}\nالملخص الحالي:\n${String(src?.summary || "غير متاح").slice(0, 1200)}\nالنص المتاح للتحليل:\n${safeContent}\n`;
       });
 
       // Deliberately exclude any previous briefing from the prompt. A briefing
@@ -122,13 +120,15 @@ router.post("/api/synthesize", async (req, res) => {
 
 قواعد الصياغة والعمق (STRICT CONTENT RULES):
 1. التحليل المباشر (Direct Analysis): ابدأ الفقرة الأولى بتقرير حقيقة أو استنتاج مركزي يجمع الوثائق.
-2. التشكيل الكامل (Full Vocalization): اكتب النص بعربية فصيحة راقية ومُشَكَّلَة بالكامل (Vocalized).
-3. التوليف المقارن (6-8 فقرات): يجب أن تكون كل فقرة غنية بالمعلومات، تربط بين أفكار المصادر المختلفة، وتستخلص تداعياتها.
-4. حظر التكرار: لا تسرد المصادر واحداً تلو الآخر. ادمج المعلومات بناءً على الموضوعات والأدلة.
-5. العربية الخالصة: اكتب الجمل العربية وحدها. ترجم كل فكرة أو اقتباس أجنبي إلى العربية الفصحى، ولا تنقل أي جملة إنجليزية أو فرنسية أو مقتطفاً مبتوراً. إذا لزم ذكر مصدر، استخدم «الوثيقة الأولى» أو عنواناً عربياً موجزاً لا يتجاوز ست كلمات.
-6. الحظر التقني: لا تذكر أسماء الملفات أو الامتدادات أو الروابط. استخدم الإحالات العربية القصيرة فقط.
-7. الفواصل الصوتية: استخدم علامة || فقط للفواصل الصوتية بين الجمل الكبيرة، ولا تستخدم الماركداون (Markdown).
-8. الطول والعمق: يجب أن يكون النص طويلاً ومفصلاً (لا يقل عن 1400 حرف)، يغوص في تفاصيل الأدلة والفجوات البحثية الحقيقية الواردة في النصوص.
+2. الوضوح اللغوي: اكتب بعربية فصحى واضحة، واستخدم التشكيل عند الحاجة فقط؛ لا تجعل التشكيل بديلاً عن ذكر الوقائع والأدلة.
+3. بنية الفقرات: افصل بين كل فقرة وأخرى بسطر فارغ واضح حتى تبقى المقارنة قابلة للقراءة والتتبع.
+4. التوليف المقارن (6-8 فقرات): يجب أن تكون كل فقرة غنية بالمعلومات، وأن تتضمن تفصيلاً قابلاً للتحقق من النص المتاح، مثل رقماً أو فاعلاً أو آلية أو تاريخاً أو نتيجة محددة.
+5. حظر التكرار والفراغ: لا تستخدم عبارات عامة مثل «تتسم القضية بالتعقيد» أو «تحتاج إلى مزيد من البحث» إلا إذا شرحت تحديداً أي نتيجة أو فقرة من النص تبررها. لا تكتب جملة لا تضيف واقعة أو مقارنة أو قيداً أو استنتاجاً محدداً.
+6. التوثيق الداخلي: أشر في كل فقرة إلى «الوثيقة الأولى» أو «الوثيقة الثانية» أو عنوان عربي قصير، واربط كل ادعاء مهم بعبارة أو رقم أو نتيجة واردة في النص المتاح.
+7. العربية الخالصة: اكتب الجمل العربية وحدها. ترجم كل فكرة أو اقتباس أجنبي إلى العربية الفصحى، ولا تنقل أي جملة إنجليزية أو فرنسية أو مقتطفاً مبتوراً. إذا لزم ذكر مصدر، استخدم «الوثيقة الأولى» أو عنواناً عربياً موجزاً لا يتجاوز ست كلمات.
+8. الحظر التقني: لا تذكر أسماء الملفات أو الامتدادات أو الروابط. استخدم الإحالات العربية القصيرة فقط.
+9. الفواصل الصوتية: استخدم علامة || فقط للفواصل الصوتية بين الجمل الكبيرة، ولا تستخدم الماركداون (Markdown).
+10. الطول والعمق: اكتب سبع فقرات تقريباً، ولا يقل النص عن 1400 حرف، على أن تكون الفقرات قائمة على وقائع أو عبارات أو أرقام محددة من النصوص لا على قوالب إنشائية.
 
 الهدف هو تقديم قيمة مضافة للباحث تجعله يفهم "جوهر" ما تقوله الوثائق مجتمعة، وليس مجرد وصف لوجودها.
 
@@ -140,7 +140,7 @@ ${sourcesContext}
       try {
         // Upgrade to Gemini 3.1 Pro for deep academic synthesis and reasoning.
         const response = await generateContentWithRetry(ai, {
-          model: "gemini-3.1-pro-preview",
+          model: "gemini-3-flash-preview",
           contents: dalilPrompt,
           config: {
             systemInstruction: DALIL_SYSTEM_INSTRUCTION,

@@ -12,7 +12,14 @@ interface DalilCardProps {
 }
 
 type AudioData = { audio: string; mimeType?: string };
-type AudioChunk = { text: string; paragraphIndex: number; sentenceIndex: number; sentenceEnd: boolean };
+type AudioChunk = {
+  text: string;
+  paragraphIndex: number;
+  sentenceIndex: number;
+  sentenceEnd: boolean;
+  startOffset: number;
+  endOffset: number;
+};
 
 function cleanDalilDisplayText(text: string): string {
   if (!text) return "";
@@ -44,38 +51,64 @@ function splitIntoParagraphs(text: string): string[] {
 }
 
 function splitParagraphIntoAudioChunks(paragraph: string, paragraphIndex: number, maxCharacters = 480): AudioChunk[] {
-  // Keep every sentence in its own request. This prevents the next TTS request
-  // from repeating the tail of the previous sentence or crossing its boundary.
-  const sentences = paragraph.match(/[^.!؟؛:…۔]+(?:[.!؟؛:…۔]+|$)/g) || [paragraph];
+  // Keep each sentence in its own request. Colons are not sentence boundaries;
+  // splitting on them was a source of early highlights and audible drift.
+  const sentenceMatches = Array.from(paragraph.matchAll(/[^.!؟؛…۔]+(?:[.!؟؛…۔]+|$)/g));
   const chunks: AudioChunk[] = [];
 
-  sentences.forEach((sentence, sentenceIndex) => {
-    const words = sentence.trim().split(/\s+/).filter(Boolean);
-    let current = "";
-    const sentenceParts: string[] = [];
+  sentenceMatches.forEach((match, sentenceIndex) => {
+    const rawSentence = match[0];
+    const sentence = rawSentence.trim();
+    if (!sentence) return;
 
-    for (const word of words) {
-      const candidate = `${current} ${word}`.trim();
-      if (current && candidate.length > maxCharacters) {
-        sentenceParts.push(current);
-        current = word;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) sentenceParts.push(current);
+    const rawStart = match.index ?? 0;
+    const sentenceStart = rawStart + rawSentence.indexOf(sentence);
+    const words = Array.from(sentence.matchAll(/\S+/g));
+    let currentWords: string[] = [];
+    let currentStart = 0;
+    let currentEnd = 0;
 
-    sentenceParts.forEach((part, partIndex) => {
+    const pushCurrent = (sentenceEnd: boolean) => {
+      if (currentWords.length === 0) return;
       chunks.push({
-        text: part,
+        text: currentWords.join(" "),
         paragraphIndex,
         sentenceIndex,
-        sentenceEnd: partIndex === sentenceParts.length - 1,
+        sentenceEnd,
+        startOffset: sentenceStart + currentStart,
+        endOffset: sentenceStart + currentEnd,
       });
+      currentWords = [];
+    };
+
+    words.forEach((wordMatch) => {
+      const word = wordMatch[0];
+      const wordStart = wordMatch.index ?? 0;
+      const wordEnd = wordStart + word.length;
+      const candidate = currentWords.length ? `${currentWords.join(" ")} ${word}` : word;
+      if (currentWords.length > 0 && candidate.length > maxCharacters) {
+        pushCurrent(false);
+        currentStart = wordStart;
+      } else if (currentWords.length === 0) {
+        currentStart = wordStart;
+      }
+      currentWords.push(word);
+      currentEnd = wordEnd;
     });
+
+    pushCurrent(true);
   });
 
-  return chunks;
+  return chunks.length > 0
+    ? chunks
+    : [{
+        text: paragraph,
+        paragraphIndex,
+        sentenceIndex: 0,
+        sentenceEnd: true,
+        startOffset: 0,
+        endOffset: paragraph.length,
+      }];
 }
 
 export default function DalilCard({
@@ -545,15 +578,15 @@ export default function DalilCard({
                 const activeChunk = audioChunks[currentChunkIdx];
                 const isCurrentlyBeingRead = activeChunk?.paragraphIndex === paragraphIndex;
                 const isHeading = paragraph.startsWith("نَسْتَعْرِضُ") || paragraph.startsWith("تَعْتَمِدُ") || paragraphIndex === 0;
-                const activeText = isCurrentlyBeingRead ? activeChunk.text : "";
-                const activeStart = activeText ? paragraph.indexOf(activeText) : -1;
-                const renderedParagraph = activeStart >= 0 ? (
+                const activeStart = isCurrentlyBeingRead ? activeChunk.startOffset : -1;
+                const activeEnd = isCurrentlyBeingRead ? activeChunk.endOffset : -1;
+                const renderedParagraph = activeStart >= 0 && activeEnd > activeStart ? (
                   <>
                     {paragraph.slice(0, activeStart)}
                     <span className="rounded bg-[#d9a441]/35 px-0.5 text-inherit ring-1 ring-[#d9a441]/50">
-                      {activeText}
+                      {paragraph.slice(activeStart, activeEnd)}
                     </span>
-                    {paragraph.slice(activeStart + activeText.length)}
+                    {paragraph.slice(activeEnd)}
                   </>
                 ) : paragraph;
                 return (

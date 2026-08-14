@@ -11,220 +11,63 @@ function shortArabicSourceReference(source: any, index: number): string {
  * Helper to extract unique, document-specific analytical insights based on title, content, and summary.
  * Strictly avoids verbatim repetitions, generic placeholders, and eliminates formulaic boilerplate wrappers.
  */
-function extractDocSubstance(src: any, idx: number, safeTopic: string) {
-  const rawTitle = src.title || `الوثيقة ${idx + 1}`;
-  const titleForConcept = rawTitle.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").trim();
-  const titleWords = titleForConcept.match(/[\u0600-\u06FF]+/g) || [];
-  // Keep references readable and Arabic. The original title remains available
-  // only for internal concept matching, never for visible report citations.
-  const cleanTitle = titleWords.length >= 2
-    ? titleWords.slice(0, 6).join(" ")
-    : `الوثيقة ${idx + 1}`;
-  const lowerTitle = titleForConcept.toLowerCase();
-  
-  // Clean up summary / content from any template residue
-  let rawContent = (src.content || src.summary || src.extractedText || "").trim();
-  rawContent = rawContent
-    .replace(/^الإجابة العلمية\s*\(ج\)\s*:\s*\*\*/i, "")
-    .replace(/^\*\*\s*/, "")
-    .replace(/يقدم هذا المستند دراسة تحليلية رصينة تتناول موضوع \([^)]*\)/g, "")
-    .replace(/تناقش موضوع \([^)]*\)/g, "")
-    .replace(/تناقش موضوع/g, "")
-    .replace(/\(\s*\)/g, "")
-    .replace(/الموضوع المنهجي والأمني المحدد في الدراسة/g, "")
-    .trim();
-
-  // Strip journal metadata, publication header lines, and ProQuest noise
-  rawContent = cleanBibliographicNoise(rawContent);
-  rawContent = cleanBibliographicClutterAndNormalizeArabic(rawContent);
-
-  // Derive precise Arabic topic concept dynamically from title and text
-  let arabicTitleConcept = "";
-  if (/[\u0600-\u06FF]/.test(cleanTitle)) {
-    arabicTitleConcept = cleanTitle;
-  } else {
-    // Translate English titles into deep, document-specific Arabic concepts
-    let translated = lowerTitle;
-
-    if (translated.includes("uae") && translated.includes("regional")) {
-      arabicTitleConcept = "استراتيجيات التدخل الدفاعي والتحالفات الإقليمية لدولة الإمارات العربية المتحدة";
-    } else if (translated.includes("war experiences") || (translated.includes("practices") && translated.includes("theory"))) {
-      arabicTitleConcept = "التفاعل المفهومي بين تجارب القتال الميدانية، الممارسات التكتيكية، والعقيدة النظرية للحرب";
-    } else if (translated.includes("military power")) {
-      arabicTitleConcept = "تقييم أبعاد ومكونات القوة العسكرية الشاملة والجاهزية والتنافس الجيوسياسي";
-    } else if (translated.includes("al qaeda") || translated.includes("al-qaeda")) {
-      arabicTitleConcept = "ديناميات التحول الاستراتيجي والتنظيمي لشبكات تنظيم القاعدة في اليمن والمنطقة";
-    } else if (translated.includes("battle for local audiences")) {
-      arabicTitleConcept = "التنافس الاتصالي والتأثير الحشدوي على الجماهير المحلية في مناطق النزاع المسلح";
-    } else if (translated.includes("counter terrorism") || translated.includes("counterterrorism")) {
-      arabicTitleConcept = "سياسات مكافحة الإرهاب وتكتيكات الاستجابة الأمنية للتهديدات العابرة للحدود";
-    } else if (translated.includes("drone strikes")) {
-      arabicTitleConcept = "استخدام الطائرات المسيرة والضربات الجوية الدقيقة وديناميات الاستهداف الميداني";
-    } else if (translated.includes("corporate governance")) {
-      arabicTitleConcept = "معايير الحوكمة المؤسسية والشفافية والتنظيم الهيكلي لإدارة مخاطر الشركة";
-    } else if (translated.includes("framing theory") || translated.includes("journalism")) {
-      arabicTitleConcept = "نظرية التأطير الإعلامي وبناء الأجندة التحريرية والتأثير في الرأي العام";
-    } else {
-      const subMap: [RegExp, string][] = [
-        [/uae'?s?/g, "دولة الإمارات"],
-        [/regional\s*wars?/g, "الحروب والنزاعات الإقليمية"],
-        [/war\s*experiences?/g, "خبرات وتجارب الحرب"],
-        [/war\s*practices?/g, "الممارسات والتكتيكات العسكرية"],
-        [/war\s*theory/g, "النظرية والعقيدة القتالية"],
-        [/military\s*power/g, "القوة والقدرات العسكرية"],
-        [/foreign\s*policy/g, "السياسة الخارجية والتوجهات الاستراتيجية"],
-        [/sovereignty/g, "مبدأ السيادة الوطنية"],
-        [/international\s*relations/g, "العلاقات الدولية وتوازنات القوى"],
-        [/supply\s*chain/g, "سلاسل الإمداد والتوريد"],
-        [/strategic\s*management/g, "الإدارة الاستراتيجية والتخطيط"],
-        [/investigative\s*journalism/g, "الصحافة الاستقصائية ومعايير التغطية"],
-        [/thought\s*leadership/g, "الريادة الفكرية والتأثير التحريري"],
-        [/digital\s*storytelling/g, "السرد الرقمي والقصص التفاعلية"],
-        [/content\s*strategy/g, "استراتيجية وصناعة المحتوى"],
-        [/public\s*administration/g, "الإدارة العامة"],
-        [/bureaucratic\s*efficiency/g, "الكفاءة البيروقراطية والتنظيمية"],
-        [/compliance\s*management/g, "إدارة الامتثال والرقابة المؤسسية"],
-        [/hermeneutics/g, "الهرمنيوطيقا والتأويل النصي"],
-        [/intertextuality/g, "التناص والتحليل النصي الأدبي"],
-        [/critical\s*discourse/g, "تحليل الخطاب النقدي"],
-        [/epistemology/g, "الابستمولوجيا ونظرية المعرفة"],
-        [/formative\s*assessment/g, "التقويم التكويني والتشخيصي"],
-        [/social\s*cohesion/g, "مؤشرات التماسك الاجتماعي"],
-        [/behavioral\s*economics/g, "الاقتصاد السلوكي ورسم القرارات"]
-      ];
-      subMap.forEach(([rgx, ar]) => {
-        translated = translated.replace(rgx, ar);
-      });
-      translated = translated.replace(/[._\-]+/g, " ").replace(/\s+/g, " ").trim();
-      if (/[\u0600-\u06FF]/.test(translated) && translated.length > 5) {
-        arabicTitleConcept = translated;
-      } else {
-        arabicTitleConcept = `أبعاد وقضايا مستند "${cleanTitle}"`;
-      }
-    }
-  }
-
-  // Extract substantive paragraphs or sentences directly from rawContent if present
+function extractDocSubstance(source: any, idx: number, topic: string): {
+  title: string;
+  coreIssue: string;
+  methodology: string;
+  supportingEvidence: string;
+  divergenceAndContext: string;
+  specificRecommendation: string;
+  specificGap: string;
+  specificFAQ: string;
+  detailedGapAnalysis: string;
+  tailoredResearchQuestion: string;
+  actionableResearchProposal: string;
+} {
+  const title = shortArabicSourceReference(source, idx);
+  const rawContent = cleanBibliographicClutterAndNormalizeArabic(
+    cleanBibliographicNoise(String(source?.content || source?.summary || ''))
+  ).replace(/\s+/g, ' ').trim();
   const sentences = rawContent
-    .split(/[.\n!؟؛:]+/)
-    .map((s) => s.trim())
-    .filter((s) => {
-      if (s.length < 25 || !/[\u0600-\u06FF]/.test(s)) return false;
-      const latinCount = (s.match(/[A-Za-z]/g) || []).length;
-      const arabicCount = (s.match(/[\u0600-\u06FF]/g) || []).length;
-      if (latinCount > Math.max(12, Math.floor(arabicCount * 0.12))) return false;
-      if (/journal|proquest|vol\.|issue|copyright|author|permission|http|www\.|paret|jabbour|reprints/i.test(s)) return false;
-      if (s.includes("توضيح النطاق") || s.includes("نطاق التقرير")) return false;
-      return true;
+    .split(/(?<=[.!؟؛。])\s+|\n+/)
+    .map((sentence) => sentence.trim().replace(/^[\-–—•]+\s*/, ''))
+    .filter((sentence) => sentence.length >= 28)
+    .filter((sentence) => !/journal|proquest|vol\.?|issue|copyright|author|permission|https?:|www\.|reprints/i.test(sentence))
+    .filter((sentence) => {
+      const arabicCount = (sentence.match(/[\u0600-\u06FF]/g) || []).length;
+      const latinCount = (sentence.match(/[A-Za-z]/g) || []).length;
+      return arabicCount >= 18 && latinCount <= Math.max(10, Math.floor(arabicCount * 0.12));
     });
+  const evidence = sentences.slice(0, 4).map((sentence) => sentence.slice(0, 420));
+  const firstEvidence = evidence[0] || '';
+  const secondEvidence = evidence[1] || '';
+  const topicText = /[\u0600-\u06FF]/.test(topic || '') ? topic.trim().slice(0, 180) : 'السؤال المحدد في المشروع الحالي';
+  const evidencePhrase = firstEvidence
+    ? `يرد في «${title}» مقطع قابل للتحقق يقول: «${firstEvidence}».`
+    : `لا يتوفر في النص المتاح من «${title}» مقطع عربي قصير يمكن اقتباسه بثقة؛ لذلك لا أضيف ادعاءً موضوعياً غير موثق.`;
+  const secondEvidencePhrase = secondEvidence
+    ? `ويضيف مقطع آخر من الوثيقة نفسها: «${secondEvidence}».`
+    : `ولا يتيح النص المتاح مقطعاً ثانياً يكفي لبناء مقارنة داخلية موثوقة.`;
+  const noEvidence = `لا يثبت النص المتاح من «${title}» تفاصيل كافية للإجابة عن «${topicText}» في مسار الطوارئ؛ يلزم الرجوع إلى النص الكامل أو إعادة طلب التوليف من الخادم.`;
 
-  // Select 2-3 genuine sentences if available
-  let directExtract = "";
-  if (sentences.length > 0) {
-    directExtract = sentences.slice(0, 3).join(". ") + ".";
-  }
-
-  // Diverse framing matrices to prevent ANY two documents from using the same sentence template
-  const coreIssueOpeners = [
-    `تقييم عميق ودراسة ميدانية موسعة تفكك التحولات الهيكلية في ${arabicTitleConcept}، مع تحليل العوامل الاستراتيجية والمحركات الميدانية المؤثرة في البيئة التشغيلية`,
-    `رصد التحولات الهيكلية وديناميات التفاعل بين التطبيق الميداني والتوجهات التنظيمية لـ ${arabicTitleConcept}، بهدف بناء رؤية واضحة للسياسات المستقبليّة`,
-    `تفكيك البنية المفهومية والأطر الحاكمة لـ ${arabicTitleConcept}، واستكشاف العلاقات السببية بين القرارات الاستراتيجية والنتائج الميدانية المتحققة`,
-    `تحليل المقاربات والنتائج الميدانية المتصلة بـ ${arabicTitleConcept}، والوقوف على الآليات الكفيلة بالحد من الانحرافات التشغيلية وضمان الاستجابة السريعة`,
-    `معالجة الرؤى التطبيقية وتوازنات القوى في ${arabicTitleConcept}، بأسلوب يستند إلى أدلة شواهد الميدان والتقييم المؤسسي المتكامل`,
-  ];
-  const coreIssue = coreIssueOpeners[idx % coreIssueOpeners.length];
-
-  const methodologyOpeners = [
-    `تحليل مضمون كمي ونوعي يفكك معطيات الوثيقة ومؤشراتها الميدانية عبر تتبع القرارات والتداعيات على مستوى الأداء الاستراتيجي والتشغيلي`,
-    `دراسة مسحية وأكاديمية تفحص الأطر النظرية والسياقات الميدانية المعقدة، معتمدة على تقاطع البيانات الاستطلاعية والوثائق الرسمية المتاحة`,
-    `قراءة استطلاعية تركز على معالجة المتغيرات الهيكلية والتطبيقية وتحديد اتجاهات الأثر الميداني والمؤشرات القياسية المستهدفة`,
-    `منهجية مقارنة تستند إلى أدلة الميدان والمؤشرات التخصصية الموثقة لتقييم كفاءة الخيارات المتاحة وبناء نماذج الاستجابة الميدانية`,
-  ];
-  const methodology = methodologyOpeners[idx % methodologyOpeners.length];
-
-  // Build supporting evidence directly from text or custom varied phrasing WITH EXACT QUOTES
-  let supportingEvidence = "";
-  if (directExtract.length > 25) {
-    const evidenceOpeners = [
-      `تُظهر المعطيات الموثقة في النص الأصلي بوضوح ما نصه: `,
-      `تؤكد الأدلة والشواهد المباشرة الواردة في الوثيقة حرفياً: `,
-      `تكشف نتائج الفحص المباشر للمصادر عن نص دقيق مفاده: `,
-      `تستعرض الوثيقة شواهد ومقتضيات ميدانية موثقة تنص على: `,
-    ];
-    supportingEvidence = evidenceOpeners[idx % evidenceOpeners.length] + `"${directExtract}"`;
-  } else {
-    const fallbackEvidences = [
-      `تثبت معطيات الوثيقة الميدانية وجود مخرجات واضحة تتصل بـ "${arabicTitleConcept}"، حيث تؤكد الأدلة التحليلية المباشرة أن: "التركيز على القياس الميداني المباشر يسهم في تحديد اتجاهات الأثر الميداني والتنظيمي، ويحد من الانحرافات المنهجية المترتبة على تقديرات موقف غير دقيقة."`,
-      `تتضمن الوثيقة شواهد تحليليّة ملموسة تُبرز طبيعة التغيرات الهيكلية، حيث تنص المعطيات الموثقة على أن: "توفير قاعدة بيانات استراتيجية متكاملة للتحليل الميداني يُعد الشرط الأساسي لصياغة قرارات موجهة تضمن مرونة الأداء والاستجابة للتهديدات."`,
-      `تقدم الوثيقة أدلة موثقة تعالج الإشكالات الهيكلية المقترنة بـ "${arabicTitleConcept}"، وتؤكد النصوص الميدانية أن: "تحديد الحدود التشغيلية والحلول المطروحة يتطلب ربطاً وثيقاً بين نتائج التقييم الميداني وأطر الحوكمة المؤسسية."`,
-      `تكشف القراءة المباشرة للمصادر عن نتائج تخصصية حاسمة تنص على أن: "وضع السياسات والتوجيهات ضمن إطار تحليلي موحد يربط بين النظرية والتطبيق الميداني يضمن تعظيم القيمة الاستراتيجية وتقليل الهدر التشغيلي."`,
-    ];
-    supportingEvidence = fallbackEvidences[idx % fallbackEvidences.length];
-  }
-
-  // Divergence / Contextual analysis variations - Expanded for high depth
-  const divergenceVariations = [
-    `تتميز القراءة النقدية لهذه الوثيقة بتركيزها المباشر على المتغيرات المحلية والخصوصيات الميدانية لـ ${arabicTitleConcept}، مع تجنب التعميمات النظرية لصالح المعالجة السياقية العميقة. وتتجلى أهمية هذا الطرح في تبيان كيف أن إغفال هذه الخصوصيات قد يؤدي إلى إخفاقات تشغيلية وتكلفة عالية في إدارة المخاطر.`,
-    `ينكشف التباين المنهجي في المستند من خلال مراعاة الظروف الضاغطة والخصوصية الميدانية في معالجة ${arabicTitleConcept}. ويؤكد التحليل أن الاستجابة للمستجدات تتطلب التخلي عن الأطر الجامدة وتبني المرونة التكتيكية القائمة على التقييم المستمر للنتائج.`,
-    `تطرح الوثيقة رؤية نقدية تراجع الفرضيات الشائعة حول ${arabicTitleConcept} وتدعو إلى بناء نماذج تقييم متغيرة لا تكتفي بالحلول المؤقتة، بل تؤسس لاستدامة التخطيط المؤسسي وبناء القدرات الذاتية على المدى الطويل.`,
-    `يتجلى الاختلاف التحليلي في اعتماد الوثيقة على معايير قياس متخصصة تفصل بين الأثر الفوري والاستدامة التنظيمية في ${arabicTitleConcept}. ويرهن المستند نجاح الخيارات التنفيذية بمدى التنسيق بين المستوى القيادي والتنفيذي الميداني.`,
-  ];
-  const divergenceAndContext = divergenceVariations[idx % divergenceVariations.length];
-
-  // Specific Actionable Recommendations - NO REPETITIVE FORMULA!
-  const recommendationVariations = [
-    `إعادة هيكلة بروتوكولات العمل والمتابعة في ضوء مخرجات "${cleanTitle}" للحد من الانحرافات التشغيلية في ${arabicTitleConcept}، وتكليف فريق متخصص بإجراء مراجعة دورية كل ثلاثة أشهر لضمان الامتثال لضوابط الجودة والأداء.`,
-    `تبني نموذج تقييم تتبعي مخصص يضمن اختبار ثبات النتائج الواردة في "${cleanTitle}" بشأن ${arabicTitleConcept}، مع إرساء آليات إنذار مبكر لرصد أي اختلالات تشغيلية معالجة الآثار الجانبية قبل تفاقمها.`,
-    `تطبيق نظام تدقيق مرحلي يربط بين التوجيهات الميدانية لـ "${cleanTitle}" ومتطلبات الاستجابة السريعة، وتوفير الموارد الكفيلة بتدريب الكوادر الميدانية على التعامل مع الظروف الطارئة.`,
-    `تطوير دليل استرشادي للسياسات يستفيد من أدلة "${cleanTitle}" لرفع كفاءة التخطيط وتوجيه الكوادر الميدانية، وتحديد المسؤوليات المؤسسية بدقة لتفادي تضارب الصلاحيات.`,
-  ];
-  const specificRecommendation = recommendationVariations[idx % recommendationVariations.length];
-
-  // Specific Gap Analysis - NO REPETITIVE FORMULA!
-  const gapVariations = [
-    `تكشف القراءة النقدية لـ "${cleanTitle}" عن غياب القياس التتبعي طويل الأجل للآثار التراكمية على بيئة التطبيق، فضلاً عن نقص المعطيات المقارنة بخصوص توزيع الموارد والكفاءة التشغيلية، مما يستوجب تعزيز قاعدة البيانات الميدانية.`,
-    `تتبدى الفجوة المنهجية في اعتماد "${cleanTitle}" على عينة مقطعية محدودة، مما يتطلب إجراء أبحاث ممتدة تحت ظروف تشغيلية متنوعة لاختبار استدامة المخرجات والتأكد من عدم تأثرها بالمتغيرات الجيوسياسية.`,
-    `ينطوي المستند على محدودة توثيقية تتعلق بنقص المؤشرات الرقمية المعيارية التي تقيس العبء التنظيمي والتكلفة الميدانية في سياق ${arabicTitleConcept}، مما يجعل من الصعب مقارنة أدائه بالنماذج الإقليمية الأخرى.`,
-    `تظهر الحدود العلمية للوثيقة عند معالجة حالات الاستثناء والظروف الطارئة، حيث تفتقر البيانات إلى نماذج محاكاة للمخاطر المعقدة وآليات التكيف مع السيناريوهات الأسوأ.`,
-  ];
-  const detailedGapAnalysis = gapVariations[idx % gapVariations.length];
-
-  const faqVariations = [
-    `ما هي المخرجات والأدلة التخصصية التي يقدمها مستند "${cleanTitle}" فيما يتعلق بـ ${arabicTitleConcept}؟`,
-    `كيف تشكل الشواهد الواردة في مستند "${cleanTitle}" حجر أساس لفهم ${arabicTitleConcept}؟`,
-    `ما الأبعاد الميدانية والحدود المنهجية التي يكشف عنها تحليل مستند "${cleanTitle}"؟`,
-    `كيف تساهم نتائج مستند "${cleanTitle}" في تطوير التخطيط الاستراتيجي لـ ${arabicTitleConcept}؟`,
-  ];
-  const specificFAQ = faqVariations[idx % faqVariations.length];
-
-  const researchQuestionVariations = [
-    `كيف يمكن بناء مؤشرات قياس كمية ونوعية للتحقق من استدامة نتائج "${cleanTitle}" بشأن ${arabicTitleConcept}؟`,
-    `ما السبل الميدانية لتكييف الأطر المطروحة في "${cleanTitle}" لتلائم البيئات التشغيلية عالية المخاطر؟`,
-    `كيف تؤثر المتغيرات الجيوسياسية والتنظيمية على ثبات الأدلة الواردة في "${cleanTitle}" حول ${arabicTitleConcept}؟`,
-    `ما آليات المعالجة المنهجية المفضلة لسد الفجوة التوثيقية المرصودة في مستند "${cleanTitle}"؟`,
-  ];
-  const tailoredResearchQuestion = researchQuestionVariations[idx % researchQuestionVariations.length];
-
-  const proposalVariations = [
-    `إطلاق مشروع مسحي ميداني يعتمد على جمع بيانات أولية وإجراء دراسات حالة مقارنة لاختبار مرونة الأطر المطروحة في "${cleanTitle}".`,
-    `تأسيس وحدة تدقيق وبحث طولي لمتابعة الأثر الميداني لقياس كفاءة التوصيات المستخلصة من "${cleanTitle}" على فترات ممتدة.`,
-    `تصميم نموذج تجريبي محاكاة يفحص سلوك المتغيرات المدروسة في "${cleanTitle}" تحت ظروف ضاغطة ومختلفة.`,
-    `تطوير أرشيف بيانات موازي يجمع المؤشرات الرقمية والتنفيذية للربط بين مخرجات "${cleanTitle}" والأجندة البحثية المستقبليّة.`,
-  ];
-  const actionableResearchProposal = proposalVariations[idx % proposalVariations.length];
-
-  return { 
-    title: cleanTitle, 
-    coreIssue, 
-    methodology, 
-    supportingEvidence, 
-    divergenceAndContext, 
-    specificRecommendation, 
-    specificGap: `نقص البيانات الميدانية التراكمية في ${arabicTitleConcept}`, 
-    specificFAQ, 
-    detailedGapAnalysis, 
-    tailoredResearchQuestion, 
-    actionableResearchProposal 
+  return {
+    title,
+    coreIssue: firstEvidence ? `ينحصر المحور الذي يمكن إثباته في «${title}» في العبارة الآتية: «${firstEvidence}».` : noEvidence,
+    methodology: secondEvidence
+      ? `لا أستنتج نوع المنهج من العنوان وحده. ما يمكن توثيقه فقط هو أن النص يورد: «${secondEvidence}».`
+      : `لا يصف النص المتاح بصورة كافية العينة أو المنهج أو طريقة جمع البيانات؛ ومن ثم لا يصح نسب منهج محدد إلى «${title}».`,
+    supportingEvidence: evidencePhrase,
+    divergenceAndContext: secondEvidence
+      ? `${secondEvidencePhrase} لا تكفي هذه المقاطع وحدها لإثبات اتفاق أو تعارض مع وثيقة أخرى، ولذلك أترك الحكم المقارن معلقاً بدلاً من اختلاقه.`
+      : `لا يمكن إثبات اتفاق أو اختلاف مع بقية الوثائق من المادة المتاحة في هذا المسار الاحتياطي.`,
+    specificRecommendation: `لا أستخرج توصية تنفيذية من «${title}» ما لم يرد في النص إجراء محدد؛ تحويل العبارة المقتبسة إلى سياسة سيكون تجاوزاً لدليلها.`,
+    specificGap: `غياب مقطع عربي كافٍ أو معطيات متقاطعة في النص المتاح من «${title}» يمنع اختبار الإجابة عن «${topicText}».`,
+    specificFAQ: `ما الذي يثبته النص المتاح من «${title}» بشأن «${topicText}»؟`,
+    detailedGapAnalysis: firstEvidence
+      ? `الفجوة القابلة للتوثيق ليست نتيجةً عن الموضوع، بل حدٌّ في المادة المتاحة: يقدم النص المقطع «${firstEvidence}»، ولا يقدم في المسار الاحتياطي ما يكفي لإثبات امتداده أو مقارنته بمصدر آخر.`
+      : noEvidence,
+    tailoredResearchQuestion: `ما المقطع الإضافي أو المصدر المقارن الذي يوضح صلة ما ورد في «${title}» بالسؤال «${topicText}»؟`,
+    actionableResearchProposal: `إعادة تشغيل التوليف بعد إتاحة النص الكامل لـ «${title}» مع إبقاء كل ادعاء مرتبطاً باقتباس قصير قابل للتحقق.`,
   };
 }
 
