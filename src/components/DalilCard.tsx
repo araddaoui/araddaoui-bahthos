@@ -23,23 +23,6 @@ function cleanDalilDisplayText(text: string): string {
     .trim();
 }
 
-function waitForSpeechVoices(synth: SpeechSynthesis, timeoutMs = 1500): Promise<SpeechSynthesisVoice[]> {
-  const existing = synth.getVoices();
-  if (existing.length > 0) return Promise.resolve(existing);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      synth.removeEventListener("voiceschanged", finish);
-      resolve(synth.getVoices() || []);
-    };
-    synth.addEventListener("voiceschanged", finish);
-    window.setTimeout(finish, timeoutMs);
-  });
-}
-
 export default function DalilCard({
   dalilBriefing,
   dalilCountdown,
@@ -58,13 +41,31 @@ export default function DalilCard({
   const [currentChunkIdx, setCurrentChunkIdx] = useState<number>(-1);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioObjectUrlRef = useRef<string | null>(null);
+  const audioUnlockedRef = useRef(false);
   const animationFrameRef = useRef<number | null>(null);
   const isStoppedRef = useRef<boolean>(false);
 
   const cachedAudioDataRef = useRef<{ audio: string; mimeType?: string } | null>(null);
   const cachedBriefingIdRef = useRef<string | null>(null);
-  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const utterancesKeepAliveRef = useRef<SpeechSynthesisUtterance[]>([]);
+
+  const revokeAudioObjectUrl = () => {
+    if (audioObjectUrlRef.current) {
+      URL.revokeObjectURL(audioObjectUrlRef.current);
+      audioObjectUrlRef.current = null;
+    }
+  };
+
+  const audioDataToObjectUrl = (audioData: { audio: string; mimeType?: string }) => {
+    const binary = window.atob(audioData.audio);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: audioData.mimeType || "audio/wav" });
+    revokeAudioObjectUrl();
+    const url = URL.createObjectURL(blob);
+    audioObjectUrlRef.current = url;
+    return url;
+  };
 
   const stopAllSpeech = (clearNotice = true) => {
     isStoppedRef.current = true;
@@ -78,8 +79,11 @@ export default function DalilCard({
         audioRef.current.onerror = null;
         audioRef.current.onplay = null;
         audioRef.current.onpause = null;
+        audioRef.current.oncanplay = null;
+        audioRef.current.oncanplaythrough = null;
       } catch (_) {}
     }
+    revokeAudioObjectUrl();
 
     if (animationFrameRef.current !== null) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -90,8 +94,6 @@ export default function DalilCard({
       window.speechSynthesis.cancel();
     }
 
-    activeUtteranceRef.current = null;
-    utterancesKeepAliveRef.current = [];
     setIsPlaying(false);
     setIsPaused(false);
     setIsLoadingAudio(false);
@@ -123,135 +125,12 @@ export default function DalilCard({
       });
   }, [dalilBriefing?.id, dalilBriefing?.text]);
 
-  // Pre-load and cache browser voices on mount
-  useEffect(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.getVoices();
-      const handleVoicesChanged = () => {
-        window.speechSynthesis.getVoices();
-      };
-      window.speechSynthesis.addEventListener("voiceschanged", handleVoicesChanged);
-      return () => {
-        window.speechSynthesis.removeEventListener("voiceschanged", handleVoicesChanged);
-      };
-    }
-  }, []);
-
   // Clean up speech synthesis when component unmounts or briefing changes
   useEffect(() => {
     return () => {
       stopAllSpeech();
     };
   }, [dalilBriefing?.id]);
-
-  const playChunkWithWebSpeechFallback = async (segments: string[], idx: number) => {
-    if (idx >= segments.length || isStoppedRef.current) {
-      stopAllSpeech();
-      return;
-    }
-
-    setCurrentChunkIdx(idx);
-
-    const cleanSegment = segments[idx]
-      .replace(/[#*`_~\[\]()]/g, "")
-      .replace(/\.[a-z0-9]{2,4}\b/gi, "")
-      .replace(/[a-zA-Z0-9_\-\.\/]{2,}\.(pdf|docx|txt|html|xlsx|pptx)/gi, "")
-      .replace(/[a-zA-Z]{2,}/g, "")
-      .replace(/\.\.\./g, " .. ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!cleanSegment) {
-      playChunkWithWebSpeechFallback(segments, idx + 1);
-      return;
-    }
-
-    let hasFinished = false;
-
-    const handleNext = () => {
-      if (hasFinished || isStoppedRef.current) return;
-      hasFinished = true;
-
-      if (activeUtteranceRef.current) {
-        utterancesKeepAliveRef.current = utterancesKeepAliveRef.current.filter(
-          (u) => u !== activeUtteranceRef.current
-        );
-        activeUtteranceRef.current = null;
-      }
-
-      // Advance only from a real speech/audio completion event. There is no
-      // timer-based visual progression, so silent strolling is impossible.
-      void playChunkWithWebSpeechFallback(segments, idx + 1);
-    };
-
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      const synth = window.speechSynthesis;
-
-      try {
-        synth.resume();
-      } catch (_) {}
-
-      const voices = await waitForSpeechVoices(synth);
-      if (isStoppedRef.current) return;
-      const arVoice = voices.find(
-        (v) =>
-          v.lang.toLowerCase().startsWith("ar") ||
-          v.name.toLowerCase().includes("arabic") ||
-          v.name.includes("عربي") ||
-          v.name.toLowerCase().includes("maged") ||
-          v.name.toLowerCase().includes("tarik") ||
-          v.name.toLowerCase().includes("salma") ||
-          v.name.toLowerCase().includes("laila") ||
-          v.name.toLowerCase().includes("naayf") ||
-          v.name.toLowerCase().includes("hoda")
-      );
-
-        // Never use the browser's default voice here: it may be French or English.
-        // A browser fallback is acceptable only when it is explicitly Arabic.
-        const selectedVoice = arVoice;
-        if (!selectedVoice) {
-          setAudioNotice("لا يتوفر صوت عربي في المتصفح؛ لن تُستخدم أصوات فرنسية أو إنجليزية بديلة.");
-        setIsPlaying(false);
-        setCurrentChunkIdx(-1);
-        isStoppedRef.current = true;
-        return;
-      }
-
-      const utterance = new SpeechSynthesisUtterance(cleanSegment);
-      utterance.lang = selectedVoice.lang || "ar-SA";
-      utterance.voice = selectedVoice;
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-
-      activeUtteranceRef.current = utterance;
-      utterancesKeepAliveRef.current.push(utterance);
-
-      utterance.onstart = () => {
-        setIsPlaying(true);
-        setIsPaused(false);
-      };
-      utterance.onend = handleNext;
-      utterance.onerror = (e) => {
-        console.warn("Utterance speech warning:", e);
-        stopAllSpeech(false);
-        setAudioNotice("تعذر تشغيل الصوت في المتصفح؛ تحقّق من مخرج الصوت أو أذونات التلاوة.");
-      };
-
-      try {
-        synth.speak(utterance);
-        setIsPlaying(true);
-        setIsPaused(false);
-      } catch (err) {
-        console.warn("SpeechSynthesis speak error:", err);
-        stopAllSpeech(false);
-        setAudioNotice("تعذر بدء التلاوة في المتصفح؛ تحقّق من مخرج الصوت أو أذونات التلاوة.");
-      }
-    } else {
-      stopAllSpeech(false);
-      setAudioNotice("لا تتوفر خدمة صوت في هذا المتصفح؛ لم يتم تحريك التمييز دون صوت.");
-    }
-  };
 
   const handleTogglePlay = async () => {
     if (!dalilBriefing?.text) return;
@@ -265,8 +144,6 @@ export default function DalilCard({
     if (isPlaying && !isPaused) {
       if (audioRef.current && !audioRef.current.paused) {
         audioRef.current.pause();
-      } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.pause();
       }
       setIsPaused(true);
       return;
@@ -275,27 +152,36 @@ export default function DalilCard({
     // 2. Resume logic if currently paused
     if (isPlaying && isPaused) {
       if (audioRef.current && audioRef.current.paused && audioRef.current.src) {
-        audioRef.current.play().catch(() => {});
-      } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.resume();
+        audioRef.current.play().catch(() => {
+          setAudioNotice("تعذر استئناف الملف الصوتي العربي؛ اضغط زر الصوت لإعادة تشغيله.");
+        });
       }
       setIsPaused(false);
       return;
     }
 
-    // 3. Pre-unlock HTML5 Audio synchronously inside the user click gesture tick!
+    // 3. Unlock the HTML5 audio element inside the user click gesture.
+    // The server request is asynchronous; without this explicit unlock, Chrome/Safari
+    // may reject the later play() call even when the WAV payload is valid.
     if (!audioRef.current) {
       audioRef.current = new Audio();
     }
     const audio = audioRef.current;
+    audio.preload = "auto";
+    audio.setAttribute("playsinline", "true");
     audio.muted = false;
+    audio.volume = 1;
     audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
     try {
-      const p = audio.play();
-      if (p !== undefined) {
-        p.catch(() => {});
+      const unlockPromise = audio.play();
+      if (unlockPromise !== undefined) {
+        await unlockPromise;
       }
-    } catch (_) {}
+      audioUnlockedRef.current = true;
+    } catch (unlockError) {
+      audioUnlockedRef.current = false;
+      console.warn("Audio element unlock warning:", unlockError);
+    }
 
     // Reset previous playback & speech instances
     stopAllSpeech();
@@ -342,15 +228,20 @@ export default function DalilCard({
 
     if (isStoppedRef.current) return;
 
-    // If Gemini TTS audio payload is ready, play through pre-unlocked HTML5 Audio element
+    // Play the server-generated WAV through a Blob URL. Blob-backed media is more
+    // reliably decoded than a large data URI and avoids MIME/base64 edge cases.
     if (audioData && audioData.audio) {
-      const mime = audioData.mimeType || "audio/wav";
-      audio.src = `data:${mime};base64,${audioData.audio}`;
+      const objectUrl = audioDataToObjectUrl(audioData);
+      audio.src = objectUrl;
+      audio.preload = "auto";
+      audio.muted = false;
+      audio.volume = 1;
       audio.load();
       audio.currentTime = 0;
       audio.onplay = () => {
         setIsPlaying(true);
         setIsPaused(false);
+        setAudioNotice(null);
       };
       audio.onpause = () => {
         if (!isStoppedRef.current && audio.currentTime > 0 && !audio.ended) {
@@ -374,28 +265,49 @@ export default function DalilCard({
       };
 
       audio.onended = () => {
-        if (!isStoppedRef.current) {
-          stopAllSpeech();
-        }
+        if (!isStoppedRef.current) stopAllSpeech();
       };
 
-      audio.onerror = (e) => {
-        console.warn("Generated Arabic audio playback error:", e);
+      audio.onerror = (event) => {
+        console.warn("Generated Arabic audio playback error:", event);
         if (!isStoppedRef.current) {
           stopAllSpeech(false);
-          setAudioNotice("تعذر تشغيل الملف الصوتي العربي؛ تحقّق من مخرج الصوت ثم أعد المحاولة.");
+          setAudioNotice("تعذر فك الملف الصوتي العربي أو تشغيله؛ أعد المحاولة بعد التحقق من مخرج الصوت.");
         }
       };
 
       try {
+        if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+          await new Promise<void>((resolve, reject) => {
+            const onReady = () => {
+              cleanup();
+              resolve();
+            };
+            const onError = () => {
+              cleanup();
+              reject(new Error("Arabic audio could not be decoded by the browser."));
+            };
+            const cleanup = () => {
+              audio.removeEventListener("canplay", onReady);
+              audio.removeEventListener("canplaythrough", onReady);
+              audio.removeEventListener("error", onError);
+            };
+            audio.addEventListener("canplay", onReady, { once: true });
+            audio.addEventListener("canplaythrough", onReady, { once: true });
+            audio.addEventListener("error", onError, { once: true });
+          });
+        }
+
+        if (isStoppedRef.current) return;
         await audio.play();
+        audioUnlockedRef.current = true;
         setIsPlaying(true);
         setIsPaused(false);
         setCurrentChunkIdx(0);
         return;
       } catch (playErr) {
-        console.warn("HTML5 Arabic audio.play() failed:", playErr);
-        serverAudioError = "تعذر بدء تشغيل الملف الصوتي العربي في المتصفح.";
+        console.warn("HTML5 Arabic audio playback failed:", playErr);
+        serverAudioError = "تعذر بدء الملف الصوتي العربي بعد تحميله؛ اضغط زر الصوت مرة أخرى للسماح بالتشغيل.";
       }
     }
 
@@ -429,16 +341,15 @@ export default function DalilCard({
             )}
           </div>
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-xs text-white tracking-wide">الدليل — الصوت المرشد</span>
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold text-base sm:text-lg text-white tracking-wide leading-tight">الرفيق البحثي الموثوق | bahthOS</span>
               {isPlaying && (
-                <span className="inline-flex items-center gap-1 bg-teal-500/30 text-teal-200 text-[9px] px-1.5 py-0.2 rounded-full border border-teal-400/30 animate-pulse">
+                <span className="inline-flex items-center gap-1 bg-teal-500/30 text-teal-200 text-[9px] px-1.5 py-0.5 rounded-full border border-teal-400/30 animate-pulse whitespace-nowrap">
                   <Radio className="w-2.5 h-2.5 text-teal-300" />
                   <span>يتلو الآن</span>
                 </span>
               )}
             </div>
-            <span className="text-[10px] text-teal-200/80 font-medium">الرفيق البحثي الموثوق | bahthOS</span>
           </div>
         </div>
 
@@ -612,7 +523,7 @@ export default function DalilCard({
       {!dalilBriefing && !isDalilGenerating && (dalilCountdown === null || dalilCountdown === undefined) && (
         <div className="text-xs text-teal-100/90 leading-relaxed bg-teal-950/40 p-2.5 rounded-xl border border-teal-800/50">
           <p className="mb-2 text-[11px] font-normal text-teal-100">
-            أهلاً بك. أنا <strong className="text-white font-bold">"الدليل"</strong>، الصوت المرشد والرفيق الموثوق داخل بحث OS. أستخرج لك بدقة تحليلاً موجزاً عما تغيّر ولماذا استناداً حصرًا لنصوص مصادرك.
+            أهلاً بك. أنا <strong className="text-white font-bold">الرفيق البحثي الموثوق</strong> داخل bahthOS. أستخرج لك بدقة تحليلاً موجزاً عما تغيّر ولماذا، استناداً حصراً إلى نصوص مصادرك.
           </p>
           {onTriggerDalilBriefing && (
             <button
@@ -621,7 +532,7 @@ export default function DalilCard({
               id="dalil-initial-request-btn"
             >
               <Sparkles className="w-3.5 h-3.5 text-teal-950" />
-              <span>طلب إحاطة أولية من الدليل</span>
+              <span>طلب إحاطة أولية</span>
             </button>
           )}
         </div>
