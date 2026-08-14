@@ -550,7 +550,7 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === "object" && parsed.id) {
-          return null;
+          return parsed as DalilBriefing;
         }
       }
     } catch (e) {
@@ -596,6 +596,7 @@ export default function App() {
 
   const [dalilCountdown, setDalilCountdown] = useState<number | null>(null);
   const [isDalilGenerating, setIsDalilGenerating] = useState(false);
+  const [dalilError, setDalilError] = useState<string | null>(null);
   const dalilTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingNewSourceIdsRef = useRef<Set<string>>(new Set());
 
@@ -1355,6 +1356,7 @@ export default function App() {
     const newIds = Array.from(pendingNewSourceIdsRef.current);
     pendingNewSourceIdsRef.current.clear();
     setIsDalilGenerating(true);
+    setDalilError(null);
 
     let briefingText = "";
 
@@ -1369,14 +1371,19 @@ export default function App() {
         })
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data && !data.silent && data.text && data.text.trim().length > 5) {
-          briefingText = data.text.trim();
-        }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && !data.silent && data.text && data.text.trim().length > 5) {
+        briefingText = data.text.trim();
+      } else {
+        setDalilError(
+          (data && typeof data.error === "string" && data.error.trim())
+            ? data.error.trim()
+            : "تعذر توليد الإحاطة من المصادر الحالية. تحقق من الاتصال ثم أعد المحاولة."
+        );
       }
     } catch (err) {
       console.error("Failed to generate al-Dalil update briefing:", err);
+      setDalilError("تعذر الوصول إلى خدمة التوليف. تحقق من الاتصال ثم أعد المحاولة.");
     } finally {
       // Do not replace a failed model response with synthetic prose. Keeping
       // the prior briefing is safer than presenting generic claims as evidence.
@@ -1385,6 +1392,7 @@ export default function App() {
       }
 
       if (briefingText) {
+        setDalilError(null);
         const newBriefing: DalilBriefing = {
           id: "dalil-" + Date.now(),
           text: briefingText,
@@ -1898,6 +1906,7 @@ export default function App() {
                   dalilBriefing={dalilBriefing}
                   dalilCountdown={dalilCountdown}
                   isDalilGenerating={isDalilGenerating}
+                  dalilError={dalilError}
                   isActive
                   onTriggerDalilBriefing={handleTriggerDalilBriefing}
                 />

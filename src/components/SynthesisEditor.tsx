@@ -28,6 +28,7 @@ interface SynthesisEditorProps {
   dalilBriefing?: DalilBriefing | null;
   dalilCountdown?: number | null;
   isDalilGenerating?: boolean;
+  dalilError?: string | null;
   onTriggerDalilBriefing?: () => void;
   isActive?: boolean;
 }
@@ -38,6 +39,7 @@ function SynthesisEditor({
   dalilBriefing = null,
   dalilCountdown = null,
   isDalilGenerating = false,
+  dalilError = null,
   onTriggerDalilBriefing,
   isActive = true,
 }: SynthesisEditorProps) {
@@ -224,6 +226,7 @@ function SynthesisEditor({
             dalilBriefing={dalilBriefing}
             dalilCountdown={dalilCountdown}
             isDalilGenerating={isDalilGenerating}
+            dalilError={dalilError}
             onTriggerDalilBriefing={onTriggerDalilBriefing}
           />
         )}

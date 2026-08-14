@@ -7,6 +7,7 @@ interface DalilCardProps {
   dalilBriefing: DalilBriefing | null;
   dalilCountdown: number | null;
   isDalilGenerating: boolean;
+  dalilError?: string | null;
   onTriggerDalilBriefing?: () => void;
   compact?: boolean;
 }
@@ -119,6 +120,7 @@ export default function DalilCard({
   dalilBriefing,
   dalilCountdown,
   isDalilGenerating,
+  dalilError = null,
   onTriggerDalilBriefing,
   compact = false,
 }: DalilCardProps) {
@@ -541,6 +543,20 @@ export default function DalilCard({
           )}
         </div>
       </div>
+
+      {dalilError && !isDalilGenerating && (
+        <div className="mb-2 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-[11px] font-semibold leading-5 text-amber-900" role="alert">
+          <div>{dalilError}</div>
+          {onTriggerDalilBriefing && (
+            <button
+              onClick={onTriggerDalilBriefing}
+              className="mt-1.5 rounded-lg bg-amber-200 px-2.5 py-1 text-[10px] font-extrabold text-amber-950 hover:bg-amber-300"
+            >
+              إعادة المحاولة
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Countdown Progress State */}
       {dalilCountdown !== null && dalilCountdown !== undefined && (
