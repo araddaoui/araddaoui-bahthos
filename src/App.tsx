@@ -1635,13 +1635,13 @@ export default function App() {
     void triggerDalilUpdateBriefing(sources, true);
   }, [sources, triggerDalilUpdateBriefing]);
 
-  const handleWorkspaceTabChange = useCallback((tab: ActiveTab) => {
+  const handleWorkspaceTabChange = (tab: ActiveTab) => {
     setActiveTab(tab);
     if (tab !== "sources" && tab !== "home") {
       setSelectedSourceId(null);
       setActiveMainView("chat");
     }
-  }, []);
+  };
 
   if (currentPath === "/terms") {
     return (

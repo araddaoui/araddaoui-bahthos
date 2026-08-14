@@ -41,6 +41,7 @@ export default function Sidebar({
   onDeleteProject,
   onShowLandingPage
 }: SidebarProps) {
+  console.log('Sidebar rendering, activeTab:', activeTab);
   const [isOpen, setIsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -82,7 +83,7 @@ export default function Sidebar({
   ];
 
   return (
-    <div className="w-20 md:w-64 bg-[#f4f3ee] border-l border-[#e2e2dd] h-full flex flex-col justify-between p-4" id="bahthos-sidebar">
+    <div className="w-20 md:w-64 bg-[#f4f3ee] border-l border-[#e2e2dd] h-full flex flex-col justify-between p-4 z-20" id="bahthos-sidebar">
       <div className="flex flex-col gap-5">
         {/* Logo and Brand */}
         <div 
