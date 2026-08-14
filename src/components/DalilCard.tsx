@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, Loader2, Volume2, Pause, Square, ChevronDown, ChevronUp, Radio, Download } from "lucide-react";
 import { DalilBriefing } from "../types.js";
 import { exportToWordDocument } from "../utils/reportFormatter.js";
@@ -11,6 +11,9 @@ interface DalilCardProps {
   compact?: boolean;
 }
 
+type AudioData = { audio: string; mimeType?: string };
+type AudioChunk = { text: string; paragraphIndex: number };
+
 function cleanDalilDisplayText(text: string): string {
   if (!text) return "";
   return text
@@ -18,9 +21,57 @@ function cleanDalilDisplayText(text: string): string {
     .replace(/[A-Za-z][A-Za-z0-9_'’\-\s]{2,}?\s*\.\s*(?:pdf|docx?|txt)\b\s*\.?/gi, " ")
     .replace(/\b(?:pdf|docx?|txt)\b/gi, "")
     .replace(/\b[a-z0-9]+(?:-[a-z0-9]+){3,}-\d{4}-\d{2}-\d{2}(?:-\d{2}){0,2}\b/gi, " ")
-    .replace(/\s{2,}/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .replace(/\s+([،؛:])/g, "$1")
     .trim();
+}
+
+function normalizeDalilParagraphFlow(text: string): string {
+  return text.replace(/\s*\|\|\s*/g, (_marker, offset: number, source: string) => {
+    const before = source.slice(0, offset).trimEnd();
+    const lastCharacter = before.charAt(before.length - 1);
+    return /[.!؟؛:…۔]$/.test(lastCharacter) ? " " : "۔ ";
+  });
+}
+
+function splitIntoParagraphs(text: string): string[] {
+  return normalizeDalilParagraphFlow(text)
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function splitParagraphIntoAudioChunks(paragraph: string, paragraphIndex: number, maxCharacters = 480): AudioChunk[] {
+  const sentences = paragraph.match(/[^.!؟؛:…]+[.!؟؛:…]+|[^.!؟؛:…]+$/g) || [paragraph];
+  const chunks: AudioChunk[] = [];
+  let current = "";
+
+  const pushWordsWithinLimit = (text: string) => {
+    for (const word of text.trim().split(/\s+/)) {
+      const candidate = `${current} ${word}`.trim();
+      if (current && candidate.length > maxCharacters) {
+        chunks.push({ text: current, paragraphIndex });
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+  };
+
+  for (const sentence of sentences) {
+    const trimmedSentence = sentence.trim();
+    const candidate = `${current} ${trimmedSentence}`.trim();
+    if (current && candidate.length > maxCharacters) {
+      chunks.push({ text: current, paragraphIndex });
+      current = "";
+    }
+    pushWordsWithinLimit(trimmedSentence);
+  }
+
+  if (current) chunks.push({ text: current, paragraphIndex });
+  return chunks;
 }
 
 export default function DalilCard({
@@ -31,7 +82,11 @@ export default function DalilCard({
   compact = false,
 }: DalilCardProps) {
   const displayText = dalilBriefing?.text ? cleanDalilDisplayText(dalilBriefing.text) : "";
-  const displaySegments = displayText.split("||").map((segment) => segment.trim()).filter(Boolean);
+  const displayParagraphs = useMemo(() => splitIntoParagraphs(displayText), [displayText]);
+  const audioChunks = useMemo(
+    () => displayParagraphs.flatMap((paragraph, paragraphIndex) => splitParagraphIntoAudioChunks(paragraph, paragraphIndex)),
+    [displayParagraphs]
+  );
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -46,8 +101,11 @@ export default function DalilCard({
   const animationFrameRef = useRef<number | null>(null);
   const isStoppedRef = useRef<boolean>(false);
 
-  const cachedAudioDataRef = useRef<{ audio: string; mimeType?: string } | null>(null);
+  const cachedAudioChunksRef = useRef<Map<number, AudioData>>(new Map());
+  const pendingAudioChunksRef = useRef<Map<number, Promise<AudioData | null>>>(new Map());
   const cachedBriefingIdRef = useRef<string | null>(null);
+  const playbackRunIdRef = useRef(0);
+  const activeChunkResolveRef = useRef<(() => void) | null>(null);
 
   const revokeAudioObjectUrl = () => {
     if (audioObjectUrlRef.current) {
@@ -67,8 +125,51 @@ export default function DalilCard({
     return url;
   };
 
+  const fetchAudioChunk = async (chunkIndex: number): Promise<AudioData | null> => {
+    const cached = cachedAudioChunksRef.current.get(chunkIndex);
+    if (cached) return cached;
+
+    const pending = pendingAudioChunksRef.current.get(chunkIndex);
+    if (pending) return pending;
+
+    const chunk = audioChunks[chunkIndex];
+    if (!chunk) return null;
+
+    const request = (async () => {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: chunk.text }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`خدمة الصوت العربية غير متاحة حالياً (${res.status}). ${detail.slice(0, 160)}`);
+      }
+
+      const data = await res.json().catch(() => null);
+      if (!data?.audio) {
+        throw new Error("لم تُرجِع خدمة الصوت العربية ملفاً صوتياً قابلاً للتشغيل.");
+      }
+
+      const audioData: AudioData = { audio: data.audio, mimeType: data.mimeType || "audio/wav" };
+      cachedAudioChunksRef.current.set(chunkIndex, audioData);
+      return audioData;
+    })();
+
+    pendingAudioChunksRef.current.set(chunkIndex, request);
+    try {
+      return await request;
+    } finally {
+      pendingAudioChunksRef.current.delete(chunkIndex);
+    }
+  };
+
   const stopAllSpeech = (clearNotice = true) => {
     isStoppedRef.current = true;
+    playbackRunIdRef.current += 1;
+    activeChunkResolveRef.current?.();
+    activeChunkResolveRef.current = null;
 
     if (audioRef.current) {
       try {
@@ -101,29 +202,20 @@ export default function DalilCard({
     setCurrentChunkIdx(-1);
   };
 
-  // Pre-fetch TTS audio in background as soon as dalilBriefing updates
+  // Warm only the first bounded request. Playback prefetches the next chunk after
+  // each chunk starts, so no request contains the full long briefing.
   useEffect(() => {
     if (!dalilBriefing?.text || dalilBriefing.id === cachedBriefingIdRef.current) return;
 
     cachedBriefingIdRef.current = dalilBriefing.id;
-    cachedAudioDataRef.current = null;
+    cachedAudioChunksRef.current.clear();
+    pendingAudioChunksRef.current.clear();
+    playbackRunIdRef.current += 1;
 
-    const fullText = (displayText || dalilBriefing.text).replace(/\|\|/g, " . ");
-
-    fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: fullText }),
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!data || !data.audio) return;
-        cachedAudioDataRef.current = { audio: data.audio, mimeType: data.mimeType };
-      })
-      .catch((err) => {
-        console.warn("Background TTS prefetch info:", err);
-      });
-  }, [dalilBriefing?.id, dalilBriefing?.text]);
+    void fetchAudioChunk(0).catch((err) => {
+      console.warn("Background Arabic TTS chunk prefetch info:", err);
+    });
+  }, [dalilBriefing?.id, audioChunks]);
 
   // Clean up speech synthesis when component unmounts or briefing changes
   useEffect(() => {
@@ -133,150 +225,98 @@ export default function DalilCard({
   }, [dalilBriefing?.id]);
 
   const handleTogglePlay = async () => {
-    if (!dalilBriefing?.text) return;
+    if (!dalilBriefing?.text || audioChunks.length === 0) return;
 
     if (isLoadingAudio) {
       stopAllSpeech();
       return;
     }
 
-    // 1. Pause logic if currently playing
     if (isPlaying && !isPaused) {
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-      }
+      audioRef.current?.pause();
       setIsPaused(true);
       return;
     }
 
-    // 2. Resume logic if currently paused
     if (isPlaying && isPaused) {
-      if (audioRef.current && audioRef.current.paused && audioRef.current.src) {
-        audioRef.current.play().catch(() => {
-          setAudioNotice("تعذر استئناف الملف الصوتي العربي؛ اضغط زر الصوت لإعادة تشغيله.");
-        });
+      try {
+        await audioRef.current?.play();
+        setIsPaused(false);
+      } catch (resumeError) {
+        console.warn("Arabic audio resume failed:", resumeError);
+        setAudioNotice("تعذر استئناف الملف الصوتي العربي؛ اضغط زر الصوت لإعادة تشغيله.");
       }
-      setIsPaused(false);
       return;
     }
 
-    // 3. Unlock the HTML5 audio element inside the user click gesture.
-    // The server request is asynchronous; without this explicit unlock, Chrome/Safari
-    // may reject the later play() call even when the WAV payload is valid.
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-    }
+    stopAllSpeech();
+    isStoppedRef.current = false;
+    const runId = playbackRunIdRef.current;
+
+    if (!audioRef.current) audioRef.current = new Audio();
     const audio = audioRef.current;
     audio.preload = "auto";
     audio.setAttribute("playsinline", "true");
     audio.muted = false;
     audio.volume = 1;
+
+    // Unlock the media element in the original click gesture. The actual Arabic
+    // audio requests happen afterward and remain short enough for serverless limits.
     audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
     try {
-      const unlockPromise = audio.play();
-      if (unlockPromise !== undefined) {
-        await unlockPromise;
-      }
+      await audio.play();
       audioUnlockedRef.current = true;
+      audio.pause();
+      audio.currentTime = 0;
     } catch (unlockError) {
       audioUnlockedRef.current = false;
       console.warn("Audio element unlock warning:", unlockError);
     }
 
-    // Reset previous playback & speech instances
-    stopAllSpeech();
-    isStoppedRef.current = false;
+    setIsLoadingAudio(true);
+    setAudioNotice(null);
 
-    const rawSegments = displaySegments;
+    try {
+      for (let chunkIndex = 0; chunkIndex < audioChunks.length; chunkIndex += 1) {
+        if (isStoppedRef.current || playbackRunIdRef.current !== runId) return;
 
-    if (rawSegments.length === 0) return;
+        const audioData = await fetchAudioChunk(chunkIndex);
+        if (!audioData) throw new Error("لم تتوفر بيانات صوتية عربية لهذا الجزء من الإحاطة.");
+        if (isStoppedRef.current || playbackRunIdRef.current !== runId) return;
 
-    // Retrieve or fetch TTS audio payload
-    let audioData = cachedAudioDataRef.current;
-    let serverAudioError: string | null = null;
+        const objectUrl = audioDataToObjectUrl(audioData);
+        audio.src = objectUrl;
+        audio.preload = "auto";
+        audio.muted = false;
+        audio.volume = 1;
+        audio.load();
+        audio.currentTime = 0;
+        setCurrentChunkIdx(chunkIndex);
 
-    if (!audioData) {
-      setIsLoadingAudio(true);
-      const fullText = (displayText || dalilBriefing.text).replace(/\|\|/g, " . ");
-
-      try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: fullText }),
+        const endedPromise = new Promise<void>((resolve, reject) => {
+          const finish = () => {
+            if (activeChunkResolveRef.current === finish) activeChunkResolveRef.current = null;
+            resolve();
+          };
+          activeChunkResolveRef.current = finish;
+          audio.onended = finish;
+          audio.onerror = (event) => {
+            if (activeChunkResolveRef.current === finish) activeChunkResolveRef.current = null;
+            console.warn("Generated Arabic audio chunk playback error:", event);
+            reject(new Error("تعذر فك الجزء الصوتي العربي أو تشغيله."));
+          };
+          audio.onplay = () => {
+            setIsPlaying(true);
+            setIsPaused(false);
+            setAudioNotice(null);
+          };
+          audio.onpause = () => {
+            if (!isStoppedRef.current && audio.currentTime > 0 && !audio.ended) {
+              setIsPaused(true);
+            }
+          };
         });
 
-        if (!res.ok) {
-          const detail = await res.text().catch(() => "");
-          serverAudioError = `خدمة الصوت العربية غير متاحة حالياً (${res.status}). ${detail.slice(0, 120)}`;
-        } else if (!isStoppedRef.current) {
-          const data = await res.json();
-          if (data && data.audio) {
-            audioData = { audio: data.audio, mimeType: data.mimeType || "audio/wav" };
-            cachedAudioDataRef.current = audioData;
-          } else {
-            serverAudioError = "لم تُرجِع خدمة الصوت العربية ملفاً صوتياً قابلاً للتشغيل.";
-          }
-        }
-      } catch (err) {
-        console.warn("On-demand TTS fetch error:", err);
-        serverAudioError = "تعذر الوصول إلى خدمة الصوت العربية في الخادم.";
-      } finally {
-        setIsLoadingAudio(false);
-      }
-    }
-
-    if (isStoppedRef.current) return;
-
-    // Play the server-generated WAV through a Blob URL. Blob-backed media is more
-    // reliably decoded than a large data URI and avoids MIME/base64 edge cases.
-    if (audioData && audioData.audio) {
-      const objectUrl = audioDataToObjectUrl(audioData);
-      audio.src = objectUrl;
-      audio.preload = "auto";
-      audio.muted = false;
-      audio.volume = 1;
-      audio.load();
-      audio.currentTime = 0;
-      audio.onplay = () => {
-        setIsPlaying(true);
-        setIsPaused(false);
-        setAudioNotice(null);
-      };
-      audio.onpause = () => {
-        if (!isStoppedRef.current && audio.currentTime > 0 && !audio.ended) {
-          setIsPaused(true);
-        }
-      };
-
-      const totalLength = rawSegments.reduce((acc, s) => acc + Math.max(1, s.length), 0);
-
-      audio.ontimeupdate = () => {
-        if (isStoppedRef.current || !audio.duration || audio.duration <= 0) return;
-        const progress = audio.currentTime / audio.duration;
-        let accumulatedRatio = 0;
-        for (let i = 0; i < rawSegments.length; i++) {
-          accumulatedRatio += rawSegments[i].length / totalLength;
-          if (progress <= accumulatedRatio || i === rawSegments.length - 1) {
-            setCurrentChunkIdx(i);
-            break;
-          }
-        }
-      };
-
-      audio.onended = () => {
-        if (!isStoppedRef.current) stopAllSpeech();
-      };
-
-      audio.onerror = (event) => {
-        console.warn("Generated Arabic audio playback error:", event);
-        if (!isStoppedRef.current) {
-          stopAllSpeech(false);
-          setAudioNotice("تعذر فك الملف الصوتي العربي أو تشغيله؛ أعد المحاولة بعد التحقق من مخرج الصوت.");
-        }
-      };
-
-      try {
         if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
           await new Promise<void>((resolve, reject) => {
             const onReady = () => {
@@ -285,7 +325,7 @@ export default function DalilCard({
             };
             const onError = () => {
               cleanup();
-              reject(new Error("Arabic audio could not be decoded by the browser."));
+              reject(new Error("تعذر تجهيز الجزء الصوتي العربي للتشغيل."));
             };
             const cleanup = () => {
               audio.removeEventListener("canplay", onReady);
@@ -298,28 +338,36 @@ export default function DalilCard({
           });
         }
 
-        if (isStoppedRef.current) return;
+        if (isStoppedRef.current || playbackRunIdRef.current !== runId) return;
         await audio.play();
         audioUnlockedRef.current = true;
         setIsPlaying(true);
         setIsPaused(false);
-        setCurrentChunkIdx(0);
-        return;
-      } catch (playErr) {
-        console.warn("HTML5 Arabic audio playback failed:", playErr);
-        serverAudioError = "تعذر بدء الملف الصوتي العربي بعد تحميله؛ اضغط زر الصوت مرة أخرى للسماح بالتشغيل.";
-      }
-    }
 
-    if (!isStoppedRef.current) {
-      stopAllSpeech(false);
-      setAudioNotice(serverAudioError || "لم تتوفر إحاطة صوتية عربية. أعد المحاولة بعد التأكد من إعدادات الخادم.");
+        // Fetch the following bounded request while this one is being heard.
+        void fetchAudioChunk(chunkIndex + 1).catch((err) => {
+          console.warn("Background Arabic TTS next-chunk prefetch info:", err);
+        });
+        await endedPromise;
+      }
+
+      if (!isStoppedRef.current && playbackRunIdRef.current === runId) {
+        stopAllSpeech(false);
+      }
+    } catch (playbackError) {
+      console.warn("Chunked Arabic audio playback failed:", playbackError);
+      if (!isStoppedRef.current && playbackRunIdRef.current === runId) {
+        stopAllSpeech(false);
+        setAudioNotice(playbackError instanceof Error ? playbackError.message : "تعذر تشغيل الصوت العربي حالياً.");
+      }
+    } finally {
+      if (playbackRunIdRef.current === runId) setIsLoadingAudio(false);
     }
   };
 
   const handleExportMSW = () => {
     if (!dalilBriefing?.text) return;
-    const cleanDocText = dalilBriefing.text.replace(/\|\|/g, "\n\n");
+    const cleanDocText = normalizeDalilParagraphFlow(cleanDalilDisplayText(dalilBriefing.text));
     exportToWordDocument("إحاطة الدليل - الصوت المرشد", cleanDocText);
   };
 
@@ -478,7 +526,7 @@ export default function DalilCard({
 
           {/* Fully Scrollable Container with Max Height so text is never truncated */}
           <div
-            className={`text-sm leading-8 text-[#173d3b] font-medium whitespace-pre-wrap bg-white p-4 rounded-2xl border border-[#d7e8e1] shadow-inner shadow-[#073f40]/10 overflow-y-auto transition-all ${
+            className={`text-sm leading-8 text-[#173d3b] font-medium whitespace-normal bg-white p-4 rounded-2xl border border-[#d7e8e1] shadow-inner shadow-[#073f40]/10 overflow-y-auto transition-all ${
               compact ? "max-h-48" : "max-h-64"
             } ${!isExpanded ? "max-h-16 overflow-hidden relative cursor-pointer" : ""}`}
             onClick={() => !isExpanded && setIsExpanded(true)}
@@ -486,14 +534,12 @@ export default function DalilCard({
             id="dalil-text-content-box"
           >
             <div className="space-y-2.5">
-              {displaySegments.map((segment, idx) => {
-                const cleanSeg = segment.trim();
-                if (!cleanSeg) return null;
-                const isCurrentlyBeingRead = currentChunkIdx === idx;
-                const isHeading = cleanSeg.startsWith("نَسْتَعْرِضُ") || cleanSeg.startsWith("تَعْتَمِدُ") || idx === 0;
+              {displayParagraphs.map((paragraph, paragraphIndex) => {
+                const isCurrentlyBeingRead = audioChunks[currentChunkIdx]?.paragraphIndex === paragraphIndex;
+                const isHeading = paragraph.startsWith("نَسْتَعْرِضُ") || paragraph.startsWith("تَعْتَمِدُ") || paragraphIndex === 0;
                 return (
-                  <div
-                    key={idx}
+                  <p
+                    key={`${paragraphIndex}-${paragraph.slice(0, 24)}`}
                     className={`transition-all duration-200 ${
                       isCurrentlyBeingRead
                         ? "bg-[#0d6662] text-white p-2.5 rounded-xl font-bold border border-[#d9a441]/70 shadow-sm"
@@ -502,8 +548,8 @@ export default function DalilCard({
                         : "text-[#173d3b] leading-8"
                     }`}
                   >
-                    {cleanSeg}
-                  </div>
+                    {paragraph}
+                  </p>
                 );
               })}
             </div>
