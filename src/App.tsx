@@ -1313,9 +1313,10 @@ export default function App() {
   useEffect(() => {
     const briefingText = dalilBriefing?.text || "";
     const hasMetaOpening = /تتناول هذه الإحاطة|تركز المقارنة|من الناحية المنهجية|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(briefingText);
+    const isKnownSyntheticFallback = /لا يتوفر في الوثيقة|تتجاور في «[^»]+» و«[^»]+» قضيتان|تضيف الأدلة الواردة في/.test(briefingText);
     const paragraphCount = briefingText.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean).length;
     const briefingNeedsDepth = Boolean(
-      dalilBriefing && (briefingText.trim().length < 1400 || paragraphCount < 6 || hasMetaOpening)
+      dalilBriefing && (briefingText.trim().length < 1400 || paragraphCount < 6 || hasMetaOpening || isKnownSyntheticFallback)
     );
     if (sources.length > 0 && (!dalilBriefing || briefingNeedsDepth) && !isDalilGenerating && !dalilAttemptedRef.current) {
       dalilAttemptedRef.current = true;
@@ -1377,36 +1378,10 @@ export default function App() {
     } catch (err) {
       console.error("Failed to generate al-Dalil update briefing:", err);
     } finally {
-      // Long source-grounded fallback: preserve depth even when the AI request fails.
-      if (!briefingText && currentSourcesList.length > 0) {
-        const sourceTitle = (source: Source, index: number) => {
-          const arabicWords = (source.title || "").match(/[\u0600-\u06FF]+/g) || [];
-          return arabicWords.length >= 2 ? arabicWords.slice(0, 6).join(" ") : `الوثيقة ${index + 1}`;
-        };
-        const sourceExcerpt = (source: Source, limit: number) => {
-          const raw = (source.content || source.summary || "").replace(/\s+/g, " ").trim();
-          const arabicSentences = raw
-            .split(/(?<=[.!؟؛。])\s+/)
-            .filter((sentence) => {
-              const arabic = (sentence.match(/[\u0600-\u06FF]/g) || []).length;
-              const latin = (sentence.match(/[A-Za-z]/g) || []).length;
-              return sentence.length > 25 && arabic > 20 && latin <= Math.max(12, Math.floor(arabic * 0.12));
-            });
-          return arabicSentences.slice(0, 3).join(" ").slice(0, limit) || "لا يتوفر مقطع عربي كافٍ للاقتباس المباشر في هذا المصدر.";
-        };
-        const first = currentSourcesList[0];
-        const second = currentSourcesList[1] || currentSourcesList[0];
-        const additional = currentSourcesList.slice(2, 5)
-          .map((source, index) => `تضيف الأدلة الواردة في «${sourceTitle(source, index + 2)}» قيداً أو زاويةً أخرى: «${sourceExcerpt(source, 520)}».`)
-          .join(" ");
-        briefingText = [
-          `يُظْهِرُ التَّحْلِيلُ المُعَمَّقُ لِلْأَدِلَّةِ المُقَدَّمَةِ فِي «${sourceTitle(first, 0)}» وَ«${sourceTitle(second, 1)}» تَقَاطُعاً مِحْوَرِيّاً فِي طَبِيعَةِ المُشْكِلَةِ المَدْرُوسَةِ. فَبَيْنَمَا يَنْطَلِقُ الطَّرْحُ الْأَوَّلُ مِنْ مُعْطَيَاتٍ تُؤَكِّدُ أَنَّ: «${sourceExcerpt(first, 520)}»، يَتَّخِذُ الطَّرْحُ الثَّانِي مَسَاراً مُكَمِّلاً حِينَ يُشِيرُ إِلَى أَنَّ: «${sourceExcerpt(second, 520)}». وَهَذَا التَّبَايُنُ لَيْسَ تَنَاقُضاً مَنْهَجِيّاً، بَلْ هُوَ اخْتِلَافٌ فِي زَاوِيَةِ الرُّؤْيَةِ يُثْرِي فَهْمَ الظَّاهِرَةِ.`,
-          `تَتَجَلَّى أَهَمِّيَّةُ هَذَا التَّقَاطُعِ عِنْدَ فَحْصِ السِّيَاقَاتِ التَّطْبِيقِيَّةِ لِلْمَفَاهِيمِ. فَالمَصْدَرُ الْأَوَّلُ يُؤَسِّسُ لِبُنْيَةٍ نَظَرِيَّةٍ يُمْكِنُ اسْتِخْدَامُهَا لِتَفْسِيرِ الحَالَاتِ المَيْدَانِيَّةِ، فِي حِينِ يُقَدِّمُ المَصْدَرُ الثَّانِي شَوَاهِدَ عَمَلِيَّةً تَخْتَبِرُ مَدَى صَلَابَةِ تِلْكَ البُنْيَةِ فِي مُوَاجَهَةِ المُتَغَيِّرَاتِ الفِعْلِيَّةِ.`,
-          additional || `وَمِنْ خِلَالِ دَمْجِ هَاتَيْنِ الرُّؤْيَتَيْنِ، يُمْكِنُ اسْتِنْتَاجُ أَنَّ المُقَارَبَاتِ الْأُحَادِيَّةَ تَبْقَى قَاصِرَةً عَنْ الْإِحَاطَةِ بِالتَّعْقِيدِ الكَامِنِ فِي المُشْكِلَةِ، مِمَّا يَسْتَدْعِي تَبَنِّي نَمُوذَجٍ تَفْسِيرِيٍّ مُرَكَّبٍ.`,
-          `عَلَى الرَّغْمِ مِنْ هَذَا التَّكَامُلِ، تَبْرُزُ فَجْوَةٌ مَعْرِفِيَّةٌ تَتَعَلَّقُ بِحُدُودِ التَّعْمِيمِ. فَالنَّتَائِجُ المُسْتَخْلَصَةُ تَبْقَى مَشْرُوطَةً بِالسِّيَاقِ الخَاصِّ الَّذِي أُفْرِزَتْ فِيهِ الْأَدِلَّةُ، وَلَا يُمْكِنُ سَحْبُهَا عَلَى نِطَاقَاتٍ أَوْسَعَ دُونَ قَرَائِنَ إِضَافِيَّةٍ لَمْ تُعَالِجْهَا الْوَثَائِقُ الحَالِيَّةُ بِشَكْلٍ صَرِيحٍ.`,
-          `وَخُلَاصَةُ القَوْلِ، إِنَّ الْقِيمَةَ الْأَسَاسِيَّةَ لِهَذِهِ المَجْمُوعَةِ تَتَمَثَّلُ فِي قُدْرَتِهَا عَلَى إِعَادَةِ صِيَاغَةِ السُّؤَالِ المَرْكَزِيِّ؛ فَبَدَلاً مِنْ الْبَحْثِ عَنْ إِجَابَاتٍ قَاطِعَةٍ، تُوَجِّهُنَا الْأَدِلَّةُ نَحْوَ مَزِيدٍ مِنْ التَّفْكِيكِ لِلْعَوَامِلِ المُؤَثِّرَةِ وَالمُتَدَاخِلَةِ.`,
-          `تَسْتَنِدُ هَذِهِ الْإِحَاطَةُ إِلَى المَصَادِرِ الحَالِيَّةِ فِي هَذَا المَشْرُوعِ حَصْراً، وَلَا تَسْتَعِيرُ مَعْلُومَاتٍ مِنْ مَشْرُوعَاتٍ سَابِقَةٍ.`
-        ].join("\n\n");
+      // Do not replace a failed model response with synthetic prose. Keeping
+      // the prior briefing is safer than presenting generic claims as evidence.
+      if (!briefingText) {
+        console.warn("No model-generated Al-Dalil briefing was returned; preserving the previous briefing.");
       }
 
       if (briefingText) {

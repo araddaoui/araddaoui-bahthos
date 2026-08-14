@@ -30,12 +30,14 @@ export async function generateContentWithRetry(
   let attempt = 1;
   const maxAttempts = 3;
   const requestedModel = params.model || "gemini-3-flash-preview";
-  const normalizedRequestedModel = requestedModel === "gemini-3.6-flash" || requestedModel === "gemini-flash-latest"
+  const normalizedRequestedModel = requestedModel === "gemini-1.5-pro" || requestedModel === "gemini-pro"
+    ? "gemini-3.1-pro-preview"
+    : requestedModel === "gemini-1.5-flash" || requestedModel === "gemini-flash"
     ? "gemini-3-flash-preview"
     : requestedModel;
   const modelCandidates = normalizedRequestedModel === "gemini-3.1-pro-preview"
     ? ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
-    : [normalizedRequestedModel, "gemini-3.1-pro-preview"];
+    : [normalizedRequestedModel, "gemini-3.1-pro-preview", "gemini-3-flash-preview"];
   let modelIndex = 0;
   let currentModel = modelCandidates[modelIndex];
 
@@ -195,7 +197,7 @@ RULES FOR EVIDENCE GENERATION:
 2. "agreement" attribute: Must be 'متفقة' (all sources agree), 'متفقة إلى حد كبير' (most agree, minor difference), 'يوجد اختلاف جزئي' (partial disagreement), or 'مختلفة' (significant disagreement).
 3. "supporting" attribute: Must state the count of supporting sources out of total active sources, e.g., "3 من أصل 4 مصادر" or "1 من أصل 2 مصادر".
 4. <opposing> tag: Include this tag ONLY if there is actual disagreement. If there is no disagreement, omit the entire <opposing> section.
-5. Verbatim Quotations: Do NOT fabricate or paraphrase quotations. Only use short, exact verbatim passages that actually exist in the source documents. If the source is in English, copy the English fragment exactly.
+5. Verbatim Quotations: Do NOT fabricate or paraphrase quotations. Use only short passages that actually exist in the source documents. When the source is in English or French, translate the passage into clear Arabic and append "(ترجمة عربية للنص الأصلي)"; never expose a raw foreign-language fragment in the Arabic Al-Dalil briefing.
 6. The main text of the report (outside the <evidence> block) should flow naturally and be the primary focus.
 
 TECHNICAL TERMINOLOGY:

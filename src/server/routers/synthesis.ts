@@ -41,10 +41,13 @@ function arabicEvidence(source: any, limit: number): string {
 function isSubstantiveDalilText(text: string): boolean {
   const clean = text.replace(/\s+/g, " ").trim();
   const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
-  const forbiddenMeta = /تتناول هذه الإحاطة|تركز المقارنة|من الناحية المنهجية|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(clean);
-  const evidenceSignals = (clean.match(/«[^»]{2,80}»|الوثيقة\s+(?:الأولى|الثانية|الثالثة|الرابعة|الخامسة)|\d+(?:[.,٪%])?/g) || []).length;
-  const genericSignals = (clean.match(/تحتاج إلى مزيد من البحث|تتسم هذه القضية بالتعقيد|من المهم الإشارة|تلعب دوراً مهماً|يسهم في تعزيز|يقدم رؤى مهمة|لا يمكن فهمها بمعزل عن الأخرى/g) || []).length;
-  return clean.length >= 1400 && paragraphs.length >= 6 && evidenceSignals >= 4 && genericSignals < 4 && !forbiddenMeta && isArabicFirstText(clean);
+  const forbiddenMeta = /تتناول هذه الإحاطة|تركز المقارنة|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(clean);
+
+  // Do not require a fixed citation token pattern here. A strong Arabic
+  // synthesis may cite a translated title, a named author, a number, or a
+  // source-specific passage. The model prompt already requires evidence, while
+  // this gate should only reject empty, short, malformed, or English-heavy text.
+  return clean.length >= 1400 && paragraphs.length >= 6 && !forbiddenMeta && isArabicFirstText(clean);
 }
 
 function buildDalilFallback(activeSources: any[]): string {
@@ -138,9 +141,10 @@ ${sourcesContext}
 `;
 
       try {
-        // Upgrade to Gemini 3.1 Pro for deep academic synthesis and reasoning.
+        // Use Gemini 3.1 Pro for the deep comparative synthesis. Falling back
+        // to the Flash model is handled only for transient model errors.
         const response = await generateContentWithRetry(ai, {
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           contents: dalilPrompt,
           config: {
             systemInstruction: DALIL_SYSTEM_INSTRUCTION,
@@ -159,9 +163,13 @@ ${sourcesContext}
         console.error("al-Dalil briefing generation failed:", aiErr);
       }
 
-      // Rich source-grounded comparative baseline briefing if AI generation is skipped or fails.
-      const fallbackBriefing = buildDalilFallback(activeSources);
-      return res.json({ text: fallbackBriefing, isFallback: true, silent: false });
+      // Never present a fabricated-looking briefing as if it were model analysis.
+      // The client keeps the previous valid briefing and can retry transparently.
+      return res.status(503).json({
+        error: "تعذر توليد إحاطة موثوقة من النصوص الحالية. يرجى إعادة المحاولة.",
+        retryable: true,
+        isFallback: false,
+      });
     }
 
     let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
