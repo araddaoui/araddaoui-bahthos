@@ -1682,6 +1682,8 @@ export default function App() {
   }, [sources, triggerDalilUpdateBriefing]);
 
   const handleWorkspaceTabChange = (tab: ActiveTab) => {
+    // Keep this handler synchronous and minimal. The selected tab paints first;
+    // the heavy view is mounted only after the next animation frame.
     setActiveTab(tab);
     if (tab !== "sources" && tab !== "home") {
       setSelectedSourceId(null);
@@ -1758,6 +1760,8 @@ export default function App() {
     );
   }
 
+  const isTabTransitioning = activeTab !== renderedTab;
+
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-[#fafaf8] text-[#1f1f1f] font-sans antialiased" dir="rtl" id="bahthos-root-container">
       {/* 1. RIGHT COLUMN (Narrow Sidebar Navigation) */}
@@ -1785,13 +1789,13 @@ export default function App() {
             On smaller viewports, it's only shown if the user explicitly opens the "sources" tab.
         */}
         <div className={`h-full flex-shrink-0 ${
-          renderedTab === "sources" 
+          activeTab === "sources"
             ? "w-full md:w-80 flex" 
             : "hidden lg:w-80 lg:flex"
         }`}>
           <SourcesList
             sources={sources}
-            activeTab={renderedTab}
+            activeTab={activeTab}
             onToggleSource={handleToggleSource}
             onEnableAll={handleEnableAll}
             onDisableAll={handleDisableAll}
@@ -1815,9 +1819,9 @@ export default function App() {
 
         {/* 3. MAIN COLUMN (Content Area) */}
         <main className={`flex-1 h-full overflow-hidden relative ${
-          renderedTab === "sources" && selectedSourceId === null ? "hidden md:flex" : "flex"
+          activeTab === "sources" && selectedSourceId === null ? "hidden md:flex" : "flex"
         }`}>
-          <Suspense
+          {isTabTransitioning ? <WorkspaceViewFallback /> : <Suspense
             fallback={<WorkspaceViewFallback />}
           >
             {/* Render content based on selected tab and reading state */}
@@ -1901,9 +1905,9 @@ export default function App() {
               }}
             />
           )}
-          </Suspense>
+          </Suspense>}
 
-          {renderedTab === "editor" && (
+          {!isTabTransitioning && renderedTab === "editor" && (
             <div className="absolute inset-0 z-10 flex bg-[#fafaf8]">
               <Suspense fallback={<WorkspaceViewFallback />}>
                 <SynthesisEditor

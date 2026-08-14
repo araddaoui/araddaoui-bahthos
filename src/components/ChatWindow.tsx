@@ -80,7 +80,7 @@ interface ChatWindowProps {
   onTriggerDalilBriefing?: () => void;
 }
 
-export default function ChatWindow({
+function ChatWindow({
   messages,
   sources,
   onSendMessage,
@@ -173,7 +173,7 @@ export default function ChatWindow({
     }
   };
 
-  const activeSources = sources.filter((s) => s.enabled);
+  const activeSources = React.useMemo(() => sources.filter((s) => s.enabled), [sources]);
   const starterQuestions = React.useMemo(() => {
     if (activeSources.length === 0) {
       return [
@@ -544,3 +544,21 @@ export default function ChatWindow({
     </div>
   );
 }
+
+
+function areChatWindowPropsEqual(previous: ChatWindowProps, next: ChatWindowProps): boolean {
+  // App creates interaction callbacks inline, but those callbacks are backed by
+  // the latest refs/state and the actual data identities change on project,
+  // source, or message changes. Ignore callback identity for navigation-only
+  // renders so long assistant reports are not reparsed on every tab click.
+  return (
+    previous.messages === next.messages &&
+    previous.sources === next.sources &&
+    previous.isThinking === next.isThinking &&
+    previous.dalilBriefing === next.dalilBriefing &&
+    previous.dalilCountdown === next.dalilCountdown &&
+    previous.isDalilGenerating === next.isDalilGenerating
+  );
+}
+
+export default React.memo(ChatWindow, areChatWindowPropsEqual);
