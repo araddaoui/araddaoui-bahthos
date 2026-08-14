@@ -206,11 +206,11 @@ export default function DalilCard({
           v.name.toLowerCase().includes("hoda")
       );
 
-        // Prefer an Arabic voice, but never silently advance without audio. Some browsers
-      // expose voices asynchronously or provide only a system default voice.
-      const selectedVoice = arVoice || voices.find((v) => v.default) || voices[0];
-      if (!selectedVoice && voices.length === 0) {
-        setAudioNotice("لا يتوفر محرك صوت في المتصفح حالياً؛ لم يتم تمرير النص بصمت.");
+        // Never use the browser's default voice here: it may be French or English.
+        // A browser fallback is acceptable only when it is explicitly Arabic.
+        const selectedVoice = arVoice;
+        if (!selectedVoice) {
+          setAudioNotice("لا يتوفر صوت عربي في المتصفح؛ لن تُستخدم أصوات فرنسية أو إنجليزية بديلة.");
         setIsPlaying(false);
         setCurrentChunkIdx(-1);
         isStoppedRef.current = true;
@@ -218,8 +218,8 @@ export default function DalilCard({
       }
 
       const utterance = new SpeechSynthesisUtterance(cleanSegment);
-      utterance.lang = selectedVoice?.lang || "ar-SA";
-      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.lang = selectedVoice.lang || "ar-SA";
+      utterance.voice = selectedVoice;
       utterance.rate = 0.95;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
