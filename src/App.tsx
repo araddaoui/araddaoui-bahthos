@@ -1626,26 +1626,7 @@ export default function App() {
   const activeSelectedSource = sources.find((s) => s.id === selectedSourceId);
 
   // These hooks must run on every render, including landing, terms, and privacy routes.
-  const [, startTransition] = useTransition();
-  const [isEditorWarmed, setIsEditorWarmed] = useState(false);
-
-  useEffect(() => {
-    // Render the editor shell during an idle window, after the initial workspace is responsive.
-    // The hidden shell stays mounted but passes isActive=false, so DalilCard does not fetch TTS.
-    const idleWindow = window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const warmEditor = () => setIsEditorWarmed(true);
-
-    if (idleWindow.requestIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(warmEditor, { timeout: 900 });
-      return () => idleWindow.cancelIdleCallback?.(handle);
-    }
-
-    const timer = window.setTimeout(warmEditor, 350);
-    return () => window.clearTimeout(timer);
-  }, []);
+    const [, startTransition] = useTransition();
 
   const enabledSourcesCount = useMemo(
     () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
@@ -1881,14 +1862,9 @@ export default function App() {
           )}
           </Suspense>
 
-          {/* Keep exactly one editor instance warm in the background. It is hidden with CSS,
-              not unmounted, so tab three reveals an already-initialized shell instantly. */}
-          {(isEditorWarmed || activeTab === "editor") && (
-            <div
-              className={activeTab === "editor" ? "absolute inset-0 z-10 flex bg-[#fafaf8]" : "hidden"}
-              aria-hidden={activeTab !== "editor"}
-            >
-              <Suspense fallback={activeTab === "editor" ? <WorkspaceViewFallback /> : null}>
+          {activeTab === "editor" && (
+            <div className="absolute inset-0 z-10 flex bg-[#fafaf8]">
+              <Suspense fallback={<WorkspaceViewFallback />}>
                 <SynthesisEditor
                   key={currentProjectId || "guest"}
                   sources={sources}
@@ -1896,7 +1872,7 @@ export default function App() {
                   dalilBriefing={dalilBriefing}
                   dalilCountdown={dalilCountdown}
                   isDalilGenerating={isDalilGenerating}
-                  isActive={activeTab === "editor"}
+                  isActive
                   onTriggerDalilBriefing={handleTriggerDalilBriefing}
                 />
               </Suspense>

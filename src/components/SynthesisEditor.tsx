@@ -54,16 +54,25 @@ function SynthesisEditor({
   const topicEditedRef = useRef(false);
   const selectionTouchedRef = useRef(false);
 
+  const sourceIdsKey = sources.map((source) => source.id).join("|");
+  const sourceTopic = sources.slice(0, 2).map((source) => source.title).join("، ");
+
   useEffect(() => {
-    // The warmed editor can mount before Firebase/local project data arrives.
-    // Hydrate its initial selection and topic once the current project sources exist.
+    // Synchronize only when the actual project source identity changes. Depending
+    // directly on the sources array can loop when a parent recreates that array.
     if (sources.length > 0 && !selectionTouchedRef.current) {
-      setSelectedSourceIds(sources.map((source) => source.id));
+      const nextSourceIds = sources.map((source) => source.id);
+      setSelectedSourceIds((previous) => (
+        previous.length === nextSourceIds.length && previous.every((id, index) => id === nextSourceIds[index])
+          ? previous
+          : nextSourceIds
+      ));
     }
     if (sources.length > 0 && !topicEditedRef.current) {
-      setTopic(`مقارنة وتحليل شامل للمصادر المرفقة (${sources.slice(0, 2).map((source) => source.title).join("، ")})`);
+      const nextTopic = `مقارنة وتحليل شامل للمصادر المرفقة (${sourceTopic})`;
+      setTopic((previous) => previous === nextTopic ? previous : nextTopic);
     }
-  }, [sources]);
+  }, [sourceIdsKey, sourceTopic]);
   
   const [toolType, setToolType] = useState<"general" | "matrix" | "gap" | "briefing" | "faq">("general");
   const [isGenerating, setIsGenerating] = useState(false);
