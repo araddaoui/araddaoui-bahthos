@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultSources } from "./data/defaultSources.js";
 import { Source, SourceDraft, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types.js";
 import Sidebar from "./components/Sidebar.js";
@@ -1626,8 +1626,6 @@ export default function App() {
   const activeSelectedSource = sources.find((s) => s.id === selectedSourceId);
 
   // These hooks must run on every render, including landing, terms, and privacy routes.
-    const [, startTransition] = useTransition();
-
   const enabledSourcesCount = useMemo(
     () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
     [sources]
@@ -1638,15 +1636,12 @@ export default function App() {
   }, [sources, triggerDalilUpdateBriefing]);
 
   const handleWorkspaceTabChange = useCallback((tab: ActiveTab) => {
-    // Keep the current surface visible until the next lazy view is ready.
-    startTransition(() => {
-      setActiveTab(tab);
-      if (tab !== "sources" && tab !== "home") {
-        setSelectedSourceId(null);
-        setActiveMainView("chat");
-      }
-    });
-  }, [startTransition]);
+    setActiveTab(tab);
+    if (tab !== "sources" && tab !== "home") {
+      setSelectedSourceId(null);
+      setActiveMainView("chat");
+    }
+  }, []);
 
   if (currentPath === "/terms") {
     return (
