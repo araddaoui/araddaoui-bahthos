@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultSources } from "./data/defaultSources.js";
 import { Source, SourceDraft, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types.js";
 import Sidebar from "./components/Sidebar.js";
 import SourcesList from "./components/SourcesList.js";
 import ChatWindow from "./components/ChatWindow.js";
-import SourceViewer from "./components/SourceViewer.js";
-import SynthesisEditor from "./components/SynthesisEditor.js";
-import SynthesisHistory from "./components/SynthesisHistory.js";
-import SettingsView from "./components/SettingsView.js";
+const SourceViewer = lazy(() => import("./components/SourceViewer.js"));
+const SynthesisEditor = lazy(() => import("./components/SynthesisEditor.js"));
+const SynthesisHistory = lazy(() => import("./components/SynthesisHistory.js"));
+const SettingsView = lazy(() => import("./components/SettingsView.js"));
 import LandingPage from "./components/LandingPage.js";
 import TermsOfService from "./components/TermsOfService.js";
 import PrivacyPolicy from "./components/PrivacyPolicy.js";
@@ -1283,7 +1283,7 @@ export default function App() {
     setSources((prev) => prev.map((src) => ({ ...src, enabled: false })));
   };
 
-  const triggerDalilUpdateBriefing = async (currentSourcesList: Source[], force = false) => {
+  const triggerDalilUpdateBriefing = useCallback(async (currentSourcesList: Source[], force = false) => {
     if (!force && pendingNewSourceIdsRef.current.size === 0 && currentSourcesList.length === 0) return;
     const newIds = Array.from(pendingNewSourceIdsRef.current);
     pendingNewSourceIdsRef.current.clear();
@@ -1340,7 +1340,7 @@ export default function App() {
 
       setIsDalilGenerating(false);
     }
-  };
+  }, []);
 
   const scheduleDalilUpdateBriefing = () => {
     if (dalilTimerRef.current) {
@@ -1656,20 +1656,31 @@ export default function App() {
     );
   }
 
+  const enabledSourcesCount = useMemo(
+    () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
+    [sources]
+  );
+
+  const handleTriggerDalilBriefing = useCallback(() => {
+    void triggerDalilUpdateBriefing(sources, true);
+  }, [sources, triggerDalilUpdateBriefing]);
+
+  const handleWorkspaceTabChange = useCallback((tab: ActiveTab) => {
+    // Update navigation state first. No async work is allowed on this path.
+    setActiveTab(tab);
+    if (tab !== "sources" && tab !== "home") {
+      setSelectedSourceId(null);
+      setActiveMainView("chat");
+    }
+  }, []);
+
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-[#fafaf8] text-[#1f1f1f] font-sans antialiased" dir="rtl" id="bahthos-root-container">
       {/* 1. RIGHT COLUMN (Narrow Sidebar Navigation) */}
       <Sidebar 
         activeTab={activeTab} 
-        setActiveTab={(tab) => {
-          setActiveTab(tab);
-          // If switching tab to other things, close source reading view unless on sources tab
-          if (tab !== "sources" && tab !== "home") {
-            setSelectedSourceId(null);
-            setActiveMainView("chat");
-          }
-        }} 
-        activeSourcesCount={sources.filter((s) => s.enabled).length}
+        setActiveTab={handleWorkspaceTabChange}
+        activeSourcesCount={enabledSourcesCount}
         projects={projects}
         currentProjectId={currentProjectId}
         onSwitchProject={handleSwitchProject}
@@ -1714,7 +1725,7 @@ export default function App() {
             dalilBriefing={dalilBriefing}
             dalilCountdown={dalilCountdown}
             isDalilGenerating={isDalilGenerating}
-            onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
+            onTriggerDalilBriefing={handleTriggerDalilBriefing}
           />
         </div>
 
@@ -1722,7 +1733,17 @@ export default function App() {
         <main className={`flex-1 h-full overflow-hidden relative ${
           activeTab === "sources" && selectedSourceId === null ? "hidden md:flex" : "flex"
         }`}>
-          {/* Render content based on selected tab and reading state */}
+          <Suspense
+            fallback={
+              <div className="h-full w-full flex items-center justify-center bg-[#fafaf8]" id="workspace-view-loading">
+                <div className="flex items-center gap-2 rounded-xl border border-[#d9e7e1] bg-white px-4 py-3 text-xs font-bold text-[#094d4e] shadow-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>جارٍ فتح مساحة العمل...</span>
+                </div>
+              </div>
+            }
+          >
+            {/* Render content based on selected tab and reading state */}
           {activeTab === "home" && (
             activeMainView === "chat" || !activeSelectedSource ? (
               <ChatWindow
@@ -1738,7 +1759,7 @@ export default function App() {
                 dalilBriefing={dalilBriefing}
                 dalilCountdown={dalilCountdown}
                 isDalilGenerating={isDalilGenerating}
-                onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
+                onTriggerDalilBriefing={handleTriggerDalilBriefing}
               />
             ) : (
               <SourceViewer
@@ -1789,7 +1810,7 @@ export default function App() {
               dalilCountdown={dalilCountdown}
               isDalilGenerating={isDalilGenerating}
               isActive={activeTab === "editor"}
-              onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
+              onTriggerDalilBriefing={handleTriggerDalilBriefing}
             />
           </div>
 
@@ -1817,6 +1838,7 @@ export default function App() {
               }}
             />
           )}
+          </Suspense>
         </main>
       </div>
     </div>

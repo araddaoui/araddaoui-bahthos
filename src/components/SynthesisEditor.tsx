@@ -32,7 +32,7 @@ interface SynthesisEditorProps {
   isActive?: boolean;
 }
 
-export default function SynthesisEditor({ 
+function SynthesisEditor({
   sources, 
   onSaveSynthesis,
   dalilBriefing = null,
@@ -523,3 +523,5 @@ export default function SynthesisEditor({
     </div>
   );
 }
+
+export default React.memo(SynthesisEditor);
