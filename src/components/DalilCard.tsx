@@ -361,7 +361,7 @@ export default function DalilCard({
         setAudioNotice(playbackError instanceof Error ? playbackError.message : "تعذر تشغيل الصوت العربي حالياً.");
       }
     } finally {
-      if (playbackRunIdRef.current === runId) setIsLoadingAudio(false);
+      setIsLoadingAudio(false);
     }
   };
 

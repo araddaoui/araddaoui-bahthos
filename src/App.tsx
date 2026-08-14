@@ -1276,9 +1276,10 @@ export default function App() {
 
   // Auto-trigger Al-Dalil initial briefing if active project has sources but briefing is not generated yet
   useEffect(() => {
-    if (sources.length > 0 && !dalilBriefing && !isDalilGenerating && !dalilAttemptedRef.current) {
+    const briefingNeedsDepth = Boolean(dalilBriefing && dalilBriefing.text.trim().length < 900);
+    if (sources.length > 0 && (!dalilBriefing || briefingNeedsDepth) && !isDalilGenerating && !dalilAttemptedRef.current) {
       dalilAttemptedRef.current = true;
-      triggerDalilUpdateBriefing(sources, true);
+      void triggerDalilUpdateBriefing(sources, true);
     }
   }, [sources.length, dalilBriefing, isDalilGenerating]);
 
@@ -1336,20 +1337,28 @@ export default function App() {
     } catch (err) {
       console.error("Failed to generate al-Dalil update briefing:", err);
     } finally {
-      // Fallback briefing if API failed or returned empty text
+      // Long source-grounded fallback: preserve depth even when the AI request fails.
       if (!briefingText && currentSourcesList.length > 0) {
-        const titles = currentSourcesList
-          .map((source, index) => source.title?.trim() || `الوثيقة ${index + 1}`)
-          .join("، ");
-        const evidence = currentSourcesList
-          .slice(0, 3)
-          .map((source, index) => {
-            const raw = (source.summary || source.content || "").replace(/\s+/g, " ").trim();
-            const excerpt = raw.length > 240 ? `${raw.substring(0, 240)}…` : raw;
-            return `يُبَيِّنُ المَصْدَرُ ${index + 1} «${source.title || `الوثيقة ${index + 1}`}» مَا يَرِدُ فِي نَصِّهِ مِنْ مَعْلُومَاتٍ مُتَّصِلَةٍ بِمَوْضُوعِ البَحْثِ: ${excerpt || "لا يَتَوَفَّرُ مُلَخَّصٌ كَافٍ."}`;
-          })
-          .join(" || ");
-        briefingText = `نَسْتَعْرِضُ فِي المَشْرُوعِ الحَالِيِّ ${currentSourcesList.length} مَصَادِرَ بَحْثِيَّةٍ، وَهِيَ: ${titles}. || ${evidence || "تَحْتَاجُ المَصَادِرُ إِلَى قِرَاءَةٍ تَحْلِيلِيَّةٍ مُفَصَّلَةٍ."} || تَعْتَمِدُ هَذِهِ الإِحَاطَةُ عَلَى المَصَادِرِ الحَالِيَّةِ فَقَطْ، وَلَا تَسْتَعِيرُ مَعْلُومَاتٍ مِنْ مَشْرُوعَاتٍ سَابِقَةٍ.`;
+        const sourceTitle = (source: Source, index: number) => source.title?.trim() || `الوثيقة ${index + 1}`;
+        const sourceExcerpt = (source: Source, limit: number) => {
+          const raw = (source.summary || source.content || "").replace(/\s+/g, " ").trim();
+          return raw ? raw.slice(0, limit) : "لا يتوفر في هذا المصدر ملخص كافٍ للاقتباس المباشر.";
+        };
+        const titles = currentSourcesList.map(sourceTitle).join("، ");
+        const first = currentSourcesList[0];
+        const second = currentSourcesList[1] || currentSourcesList[0];
+        const additional = currentSourcesList.slice(2, 5)
+          .map((source, index) => `المصدر ${index + 3} «${sourceTitle(source, index + 2)}» يضيف إلى مجموعة الأدلة المقتطف الآتي: «${sourceExcerpt(source, 300)}».`)
+          .join(" ");
+        briefingText = [
+          `تتناول هذه الإحاطة المقارنة ${currentSourcesList.length} مصادر راهنة هي: ${titles}. وتُقرأ هذه المجموعة بوصفها corpus بحثياً واحداً، لا كسلسلة ملخصات منفصلة؛ لذلك تركز القراءة على تقاطع تعريف المشكلة، واختلاف مستويات التحليل، وما تضيفه كل وثيقة إلى فهم الوثائق الأخرى.`,
+          `يقدم المصدر الأول «${sourceTitle(first, 0)}» مادة دالة على مسار التحليل: «${sourceExcerpt(first, 520)}». ويقدم المصدر الثاني «${sourceTitle(second, 1)}» مادة أخرى: «${sourceExcerpt(second, 520)}». وتكمن قيمة الجمع بينهما في اختبار ما إذا كانت المفاهيم والأدلة الواردة في المقتطفين تعالج السؤال نفسه، أو تكشف اختلافاً في النطاق أو المنهج أو مستوى التفسير.`,
+          `تكشف المقارنة الأولية أن العلاقة بين المصادر لا ينبغي أن تُحسم بعبارة اتفاق أو تعارض قبل فحص السياق الذي صيغت فيه كل حجة. فإذا كان أحد النصوص يشرح البنية أو المفهوم، وكان الآخر يصف الأثر أو الحالة، فقد يكون التباين اختلافاً في زاوية النظر لا تناقضاً تجريبياً؛ أما إذا عالجا المسألة نفسها بمعايير مختلفة، فتظل النتيجة مشروطة بحدود الأدلة المتاحة.`,
+          additional || "تستكمل المصادر الأخرى الصورة بإضافة زوايا أو شواهد لا تظهر في المقتطفين الأولين، وتحتاج هذه الإضافات إلى قراءتها ضمن مجموع الأدلة لا بمعزل عنه.",
+          `ومن الناحية المنهجية، تفرض المجموعة الحالية التمييز بين ما تصرح به النصوص وما يمكن استنتاجه بحذر من تقاطعها. لذلك لا تُعد هذه الإحاطة دليلاً على علاقة سببية ما لم تسندها المصادر صراحة، ولا تُحوّل اختلاف المصطلحات أو السياقات إلى اختلاف في النتائج من دون قرينة مباشرة، كما تُترك النقاط التي لا تعالجها الوثائق معلقة بوصفها فجوات بحثية حقيقية.`,
+          `الخلاصة التحليلية أن قيمة هذه المجموعة تكمن في إمكان وصل مستوياتها المختلفة داخل قراءة واحدة: يُستفاد من المصدر الذي يحدد الإطار في تفسير المصدر الذي يعرض الحالة، ويُستخدم المصدر الذي يعرض الحالة لاختبار مدى صلاحية الإطار في الواقع. وتظل الأسئلة المتعلقة بحدود المقارنة وبالأدلة التي لا تظهر في المصادر الحالية بحاجة إلى مصادر إضافية قبل بناء حكم نهائي.`,
+          "تستند هذه الإحاطة إلى المصادر الحالية في هذا المشروع حصراً، ولا تستعير معلومات من مشاريع سابقة أو من معرفة خارجية."
+        ].join("\n\n");
       }
 
       if (briefingText) {
