@@ -105,6 +105,13 @@ export function isBriefingCurrent(briefing: DalilBriefing | null, sources: Sourc
   return Boolean(briefing.sourceFingerprint) && briefing.sourceFingerprint === computeSourceFingerprint(sources);
 }
 
+function briefingMatchesSourceIds(briefing: DalilBriefing | null, sources: Source[]): boolean {
+  if (!briefing || !Array.isArray(sources) || sources.length === 0) return false;
+  const currentIds = new Set(sources.map((source) => source.id));
+  const briefingIds = Array.isArray(briefing.sourceIdsAtTime) ? briefing.sourceIdsAtTime : [];
+  return briefingIds.length === sources.length && briefingIds.every((id) => currentIds.has(id));
+}
+
 // Default glossary terms to populate on first load (empty by default)
 const initialGlossary: GlossaryTerm[] = [];
 
@@ -546,23 +553,40 @@ export default function App() {
     return null;
   });
 
+  // Track only lightweight source identity metadata in render-critical effects.
+  // The previous effects depended on the whole sources array and repeatedly
+  // serialized full document contents, which could freeze the browser.
+  const sourceIdentityKey = useMemo(
+    () => sources.map((source) => `${source.id}:${source.summary?.length || 0}`).join("|"),
+    [sources]
+  );
+
   useEffect(() => {
-    if (!isBriefingCurrent(dalilBriefing, sources)) {
+    if (!briefingMatchesSourceIds(dalilBriefing, sources)) {
       if (dalilBriefing !== null) setDalilBriefing(null);
     }
-  }, [sources, currentProjectId]);
+  }, [sourceIdentityKey, currentProjectId, dalilBriefing?.id]);
 
-  // Normalize summaries loaded from cloud/guest persistence. Older prompt versions
-  // could append a generic language claim unrelated to the source itself.
+  // Normalize summaries off the navigation-critical path. If the user opens
+  // the editor before the idle task runs, cancel it so editor entry stays free.
   useEffect(() => {
-    setSources((previousSources) => {
-      const normalizedSources = previousSources.map((source) => {
-        const normalizedSummary = sanitizeSourceSummary(source.summary, source.title, source.content);
-        return normalizedSummary === source.summary ? source : { ...source, summary: normalizedSummary };
+    if (activeTab === "editor") return;
+    const timer = window.setTimeout(() => {
+      setSources((previousSources) => {
+        let changed = false;
+        const normalizedSources = previousSources.map((source) => {
+          const normalizedSummary = sanitizeSourceSummary(source.summary, source.title, source.content);
+          if (normalizedSummary !== source.summary) {
+            changed = true;
+            return { ...source, summary: normalizedSummary };
+          }
+          return source;
+        });
+        return changed ? normalizedSources : previousSources;
       });
-      return JSON.stringify(previousSources) === JSON.stringify(normalizedSources) ? previousSources : normalizedSources;
-    });
-  }, [sources]);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [sourceIdentityKey, activeTab]);
 
   const [dalilCountdown, setDalilCountdown] = useState<number | null>(null);
   const [isDalilGenerating, setIsDalilGenerating] = useState(false);
@@ -597,7 +621,7 @@ export default function App() {
     activeProjectIdRef.current = currentProjectId;
     latestSourcesRef.current = sources;
     latestGlossaryTermsRef.current = glossaryTerms;
-  }, [currentProjectId, sources, glossaryTerms]);
+  }, [currentProjectId, sourceIdentityKey, glossaryTerms]);
 
   useEffect(() => {
     if (sources.length === 0) {
@@ -609,7 +633,7 @@ export default function App() {
         return cleaned.length !== prev.length ? cleaned : prev;
       });
     }
-  }, [sources]);
+  }, [sourceIdentityKey]);
 
   useEffect(() => {
     const runSweep = async () => {
@@ -1006,7 +1030,7 @@ export default function App() {
   useEffect(() => {
     if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
-      if (dalilBriefing && isBriefingCurrent(dalilBriefing, sources)) {
+      if (dalilBriefing && briefingMatchesSourceIds(dalilBriefing, sources)) {
         localStorage.setItem(guestStorageKey("dalil", currentProjectId), JSON.stringify(dalilBriefing));
       } else {
         localStorage.removeItem(guestStorageKey("dalil", currentProjectId));
@@ -1014,7 +1038,7 @@ export default function App() {
     } catch (e) {
       console.error("Failed to save dalilBriefing to localStorage", e);
     }
-  }, [dalilBriefing, currentProjectId, currentUser, sources]);
+  }, [dalilBriefing, currentProjectId, currentUser, sourceIdentityKey]);
 
   // Save sources, messages, syntheses, glossary terms, and dalilBriefings to Firebase Firestore when they change (debounced)
   useEffect(() => {
@@ -1247,29 +1271,34 @@ export default function App() {
     });
   };
 
-  // Ensure every uploaded source automatically has an Arabic summary and 2 to 3 concepts
+  // Ensure every uploaded source automatically has an Arabic summary and 2 to 3 concepts,
+  // but keep this CPU-heavy fallback work away from editor navigation.
   useEffect(() => {
-    if (sources.length === 0) {
-      setGlossaryTerms([]);
+    if (sources.length === 0 || activeTab === "editor") {
+      if (sources.length === 0) setGlossaryTerms([]);
       return;
     }
 
-    let sourcesNeedsUpdate = false;
-    const sanitizedSources = sources.map((s) => {
-      const cleanSummary = ensureArabicSummary(s.summary, s.title, s.content);
-      if (cleanSummary !== s.summary) {
-        sourcesNeedsUpdate = true;
-        return { ...s, summary: cleanSummary };
+    const timer = window.setTimeout(() => {
+      let sourcesNeedsUpdate = false;
+      const sanitizedSources = sources.map((s) => {
+        const cleanSummary = ensureArabicSummary(s.summary, s.title, s.content);
+        if (cleanSummary !== s.summary) {
+          sourcesNeedsUpdate = true;
+          return { ...s, summary: cleanSummary };
+        }
+        return s;
+      });
+
+      if (sourcesNeedsUpdate) {
+        setSources(sanitizedSources);
       }
-      return s;
-    });
 
-    if (sourcesNeedsUpdate) {
-      setSources(sanitizedSources);
-    }
+      setGlossaryTerms((prev) => ensureEverySourceHasTerms(sanitizedSources, prev));
+    }, 1000);
 
-    setGlossaryTerms((prev) => ensureEverySourceHasTerms(sanitizedSources, prev));
-  }, [sources]);
+    return () => window.clearTimeout(timer);
+  }, [sourceIdentityKey, activeTab]);
 
   // Guard ref to track whether initial briefing was triggered for the active sources
   const dalilAttemptedRef = useRef<boolean>(false);

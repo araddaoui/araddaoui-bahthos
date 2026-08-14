@@ -206,8 +206,9 @@ export default function DalilCard({
     setCurrentChunkIdx(-1);
   };
 
-  // Warm only the first bounded request. Playback prefetches the next chunk after
-  // each chunk starts, so no request contains the full long briefing.
+  // Reset the bounded audio cache when the briefing changes, but do not issue
+  // any TTS request during editor navigation. Audio begins only after the user
+  // explicitly presses the speaker, preserving responsiveness and user control.
   useEffect(() => {
     if (!dalilBriefing?.text || dalilBriefing.id === cachedBriefingIdRef.current) return;
 
@@ -215,11 +216,7 @@ export default function DalilCard({
     cachedAudioChunksRef.current.clear();
     pendingAudioChunksRef.current.clear();
     playbackRunIdRef.current += 1;
-
-    void fetchAudioChunk(0).catch((err) => {
-      console.warn("Background Arabic TTS chunk prefetch info:", err);
-    });
-  }, [dalilBriefing?.id, audioChunks]);
+  }, [dalilBriefing?.id]);
 
   // Clean up speech synthesis when component unmounts or briefing changes
   useEffect(() => {

@@ -41,7 +41,6 @@ export default function Sidebar({
   onDeleteProject,
   onShowLandingPage
 }: SidebarProps) {
-  console.log('Sidebar rendering, activeTab:', activeTab);
   const [isOpen, setIsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
