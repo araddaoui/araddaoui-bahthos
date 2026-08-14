@@ -187,12 +187,13 @@ export default function DalilCard({
         signal: audioAbortControllerRef.current?.signal,
       });
 
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(`خدمة الصوت العربية غير متاحة حالياً (${res.status}). ${detail.slice(0, 160)}`);
+        const detail = typeof data?.error === "string" ? data.error : "";
+        throw new Error(detail || `خدمة الصوت العربية غير متاحة حالياً (${res.status}).`);
       }
 
-      const data = await res.json().catch(() => null);
+
       if (!data?.audio) {
         throw new Error("لم تُرجِع خدمة الصوت العربية ملفاً صوتياً قابلاً للتشغيل.");
       }
@@ -220,7 +221,7 @@ export default function DalilCard({
     });
   };
 
-  const stopAllSpeech = (clearNotice = true) => {
+  const stopAllSpeech = (clearNotice = true, clearCache = true) => {
     isStoppedRef.current = true;
     playbackRunIdRef.current += 1;
     activeChunkResolveRef.current?.();
@@ -228,7 +229,7 @@ export default function DalilCard({
 
     audioAbortControllerRef.current?.abort();
     audioAbortControllerRef.current = null;
-    cachedAudioChunksRef.current.clear();
+    if (clearCache) cachedAudioChunksRef.current.clear();
     pendingAudioChunksRef.current.clear();
 
     if (audioRef.current) {
@@ -306,7 +307,9 @@ export default function DalilCard({
       return;
     }
 
-    stopAllSpeech();
+    // Keep completed chunks in memory when replaying this unchanged briefing.
+    // Re-requesting every sentence on each click needlessly consumes quota.
+    stopAllSpeech(false, false);
     isStoppedRef.current = false;
     audioAbortControllerRef.current = new AbortController();
     const runId = playbackRunIdRef.current;
@@ -418,12 +421,12 @@ export default function DalilCard({
       }
 
       if (!isStoppedRef.current && playbackRunIdRef.current === runId) {
-        stopAllSpeech(false);
+        stopAllSpeech(false, false);
       }
     } catch (playbackError) {
       console.warn("Chunked Arabic audio playback failed:", playbackError);
       if (!isStoppedRef.current && playbackRunIdRef.current === runId) {
-        stopAllSpeech(false);
+        stopAllSpeech(false, false);
         setAudioNotice(playbackError instanceof Error ? playbackError.message : "تعذر تشغيل الصوت العربي حالياً.");
       }
     } finally {

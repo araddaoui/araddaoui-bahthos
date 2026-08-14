@@ -97,15 +97,25 @@ router.post("/api/tts", async (req, res) => {
       }
     }
 
-    return res.status(502).json({
-      error: "خدمة الصوت العربية غير متاحة حالياً.",
-      details: lastError?.message || "لم يُرجع أي نموذج ملفاً صوتياً قابلاً للتشغيل.",
+    const errorText = String(lastError?.message || "");
+    const quotaExceeded = lastError?.status === 429 || /\b429\b|quota|rate limit|exhausted/i.test(errorText);
+    return res.status(quotaExceeded ? 429 : 502).json({
+      error: quotaExceeded
+        ? "تم بلوغ حصة خدمة الصوت العربية حالياً. انتظر حتى تتجدد الحصة ثم أعد المحاولة."
+        : "خدمة الصوت العربية غير متاحة حالياً.",
+      quotaExceeded,
+      details: errorText || "لم يُرجع نموذج الصوت ملفاً قابلاً للتشغيل.",
     });
   } catch (error: any) {
     console.warn("Gemini TTS synthesis failed:", error?.message || error);
-    return res.status(502).json({
-      error: "خدمة الصوت العربية غير متاحة حالياً.",
-      details: error?.message || "Gemini TTS unavailable",
+    const errorText = String(error?.message || "");
+    const quotaExceeded = error?.status === 429 || /\b429\b|quota|rate limit|exhausted/i.test(errorText);
+    return res.status(quotaExceeded ? 429 : 502).json({
+      error: quotaExceeded
+        ? "تم بلوغ حصة خدمة الصوت العربية حالياً. انتظر حتى تتجدد الحصة ثم أعد المحاولة."
+        : "خدمة الصوت العربية غير متاحة حالياً.",
+      quotaExceeded,
+      details: errorText || "Gemini TTS unavailable",
     });
   }
 });
