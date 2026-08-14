@@ -1373,12 +1373,21 @@ export default function App() {
     } finally {
       // Long source-grounded fallback: preserve depth even when the AI request fails.
       if (!briefingText && currentSourcesList.length > 0) {
-        const sourceTitle = (source: Source, index: number) => source.title?.trim() || `الوثيقة ${index + 1}`;
+        const sourceTitle = (source: Source, index: number) => {
+          const arabicWords = (source.title || "").match(/[\u0600-\u06FF]+/g) || [];
+          return arabicWords.length >= 2 ? arabicWords.slice(0, 6).join(" ") : `الوثيقة ${index + 1}`;
+        };
         const sourceExcerpt = (source: Source, limit: number) => {
           const raw = (source.content || source.summary || "").replace(/\s+/g, " ").trim();
-          return raw ? raw.slice(0, limit) : "لا يتوفر نص كافٍ في هذا المصدر.";
+          const arabicSentences = raw
+            .split(/(?<=[.!؟؛。])\s+/)
+            .filter((sentence) => {
+              const arabic = (sentence.match(/[\u0600-\u06FF]/g) || []).length;
+              const latin = (sentence.match(/[A-Za-z]/g) || []).length;
+              return sentence.length > 25 && arabic > 20 && latin <= Math.max(12, Math.floor(arabic * 0.12));
+            });
+          return arabicSentences.slice(0, 3).join(" ").slice(0, limit) || "لا يتوفر مقطع عربي كافٍ للاقتباس المباشر في هذا المصدر.";
         };
-        const titles = currentSourcesList.map(sourceTitle).join("، ");
         const first = currentSourcesList[0];
         const second = currentSourcesList[1] || currentSourcesList[0];
         const additional = currentSourcesList.slice(2, 5)

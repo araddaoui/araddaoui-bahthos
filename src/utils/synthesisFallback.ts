@@ -1,20 +1,26 @@
 import { normalizeArabicText, cleanBibliographicClutterAndNormalizeArabic, cleanBibliographicNoise } from "./termExtractor.js";
 import { deduplicateSources, deduplicateReportBlocks } from "./serverReportUtils.js";
 
+function shortArabicSourceReference(source: any, index: number): string {
+  const rawTitle = String(source?.title || "");
+  const arabicWords = rawTitle.match(/[\u0600-\u06FF]+/g) || [];
+  return arabicWords.length >= 2 ? arabicWords.slice(0, 6).join(" ") : `الوثيقة ${index + 1}`;
+}
+
 /**
  * Helper to extract unique, document-specific analytical insights based on title, content, and summary.
  * Strictly avoids verbatim repetitions, generic placeholders, and eliminates formulaic boilerplate wrappers.
  */
 function extractDocSubstance(src: any, idx: number, safeTopic: string) {
   const rawTitle = src.title || `الوثيقة ${idx + 1}`;
-  const title = rawTitle.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").trim();
-  let cleanTitle = title.replace(/^[\s.\-–—:؛"']+|[\s.\-–—:؛"']+$/g, "").trim() || `الوثيقة ${idx + 1}`;
-  if (cleanTitle.includes("(") && !cleanTitle.includes(")")) {
-    cleanTitle = cleanTitle + ")";
-  } else if (cleanTitle.includes(")") && !cleanTitle.includes("(")) {
-    cleanTitle = "(" + cleanTitle;
-  }
-  const lowerTitle = cleanTitle.toLowerCase();
+  const titleForConcept = rawTitle.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").trim();
+  const titleWords = titleForConcept.match(/[\u0600-\u06FF]+/g) || [];
+  // Keep references readable and Arabic. The original title remains available
+  // only for internal concept matching, never for visible report citations.
+  const cleanTitle = titleWords.length >= 2
+    ? titleWords.slice(0, 6).join(" ")
+    : `الوثيقة ${idx + 1}`;
+  const lowerTitle = titleForConcept.toLowerCase();
   
   // Clean up summary / content from any template residue
   let rawContent = (src.content || src.summary || src.extractedText || "").trim();
@@ -103,7 +109,10 @@ function extractDocSubstance(src: any, idx: number, safeTopic: string) {
     .split(/[.\n!؟؛:]+/)
     .map((s) => s.trim())
     .filter((s) => {
-      if (s.length < 25) return false;
+      if (s.length < 25 || !/[\u0600-\u06FF]/.test(s)) return false;
+      const latinCount = (s.match(/[A-Za-z]/g) || []).length;
+      const arabicCount = (s.match(/[\u0600-\u06FF]/g) || []).length;
+      if (latinCount > Math.max(12, Math.floor(arabicCount * 0.12))) return false;
       if (/journal|proquest|vol\.|issue|copyright|author|permission|http|www\.|paret|jabbour|reprints/i.test(s)) return false;
       if (s.includes("توضيح النطاق") || s.includes("نطاق التقرير")) return false;
       return true;
@@ -229,7 +238,10 @@ export function generateClientSynthesisFallback(
   ];
   const activeSources = deduplicateSources(rawActive);
 
-  const safeTopic = topic && topic.trim().length > 0 ? topic : "مقارنة وتحليل شامل للمصادر المرفقة";
+  const requestedTopic = topic?.trim() || "";
+  const safeTopic = /[\u0600-\u06FF]/.test(requestedTopic)
+    ? requestedTopic.slice(0, 140)
+    : "التوليف المقارن للمصادر الحالية";
   const activeCount = activeSources.length;
   const scopeDisclosure = `توضيح النطاق: يعتمد هذا التقرير التوليفي والتحليل المتقدم على ${activeCount} من مصادر البحث النشطة المتاحة لصلتها المباشرة بالموضوع المدروس.\n\n`;
 
@@ -338,7 +350,7 @@ export function generateReportFollowUpFallback(
   const q = question.toLowerCase();
   const rawActive = Array.isArray(sources) && sources.length > 0 ? sources : [];
   const activeSources = deduplicateSources(rawActive);
-  const sourceTitles = activeSources.map((s) => s.title || "المستند المرفق").join("، ");
+  const sourceTitles = activeSources.map((s, index) => `«${shortArabicSourceReference(s, index)}»`).join("، ");
   const sourceContextMsg = activeSources.length > 0 
     ? `استناداً إلى تحليل الوثائق المفعّلة (${sourceTitles}):`
     : "استناداً إلى معطيات التقرير الأكاديمي الحالي:";
@@ -362,7 +374,7 @@ ${sourceContextMsg}
 
 ### 2. التوصيات المنهجية لضمان سلامة الاستنتاج:
 
-- **التدقيق المتقاطع (Cross-Verification)**: مقارنة النتائج التفصيلية عبر أكثر من مصدر لضمان تجانس الصورة الكلية.
+- **التدقيق المتقاطع**: مقارنة النتائج التفصيلية عبر أكثر من مصدر لضمان تجانس الصورة الكلية.
 - **الفحص الناقد للبيانات**: مراعاة حدود نطاق كل وثيقة وسياقها الزماني والمكاني.`;
   }
 
@@ -395,7 +407,7 @@ ${sourceContextMsg}
   // If a specific document or specific gap/point is referenced OR asking for implicit/additional info:
   if (matchedDoc || isAskingImplicitOrAdditional) {
     const docTitle = matchedDoc 
-      ? (matchedDoc.title || "الوثيقة المحددة").replace(/\.[a-z0-9]+$/i, "")
+      ? shortArabicSourceReference(matchedDoc, activeSources.indexOf(matchedDoc))
       : "المستند والمحور المحدد في السؤال";
 
     const details = extractDocSubstance(matchedDoc || activeSources[0] || {}, 0, "التحليل العميق للنقطة المحددة");
@@ -406,24 +418,24 @@ ${sourceContextMsg}
 
 ---
 
-### 1. المعطيات والافتراضات الضمنية (Implicit & Underlying Factors):
+### 1. المعطيات والافتراضات الضمنية:
 - **الافتراض المنهجي الخفي**: تعتمد التقييمات المقطعية الحالية على قياسات قصيرة الأمد، مما يُخفي الأثر التراكمي للمتغيرات التشغيلية والنفسية على جودة المخرجات، ويُولد انحيازاً غير معلن نحو النتائج الفورية على حساب الاستدامة.
-- **التفاعل بين البيئة والعنصر البشري**: تفترض المعطيات الضمنية أن تعميم النتائج عبر بيئات مختلفة لا يتطلب فقط تحديث النماذج التقنية، بل يستدعي فهم **السياق المؤسسي والمصطلحي المحالي (Local Institutional Context)** للبيئة التشغيلية المستهدفة.
+- **التفاعل بين البيئة والعنصر البشري**: تفترض المعطيات الضمنية أن تعميم النتائج عبر بيئات مختلفة لا يتطلب فقط تحديث النماذج التقنية، بل يستدعي فهم **السياق المؤسسي والمصطلحي المحلي** للبيئة التشغيلية المستهدفة.
 
 ---
 
 ### 2. المتغيرات الميدانية وآليات المعالجة التطبيقية:
 - **المتغيرات المؤثرة في تعميم النتائج**:
-  1. *التنوع اللغوي والسياقي*: تباين طبيعة الموارد المتاحة بين البيئات ذات الموارد الغنية والبيئات ذات الموارد الضئيلة (Low-Resource Languages/Contexts).
+  1. *التنوع اللغوي والسياقي*: تباين طبيعة الموارد المتاحة بين البيئات ذات الموارد الغنية والبيئات ذات الموارد الضئيلة.
   2. *ديناميكية التحديث المصطلحي*: سرعة تطور المصطلحات والمستجدات الميدانية مقترنة بكفاءة العنصر البشري في التأويل والدعم السريع.
-- **آلية المعالجة الميدانية**: الاستعانة بدراسات ميدانية تتبع الجلسة (Longitudinal Session-Tracking Studies) لقياس السلوك الحقيقي للأداء على فترات ممتدة بدلاً من الملاحظة العابرة.
+- **آلية المعالجة الميدانية**: الاستعانة بدراسات ميدانية تتبع الجلسة لقياس السلوك الحقيقي للأداء على فترات ممتدة بدلاً من الملاحظة العابرة.
 
 ---
 
 ### 3. الخارطة الميدانية والتنفيذية لسد الفجوة وتعميم النتائج:
 - **التصميم التجريبي التتبعي الموصى به**:
-  - إنشاء عينة بحثية ممتدة (Longitudinal Cohort) تغطي بيئات تشغيلية متعددة (مؤسسات حكومية، قطاع خاص، بيئات ذات شروط جودة صارمة).
-  - استخدام بروتوكول جمع بيانات معيارية حديثة (Modern Standardized Data Protocol) يتضمن:
+  - إنشاء عينة بحثية ممتدة تغطي بيئات تشغيلية متعددة (مؤسسات حكومية، قطاع خاص، بيئات ذات شروط جودة صارمة).
+  - استخدام بروتوكول جمع بيانات معيارية حديثة يتضمن:
     * قياس معدلات الخطأ الدلالي والسياقي وتوزعها الزمني.
     * تقييم العبء الذهني والتكلفة الزمنية لإعادة التحرير/التصحيح الميداني.
     * تطوير مؤشرات قياس متوازنة تدمج بين السرعة والتكلفة والجودة والتميز النهائي.
@@ -447,8 +459,8 @@ ${sourceContextMsg}
     let sourceDetailsStr = "";
     if (activeSources.length > 0) {
       sourceDetailsStr = activeSources.map((s, idx) => {
-        const title = (s.title || `الوثيقة ${idx + 1}`).replace(/\.[a-z0-9]+$/i, "");
-        return `- **في مستند "${title}"**: تبيّن الأدلة الميدانية أن المراجعة والتحرير الخبير هما الركيزة الأساسية لتفادي الأخطاء التراكمية ومواجهة الانحياز الآلي على المدى الطويل.`;
+        const title = shortArabicSourceReference(s, idx);
+        return `- **في مستند «${title}»**: تبيّن الأدلة الميدانية أن المراجعة والتحرير الخبير هما الركيزة الأساسية لتفادي الأخطاء التراكمية ومواجهة الانحياز الآلي على المدى الطويل.`;
       }).join("\n");
     } else {
       sourceDetailsStr = `- **من واقع التقرير الميداني**: يُشترط ربط المعايير المفهومية بأدلة فحص تضمن الاستمرارية وتفادي الأخطاء التراكمية.`;
@@ -458,7 +470,7 @@ ${sourceContextMsg}
 
 بناءً على المعطيات والتحليل التوليفي الموثق في المصادر المرفقة والتقرير، تتحقق **استدامة البناء المعرفي وسد الفجوات الميدانية** عبر ثلاث آليات تشغيلية محددة وعميقة:
 
-1. **التحول نحو البحث التطبيقي الطولي (Longitudinal Applied Research)**:
+1. **التحول نحو البحث التطبيقي الطولي**:
    - تشير أدلة المصادر إلى أن الاقتصار على التقييمات المقطعية المباشرة يخفي الأثر التراكمي للتقنيات والقرارات على جودة المخرجات.
    - يتطلب سد الفجوات الميدانية متابعة الأداء عبر فترات زمنية ممتدة وفي بيئات تشغيلية متنوعة لضمان استقرار المعايير وتفادي ظاهرة العَمَى التحريري.
 
@@ -529,7 +541,7 @@ ${matchedSnippet}
 
   // Fallback if the question touches topics clearly outside the current sources
   if (activeSources.length > 0) {
-    const sourceTitles = activeSources.map(s => `"${s.title.replace(/\.[a-z0-9]+$/i, "")}"`).join("، ");
+    const sourceTitles = activeSources.map((s, index) => `«${shortArabicSourceReference(s, index)}»`).join("، ");
     return `### 1. بيان نطاق المصادر وتغطيتها الحالية:
 
 يرجى العلم أن هذا الاستفسار يتناول جوانب **لا تتوفر لها بيانات أو أدلة مباشرة صريحة** ضمن الوثائق الحالية المتاحة في المجموعة المرفقة (${sourceTitles}).

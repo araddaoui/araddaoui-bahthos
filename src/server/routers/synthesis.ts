@@ -7,27 +7,55 @@ import { DALIL_SYSTEM_INSTRUCTION } from "../prompts.js";
 
 const router = Router();
 
+function isArabicFirstText(text: string): boolean {
+  const arabicLetters = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  const latinLetters = (text.match(/[A-Za-z]/g) || []).length;
+  return arabicLetters >= 220 && latinLetters <= Math.max(36, Math.floor(arabicLetters * 0.08));
+}
+
+function shortReference(title: unknown, index: number): string {
+  const raw = String(title || "").replace(/\.[a-z0-9]{2,4}$/i, "").trim();
+  const arabicWords = raw.match(/[\u0600-\u06FF]+/g) || [];
+  return arabicWords.length >= 2 ? arabicWords.slice(0, 6).join(" ") : `الوثيقة ${index + 1}`;
+}
+
+function sanitizeArabicReportText(text: string): string {
+  return text
+    .replace(/https?:\/\/\S+|www\.\S+/gi, "")
+    .replace(/\b[^\s]+\.(?:pdf|docx?|txt)\b/gi, "الوثيقة")
+    .replace(/["“][A-Za-z][^"”]{2,120}["”]/g, "«الوثيقة»")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function arabicEvidence(source: any, limit: number): string {
+  const raw = String(source?.content || source?.extractedText || source?.summary || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentences = raw
+    .split(/(?<=[.!؟؛。])\s+/)
+    .filter((sentence) => /[\u0600-\u06FF]/.test(sentence) && sentence.length > 25);
+  return sentences.slice(0, 3).join(" ").slice(0, limit);
+}
+
 function isSubstantiveDalilText(text: string): boolean {
   const clean = text.replace(/\s+/g, " ").trim();
   const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
   const forbiddenMeta = /تتناول هذه الإحاطة|تركز المقارنة|من الناحية المنهجية|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(clean);
-  return clean.length >= 1400 && paragraphs.length >= 6 && !forbiddenMeta;
+  return clean.length >= 1400 && paragraphs.length >= 6 && !forbiddenMeta && isArabicFirstText(clean);
 }
 
 function buildDalilFallback(activeSources: any[]): string {
-  const title = (source: any, index: number) => {
-    const rawTitle = String(source?.title || "").trim();
-    return (rawTitle || `المصدر ${index + 1}`).replace(/\.[a-z0-9]{2,4}$/i, "").trim();
-  };
-  // Prefer extracted document content over short metadata summaries. The latter
-  // may be legacy placeholders and cannot support meaningful synthesis.
-  const summary = (source: any) =>
-    String(source?.content || source?.extractedText || source?.summary || "").replace(/\s+/g, " ").trim();
-  const first = summary(activeSources[0]).slice(0, 720) || "لا يتوفر نص كافٍ في المصدر الأول.";
-  const second = summary(activeSources[1]).slice(0, 720) || "لا يتوفر نص كافٍ في المصدر الثاني.";
-  const additional = activeSources.slice(2, 5).map((source, index) =>
-    `تضيف الأدلة الواردة في «${title(source, index + 2)}» قيداً أو زاويةً أخرى: «${summary(source).slice(0, 520) || "لا يتوفر نص كافٍ في هذا المصدر."}».`
-  ).join(" ");
+  const title = (source: any, index: number) => shortReference(source?.title, index);
+  // The fallback remains Arabic even when the uploaded documents are foreign-
+  // language. It uses Arabic evidence when available and otherwise states the
+  // evidentiary limit instead of copying English fragments.
+  const first = arabicEvidence(activeSources[0], 720) || "لا يتوفر في الوثيقة الأولى مقطع عربي كافٍ للاقتباس المباشر؛ لذلك يظل الحكم عليها مشروطاً بترجمة النص الأصلي وفحصه.",
+    second = arabicEvidence(activeSources[1], 720) || "لا يتوفر في الوثيقة الثانية مقطع عربي كافٍ للاقتباس المباشر؛ لذلك يظل الحكم عليها مشروطاً بترجمة النص الأصلي وفحصه.";
+  const additional = activeSources.slice(2, 5).map((source, index) => {
+    const evidence = arabicEvidence(source, 520) || "لا يتوفر مقطع عربي كافٍ للاقتباس المباشر في هذه الوثيقة.";
+    return `تضيف الأدلة الواردة في «${title(source, index + 2)}» قيداً أو زاويةً أخرى: «${evidence}».`;
+  }).join(" ");
 
   return [
     `تتجاور في «${title(activeSources[0], 0)}» و«${title(activeSources[1], 1)}» قضيتان لا يمكن فهم إحداهما بمعزل عن الأخرى. يرد في النص الأول: «${first}»، بينما يرد في النص الثاني: «${second}». ويشير اقتران المقطعين إلى أن المشكلة لا تُفسَّر بعامل واحد؛ فالأطروحة أو البنية التي يحددها المقطع الأول تحتاج إلى اختبارها في الوقائع أو الآثار التي يبرزها المقطع الثاني.`,
@@ -97,9 +125,10 @@ router.post("/api/synthesize", async (req, res) => {
 2. التشكيل الكامل (Full Vocalization): اكتب النص بعربية فصيحة راقية ومُشَكَّلَة بالكامل (Vocalized).
 3. التوليف المقارن (6-8 فقرات): يجب أن تكون كل فقرة غنية بالمعلومات، تربط بين أفكار المصادر المختلفة، وتستخلص تداعياتها.
 4. حظر التكرار: لا تسرد المصادر واحداً تلو الآخر. ادمج المعلومات بناءً على الموضوعات والأدلة.
-5. الحظر التقني: لا تذكر أسماء الملفات أو الامتدادات. استخدم العناوين الموضوعية فقط.
-6. الفواصل الصوتية: استخدم علامة || فقط للفواصل الصوتية بين الجمل الكبيرة، ولا تستخدم الماركداون (Markdown).
-7. الطول والعمق: يجب أن يكون النص طويلاً ومفصلاً (لا يقل عن 1000 حرف)، يغوص في تفاصيل الأدلة والفجوات البحثية الحقيقية الواردة في النصوص.
+5. العربية الخالصة: اكتب الجمل العربية وحدها. ترجم كل فكرة أو اقتباس أجنبي إلى العربية الفصحى، ولا تنقل أي جملة إنجليزية أو فرنسية أو مقتطفاً مبتوراً. إذا لزم ذكر مصدر، استخدم «الوثيقة الأولى» أو عنواناً عربياً موجزاً لا يتجاوز ست كلمات.
+6. الحظر التقني: لا تذكر أسماء الملفات أو الامتدادات أو الروابط. استخدم الإحالات العربية القصيرة فقط.
+7. الفواصل الصوتية: استخدم علامة || فقط للفواصل الصوتية بين الجمل الكبيرة، ولا تستخدم الماركداون (Markdown).
+8. الطول والعمق: يجب أن يكون النص طويلاً ومفصلاً (لا يقل عن 1400 حرف)، يغوص في تفاصيل الأدلة والفجوات البحثية الحقيقية الواردة في النصوص.
 
 الهدف هو تقديم قيمة مضافة للباحث تجعله يفهم "جوهر" ما تقوله الوثائق مجتمعة، وليس مجرد وصف لوجودها.
 
@@ -161,7 +190,7 @@ ${sourcesContext}
 "1. **اللغة العربية الفصحى الصافية والتوليف التام (PURE ARABIC SYNTHESIS)**:\n" +
 "   - اكتب بلغة عربية فصيحة سليمة مع مراعاة قواعد المطابقة اللغوية الكاملة.\n" +
 "   - يُحظر حظراً تاماً نقل ملخصات الإنجليزية أو الفرنسية بشكل حرفي أو مقتطع مبتور (مثل \"pays pa...\"). يجب ترجمة وتوليف كافة الأفكار والأدلة والمفاهيم الأجنبية إلى جمل عربية رصينة ومكتملة تماماً.\n" +
-"   - عند ذكر عناوين الوثائق الأجنبية، ضع العنوان بين علامتي تنصيص مثل `\"Title\"` لتفادي انعكاس الأقواس والرموز.\n" +
+"   - لا تنقل العنوان الأجنبي كما هو. استخدم «الوثيقة الأولى» أو ترجمة عربية قصيرة لا تتجاوز ست كلمات، ولا تضع إحالة ببليوغرافية طويلة.\n" +
 "2. **منع التكرار اللفظي والأسلوب الميكانيكي القالبي منعاً قاطعاً (ZERO REPETITIVE BOILERPLATE & HUMAN DIVERSITY)**:\n" +
 "   - يُحظر حظراً مطلقاً تكرار نفس القالب أو الجمل السطحية عبر الصفوف والفقرات مثل: (\"تفعيل التوصيات التنفيذية لمستند...\"، \"يركز مستند... على فحص...\"، \"غير أن الفجوة المنهجية تتمثل في...\").\n" +
 "   - يجب تنويع التراكيب اللغوية وأساليب الافتتاح والربط لكل وثيقة بشكل بشري طبيعي ومتجدد.\n" +
@@ -179,7 +208,8 @@ ${sourcesContext}
 "   - السطر الأول للجدول: `| الرقم | الوثيقة والمحور الرئيسي | الأدلة والنتائج المؤيدة | التحليل النقدي والتباين المنهجي |`.\n" +
 "   - السطر الثاني للجدول: `| :--- | :--- | :--- | :--- |`.\n" +
 "7. **توليد ودمج وسوم الأدلة الحية (MANDATORY EVIDENCE TAGS)**:\n" +
-"   في نهاية كل قسم رئيسي، قم بتضمين وسم <evidence> بتنسيق XML يوثق الاقتباسات المباشرة من المصادر.";
+"   في نهاية كل قسم رئيسي، قم بتضمين وسم <evidence> بتنسيق XML يوثق الاقتباسات المباشرة من المصادر.\n" +
+"قاعدة الإخراج النهائية: يجب أن يكون المتن عربياً فصيحاً حصراً. ترجم أي مادة أجنبية ولا تنقل جملة إنجليزية أو فرنسية. عند الإحالة، استخدم «الوثيقة الأولى» أو عنواناً عربياً قصيراً لا يتجاوز ست كلمات، ولا تذكر اسم الملف أو عنواناً ببليوغرافياً طويلاً.";
 
     const topicName = topic || "مقارنة وتحليل شامل للمصادر";
     const scopeIntro = "توضيح النطاق: يعتمد هذا التقرير التوليفي والتحليل المتقدم على " + activeSources.length + " من مصادر البحث النشطة المتاحة لصلتها المباشرة بالموضوع المدروس.\n\n";
@@ -242,11 +272,16 @@ scopeIntro + sourcesContext;
       });
 
       if (response?.text && response.text.trim().length > 100) {
-        const cleanText = deduplicateReportText(normalizeArabicText(response.text.trim()));
-        return res.json({
-          text: cleanText,
-          isFallback: false
-        });
+        const cleanText = sanitizeArabicReportText(
+          deduplicateReportText(normalizeArabicText(response.text.trim()))
+        );
+        if (isArabicFirstText(cleanText)) {
+          return res.json({
+            text: cleanText,
+            isFallback: false
+          });
+        }
+        console.warn("Synthesis response contained excessive Latin text; using Arabic fallback.");
       }
     } catch (aiErr: any) {
       console.error("AI synthesis call failed, using smart fallback logic:", aiErr);
@@ -255,7 +290,7 @@ scopeIntro + sourcesContext;
     // Smart, document-specific fallback if AI call fails
     const fallbackReport = generateClientSynthesisFallback(activeSources, topic || "تحليل ومقارنة شاملة للمصادر", toolType);
     return res.json({
-      text: deduplicateReportText(normalizeArabicText(fallbackReport)),
+      text: sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(fallbackReport))),
       isFallback: true
     });
 
@@ -263,7 +298,7 @@ scopeIntro + sourcesContext;
     console.error("Error in synthesis API:", error);
     const fallbackReport = generateClientSynthesisFallback(req.body?.sources || [], req.body?.topic || "تحليل وتوليف المصادر", req.body?.toolType);
     return res.json({
-      text: deduplicateReportText(normalizeArabicText(fallbackReport)),
+      text: sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(fallbackReport))),
       isFallback: true
     });
   }

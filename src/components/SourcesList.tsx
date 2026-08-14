@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { 
   Plus, 
   Search, 
@@ -52,7 +52,7 @@ interface SourcesListProps {
   onTriggerDalilBriefing?: () => void;
 }
 
-export default function SourcesList({
+function SourcesList({
   sources,
   activeTab = "sources",
   onToggleSource,
@@ -98,15 +98,21 @@ export default function SourcesList({
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [uploadProgress, setUploadProgress] = useState({ completed: 0, total: 0 });
 
-  const activeCount = sources.filter((s) => s.enabled).length;
+  const activeCount = useMemo(
+    () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
+    [sources]
+  );
 
-  const filteredSources = sources.filter((src) => {
-    const q = searchQuery.toLowerCase();
-    return (
+  // Do not lowercase full document bodies during ordinary renders. This was a
+  // major source of menu lag because every tab change re-scanned every PDF.
+  const filteredSources = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return sources;
+    return sources.filter((src) => (
       src.title.toLowerCase().includes(q) ||
       src.content.toLowerCase().includes(q)
-    );
-  });
+    ));
+  }, [sources, searchQuery]);
 
   const createUploadQueue = (files: File[]): UploadQueueItem[] => files.map((file, index) => ({
     id: `${file.name}-${file.lastModified}-${index}`,
@@ -985,3 +991,21 @@ export default function SourcesList({
     </div>
   );
 }
+
+
+function areSourcesListPropsEqual(prev: SourcesListProps, next: SourcesListProps): boolean {
+  // activeTab is intentionally ignored: SourcesList does not use it, and a
+  // menu click should not force every source card to render again.
+  return (
+    prev.sources === next.sources &&
+    prev.selectedSourceId === next.selectedSourceId &&
+    prev.glossaryTerms === next.glossaryTerms &&
+    prev.isSweeping === next.isSweeping &&
+    prev.sweepCorrectionCount === next.sweepCorrectionCount &&
+    prev.dalilBriefing === next.dalilBriefing &&
+    prev.dalilCountdown === next.dalilCountdown &&
+    prev.isDalilGenerating === next.isDalilGenerating
+  );
+}
+
+export default React.memo(SourcesList, areSourcesListPropsEqual);
