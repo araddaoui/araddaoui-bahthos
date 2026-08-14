@@ -10,9 +10,9 @@ import {
   MessageSquare,
   Sparkles
 } from "lucide-react";
-import { Source, GlossaryTerm } from "../types";
+import { Source, GlossaryTerm } from "../types.js";
 import { BookOpen } from "lucide-react";
-import { spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor";
+import { spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
 
 interface SourceViewerProps {
   source: Source;

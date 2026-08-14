@@ -13,13 +13,13 @@ import {
   Plus,
   Paperclip
 } from "lucide-react";
-import { Message, Source, DalilBriefing } from "../types";
-import DalilCard from "./DalilCard";
-import { parseReportText, EvidenceLayer } from "./SynthesisReportView";
-import ReportFollowUp from "./ReportFollowUp";
-import { parseDocumentFile } from "../utils/documentParser";
-import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
-import { parseMarkdownToReact } from "../utils/reportFormatter";
+import { Message, Source, DalilBriefing } from "../types.js";
+import DalilCard from "./DalilCard.js";
+import { parseReportText, EvidenceLayer } from "./SynthesisReportView.js";
+import ReportFollowUp from "./ReportFollowUp.js";
+import { parseDocumentFile } from "../utils/documentParser.js";
+import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor.js";
+import { parseMarkdownToReact } from "../utils/reportFormatter.js";
 
 // Helper function to calculate the agreement score based on academic keyword matches
 const calculateAgreementMeter = (text: string) => {

@@ -10,9 +10,9 @@ import {
   Sparkles,
   Download
 } from "lucide-react";
-import { Synthesis, Source } from "../types";
-import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
-import { copyReportToClipboard, exportToWordDocument } from "../utils/reportFormatter";
+import { Synthesis, Source } from "../types.js";
+import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView.js";
+import { copyReportToClipboard, exportToWordDocument } from "../utils/reportFormatter.js";
 
 interface SynthesisHistoryProps {
   syntheses: Synthesis[];

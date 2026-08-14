@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Sparkles, Loader2, Volume2, Pause, Square, ChevronDown, ChevronUp, Radio, Download } from "lucide-react";
-import { DalilBriefing } from "../types";
-import { exportToWordDocument } from "../utils/reportFormatter";
+import { DalilBriefing } from "../types.js";
+import { exportToWordDocument } from "../utils/reportFormatter.js";
 
 interface DalilCardProps {
   dalilBriefing: DalilBriefing | null;

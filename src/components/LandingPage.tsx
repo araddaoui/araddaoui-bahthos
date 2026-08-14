@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import AuthView from "./AuthView";
+import AuthView from "./AuthView.js";
 import { X, LogOut, LayoutGrid, Key, UserPlus } from "lucide-react";
 
 interface LandingPageProps {

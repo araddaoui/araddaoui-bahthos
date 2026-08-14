@@ -16,7 +16,7 @@ import {
   Home
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { ActiveTab, Project } from "../types";
+import { ActiveTab, Project } from "../types.js";
 
 interface SidebarProps {
   activeTab: ActiveTab;

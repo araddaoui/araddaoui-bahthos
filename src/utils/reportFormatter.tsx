@@ -1,5 +1,5 @@
 import React from "react";
-import { normalizeArabicText } from "./termExtractor";
+import { normalizeArabicText } from "./termExtractor.js";
 
 /**
  * Utility to strip out XML evidence tags completely (<evidence ...>...</evidence>) and normalize Arabic font/OCR characters.

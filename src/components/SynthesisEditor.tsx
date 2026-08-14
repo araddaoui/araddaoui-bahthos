@@ -16,11 +16,11 @@ import {
   Download,
   ShieldCheck
 } from "lucide-react";
-import { Source, Synthesis, DalilBriefing } from "../types";
-import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView";
-import { copyReportToClipboard, exportToWordDocument, deduplicateSources } from "../utils/reportFormatter";
-import { generateClientSynthesisFallback } from "../utils/synthesisFallback";
-import DalilCard from "./DalilCard";
+import { Source, Synthesis, DalilBriefing } from "../types.js";
+import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView.js";
+import { copyReportToClipboard, exportToWordDocument, deduplicateSources } from "../utils/reportFormatter.js";
+import { generateClientSynthesisFallback } from "../utils/synthesisFallback.js";
+import DalilCard from "./DalilCard.js";
 
 interface SynthesisEditorProps {
   sources: Source[];

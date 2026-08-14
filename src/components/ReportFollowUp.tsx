@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { Source } from "../types";
+import { Source } from "../types.js";
 import { MessageSquare, Send, Sparkles, Loader2, HelpCircle, ShieldCheck, CornerDownLeft, AlertCircle } from "lucide-react";
-import { generateReportFollowUpFallback } from "../utils/synthesisFallback";
-import { parseMarkdownToReact } from "../utils/reportFormatter";
-import { spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor";
+import { generateReportFollowUpFallback } from "../utils/synthesisFallback.js";
+import { parseMarkdownToReact } from "../utils/reportFormatter.js";
+import { spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor.js";
 
 interface ReportFollowUpProps {
   reportContext: string;

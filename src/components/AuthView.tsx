@@ -5,7 +5,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider
 } from "firebase/auth";
-import { auth } from "../firebase";
+import { auth } from "../firebase.js";
 import { BookOpen, AlertCircle, Loader2, ArrowRight } from "lucide-react";
 
 interface AuthViewProps {

@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef } from "react";
-import { defaultSources } from "./data/defaultSources";
-import { Source, SourceDraft, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types";
-import Sidebar from "./components/Sidebar";
-import SourcesList from "./components/SourcesList";
-import ChatWindow from "./components/ChatWindow";
-import SourceViewer from "./components/SourceViewer";
-import SynthesisEditor from "./components/SynthesisEditor";
-import SynthesisHistory from "./components/SynthesisHistory";
-import SettingsView from "./components/SettingsView";
-import LandingPage from "./components/LandingPage";
-import TermsOfService from "./components/TermsOfService";
-import PrivacyPolicy from "./components/PrivacyPolicy";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./utils/termExtractor";
+import { defaultSources } from "./data/defaultSources.js";
+import { Source, SourceDraft, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types.js";
+import Sidebar from "./components/Sidebar.js";
+import SourcesList from "./components/SourcesList.js";
+import ChatWindow from "./components/ChatWindow.js";
+import SourceViewer from "./components/SourceViewer.js";
+import SynthesisEditor from "./components/SynthesisEditor.js";
+import SynthesisHistory from "./components/SynthesisHistory.js";
+import SettingsView from "./components/SettingsView.js";
+import LandingPage from "./components/LandingPage.js";
+import TermsOfService from "./components/TermsOfService.js";
+import PrivacyPolicy from "./components/PrivacyPolicy.js";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./utils/termExtractor.js";
 import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { 
   auth, 
@@ -24,9 +24,9 @@ import {
   isProjectDeleted,
   clearDeletedProjectsRegistry,
   isQuotaExceeded
-} from "./firebase";
+} from "./firebase.js";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
-import AuthView from "./components/AuthView";
+import AuthView from "./components/AuthView.js";
 
 const GUEST_STORAGE_PREFIX = "bahthos:guest:";
 

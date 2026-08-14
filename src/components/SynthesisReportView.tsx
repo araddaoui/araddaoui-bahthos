@@ -6,9 +6,9 @@ import {
   Scale, 
   BookOpen 
 } from "lucide-react";
-import { parseMarkdownToReact, stripEvidenceTags } from "../utils/reportFormatter";
-import { Source } from "../types";
-import ReportFollowUp from "./ReportFollowUp";
+import { parseMarkdownToReact, stripEvidenceTags } from "../utils/reportFormatter.js";
+import { Source } from "../types.js";
+import ReportFollowUp from "./ReportFollowUp.js";
 
 export { stripEvidenceTags };
 

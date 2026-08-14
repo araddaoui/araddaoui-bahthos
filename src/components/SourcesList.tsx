@@ -14,10 +14,10 @@ import {
   Loader2,
   FileText
 } from "lucide-react";
-import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types";
-import DalilCard from "./DalilCard";
-import { parseDocumentFile } from "../utils/documentParser";
-import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor";
+import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
+import DalilCard from "./DalilCard.js";
+import { parseDocumentFile } from "../utils/documentParser.js";
+import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
 
 type UploadQueueStatus = "queued" | "processing" | "completed" | "failed";
 
