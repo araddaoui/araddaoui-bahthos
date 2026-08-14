@@ -1587,6 +1587,25 @@ export default function App() {
   // Find currently active source
   const activeSelectedSource = sources.find((s) => s.id === selectedSourceId);
 
+  // These hooks must run on every render, including landing, terms, and privacy routes.
+  const enabledSourcesCount = useMemo(
+    () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
+    [sources]
+  );
+
+  const handleTriggerDalilBriefing = useCallback(() => {
+    void triggerDalilUpdateBriefing(sources, true);
+  }, [sources, triggerDalilUpdateBriefing]);
+
+  const handleWorkspaceTabChange = useCallback((tab: ActiveTab) => {
+    // Update navigation state first. No async work is allowed on this path.
+    setActiveTab(tab);
+    if (tab !== "sources" && tab !== "home") {
+      setSelectedSourceId(null);
+      setActiveMainView("chat");
+    }
+  }, []);
+
   if (currentPath === "/terms") {
     return (
       <TermsOfService
@@ -1655,24 +1674,6 @@ export default function App() {
       />
     );
   }
-
-  const enabledSourcesCount = useMemo(
-    () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
-    [sources]
-  );
-
-  const handleTriggerDalilBriefing = useCallback(() => {
-    void triggerDalilUpdateBriefing(sources, true);
-  }, [sources, triggerDalilUpdateBriefing]);
-
-  const handleWorkspaceTabChange = useCallback((tab: ActiveTab) => {
-    // Update navigation state first. No async work is allowed on this path.
-    setActiveTab(tab);
-    if (tab !== "sources" && tab !== "home") {
-      setSelectedSourceId(null);
-      setActiveMainView("chat");
-    }
-  }, []);
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-[#fafaf8] text-[#1f1f1f] font-sans antialiased" dir="rtl" id="bahthos-root-container">
