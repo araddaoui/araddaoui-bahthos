@@ -55,7 +55,7 @@ function splitIntoParagraphs(text: string): string[] {
     .filter(Boolean);
 }
 
-function splitParagraphIntoAudioChunks(paragraph: string, paragraphIndex: number, maxCharacters = 480): AudioChunk[] {
+function splitParagraphIntoAudioChunks(paragraph: string, paragraphIndex: number, maxCharacters = 220): AudioChunk[] {
   // Keep each sentence in its own request. Colons are not sentence boundaries;
   // splitting on them was a source of early highlights and audible drift.
   const sentenceMatches = Array.from(paragraph.matchAll(/[^.!؟؛…۔]+(?:[.!؟؛…۔]+|$)/g));

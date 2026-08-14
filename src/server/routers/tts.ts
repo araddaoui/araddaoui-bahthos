@@ -37,43 +37,29 @@ async function generateInteractionAudio(
   text: string,
   voiceName: string,
 ): Promise<GeneratedAudio> {
-  let lastError: any = null;
-  // Try a few common voices if the primary one fails
-  const voices = [voiceName || "Aoede", "Kore", "Puck", "Charon"];
+  const voice = voiceName || "Kore";
+  console.log(`[TTS] Attempting one bounded synthesis with model: ${model}, voice: ${voice}`);
 
-  for (const voice of voices) {
-    try {
-      console.log(`[TTS] Attempting synthesis with model: ${model}, voice: ${voice}`);
-      const interaction = await ai.interactions.create({
-        model,
-        input: `اقرأ النص التالي بصوت عربي فصيح وواضح، مع وقفات طبيعية بين الجمل:\n\n${text}`,
-        response_format: { type: "audio" },
-        generation_config: {
-          speech_config: [{ voice }],
-        },
-      });
+  const interaction = await ai.interactions.create({
+    model,
+    input: `اقرأ النص التالي بصوت عربي فصيح وواضح، مع وقفات طبيعية بين الجمل:\n\n${text}`,
+    response_format: { type: "audio" },
+    generation_config: {
+      speech_config: [{ voice }],
+    },
+  });
 
-      const outputAudio = interaction?.output_audio;
-      if (outputAudio?.data) {
-        console.log(`[TTS] Successfully generated audio using ${model}/${voice}`);
-        return packageAudio(
-          outputAudio.data,
-          outputAudio.mime_type || "audio/l16",
-          outputAudio.sample_rate || 24000,
-        );
-      }
-      console.warn(`[TTS] Model ${model} with voice ${voice} returned no audio data.`);
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`[TTS] Attempt failed for ${model}/${voice}:`, err.message || err);
-      // If it's a 429 or 503, maybe wait a bit?
-      if (err.status === 429 || err.status === 503) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    }
+  const outputAudio = interaction?.output_audio;
+  if (!outputAudio?.data) {
+    throw new Error(`لم يُرجع نموذج الصوت ${model} بيانات صوتية.`);
   }
 
-  throw lastError || new Error(`تعذر توليد الصوت العربي باستخدام النموذج ${model}.`);
+  console.log(`[TTS] Successfully generated audio using ${model}/${voice}`);
+  return packageAudio(
+    outputAudio.data,
+    outputAudio.mime_type || "audio/l16",
+    outputAudio.sample_rate || 24000,
+  );
 }
 
 router.post("/api/tts", async (req, res) => {
@@ -95,12 +81,10 @@ router.post("/api/tts", async (req, res) => {
     }
 
     const ai = getAiClient();
-    // Both are documented Gemini TTS models. The faster 2.5 model is preferred
-    // for short sequential chunks; 3.1 remains a compatible fallback.
-    const candidateModels = [
-      "gemini-2.5-flash-preview-tts",
-      "gemini-3.1-flash-tts-preview",
-    ];
+    // Keep one fast TTS attempt per short chunk. Sequential model and voice
+    // fallbacks can consume the entire Vercel function window and surface as a
+    // 504 even when the primary voice itself is healthy.
+    const candidateModels = ["gemini-2.5-flash-preview-tts"];
     let lastError: any = null;
 
     for (const ttsModel of candidateModels) {
