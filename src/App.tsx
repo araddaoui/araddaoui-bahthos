@@ -1,13 +1,18 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { defaultSources } from "./data/defaultSources.js";
 import { Source, SourceDraft, Message, Conversation, Synthesis, GlossaryTerm, ActiveTab, Project, DalilBriefing } from "./types.js";
 import Sidebar from "./components/Sidebar.js";
 import SourcesList from "./components/SourcesList.js";
 import ChatWindow from "./components/ChatWindow.js";
-const SourceViewer = lazy(() => import("./components/SourceViewer.js"));
-const SynthesisEditor = lazy(() => import("./components/SynthesisEditor.js"));
-const SynthesisHistory = lazy(() => import("./components/SynthesisHistory.js"));
-const SettingsView = lazy(() => import("./components/SettingsView.js"));
+const loadSourceViewer = () => import("./components/SourceViewer.js");
+const loadSynthesisEditor = () => import("./components/SynthesisEditor.js");
+const loadSynthesisHistory = () => import("./components/SynthesisHistory.js");
+const loadSettingsView = () => import("./components/SettingsView.js");
+
+const SourceViewer = lazy(loadSourceViewer);
+const SynthesisEditor = lazy(loadSynthesisEditor);
+const SynthesisHistory = lazy(loadSynthesisHistory);
+const SettingsView = lazy(loadSettingsView);
 import LandingPage from "./components/LandingPage.js";
 import TermsOfService from "./components/TermsOfService.js";
 import PrivacyPolicy from "./components/PrivacyPolicy.js";
@@ -32,6 +37,23 @@ const GUEST_STORAGE_PREFIX = "bahthos:guest:";
 
 function guestStorageKey(name: string, projectId?: string): string {
   return `${GUEST_STORAGE_PREFIX}${name}${projectId ? `:${projectId}` : ""}`;
+}
+
+function WorkspaceViewFallback() {
+  const [showIndicator, setShowIndicator] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowIndicator(true), 180);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return (
+    <div className="h-full w-full flex items-center justify-center bg-[#fafaf8]" aria-label="جاري تحميل مساحة العمل">
+      <div className={`flex items-center rounded-xl border border-[#d9e7e1] bg-white p-3 text-[#094d4e] shadow-sm transition-opacity duration-150 ${showIndicator ? "opacity-100" : "opacity-0"}`}>
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+      </div>
+    </div>
+  );
 }
 
 function purgeLegacySharedStorage(): void {
@@ -1588,6 +1610,17 @@ export default function App() {
   const activeSelectedSource = sources.find((s) => s.id === selectedSourceId);
 
   // These hooks must run on every render, including landing, terms, and privacy routes.
+  const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    // Warm the code-split workspace views while the researcher is on the landing page.
+    // The imports are cached by the browser, so opening a tab does not suspend the UI.
+    void loadSourceViewer();
+    void loadSynthesisEditor();
+    void loadSynthesisHistory();
+    void loadSettingsView();
+  }, []);
+
   const enabledSourcesCount = useMemo(
     () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
     [sources]
@@ -1598,13 +1631,15 @@ export default function App() {
   }, [sources, triggerDalilUpdateBriefing]);
 
   const handleWorkspaceTabChange = useCallback((tab: ActiveTab) => {
-    // Update navigation state first. No async work is allowed on this path.
-    setActiveTab(tab);
-    if (tab !== "sources" && tab !== "home") {
-      setSelectedSourceId(null);
-      setActiveMainView("chat");
-    }
-  }, []);
+    // Keep the current surface visible until the next lazy view is ready.
+    startTransition(() => {
+      setActiveTab(tab);
+      if (tab !== "sources" && tab !== "home") {
+        setSelectedSourceId(null);
+        setActiveMainView("chat");
+      }
+    });
+  }, [startTransition]);
 
   if (currentPath === "/terms") {
     return (
@@ -1735,14 +1770,7 @@ export default function App() {
           activeTab === "sources" && selectedSourceId === null ? "hidden md:flex" : "flex"
         }`}>
           <Suspense
-            fallback={
-              <div className="h-full w-full flex items-center justify-center bg-[#fafaf8]" id="workspace-view-loading">
-                <div className="flex items-center gap-2 rounded-xl border border-[#d9e7e1] bg-white px-4 py-3 text-xs font-bold text-[#094d4e] shadow-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>جارٍ فتح مساحة العمل...</span>
-                </div>
-              </div>
-            }
+            fallback={<WorkspaceViewFallback />}
           >
             {/* Render content based on selected tab and reading state */}
           {activeTab === "home" && (
@@ -1801,19 +1829,19 @@ export default function App() {
             )
           )}
 
-          {/* Keep the editor shell mounted so its first visit is instantaneous.
-              Only the visible instance mounts the audio-enabled companion. */}
-          <div className={activeTab === "editor" ? "h-full w-full flex" : "hidden"}>
-            <SynthesisEditor
-              sources={sources}
-              onSaveSynthesis={handleSaveSynthesis}
-              dalilBriefing={dalilBriefing}
-              dalilCountdown={dalilCountdown}
-              isDalilGenerating={isDalilGenerating}
-              isActive={activeTab === "editor"}
-              onTriggerDalilBriefing={handleTriggerDalilBriefing}
-            />
-          </div>
+          {activeTab === "editor" && (
+            <div className="h-full w-full flex">
+              <SynthesisEditor
+                sources={sources}
+                onSaveSynthesis={handleSaveSynthesis}
+                dalilBriefing={dalilBriefing}
+                dalilCountdown={dalilCountdown}
+                isDalilGenerating={isDalilGenerating}
+                isActive
+                onTriggerDalilBriefing={handleTriggerDalilBriefing}
+              />
+            </div>
+          )}
 
           {activeTab === "history" && (
             <SynthesisHistory
