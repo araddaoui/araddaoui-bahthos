@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Modality } from "@google/genai";
-import { getAiClient, generateContentWithRetry } from "../ai";
-import { pcmToWav } from "../audio";
+import { getAiClient, generateContentWithRetry } from "../ai.js";
+import { pcmToWav } from "../audio.js";
 
 const router = Router();
 

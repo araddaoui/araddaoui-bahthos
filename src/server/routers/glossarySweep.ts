@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Type } from "@google/genai";
-import { getAiClient, generateContentWithRetry } from "../ai";
-import { cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "../../utils/termExtractor";
+import { getAiClient, generateContentWithRetry } from "../ai.js";
+import { cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "../../utils/termExtractor.js";
 
 const router = Router();
 

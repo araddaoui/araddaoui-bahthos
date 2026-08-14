@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { getAiClient, generateContentWithRetry } from "../ai";
-import { normalizeArabicText, sanitizeSourceSummary } from "../../utils/termExtractor";
-import { generateClientSynthesisFallback } from "../../utils/synthesisFallback";
-import { deduplicateSources, deduplicateReportText } from "../sourceUtils";
-import { DALIL_SYSTEM_INSTRUCTION } from "../prompts";
+import { getAiClient, generateContentWithRetry } from "../ai.js";
+import { normalizeArabicText, sanitizeSourceSummary } from "../../utils/termExtractor.js";
+import { generateClientSynthesisFallback } from "../../utils/synthesisFallback.js";
+import { deduplicateSources, deduplicateReportText } from "../sourceUtils.js";
+import { DALIL_SYSTEM_INSTRUCTION } from "../prompts.js";
 
 const router = Router();
 

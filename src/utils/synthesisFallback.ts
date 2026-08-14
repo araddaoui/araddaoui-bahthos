@@ -1,5 +1,5 @@
-import { normalizeArabicText, cleanBibliographicClutterAndNormalizeArabic, cleanBibliographicNoise } from "./termExtractor";
-import { deduplicateSources, deduplicateReportBlocks } from "./reportFormatter";
+import { normalizeArabicText, cleanBibliographicClutterAndNormalizeArabic, cleanBibliographicNoise } from "./termExtractor.js";
+import { deduplicateSources, deduplicateReportBlocks } from "./reportFormatter.js";
 
 /**
  * Helper to extract unique, document-specific analytical insights based on title, content, and summary.

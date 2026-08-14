@@ -18,7 +18,7 @@ import {
   writeBatch,
   disableNetwork
 } from "firebase/firestore";
-import { Project, Source, Synthesis, GlossaryTerm, Message, DalilBriefing } from "./types";
+import { Project, Source, Synthesis, GlossaryTerm, Message, DalilBriefing } from "./types.js";
 
 // Firebase configuration from firebase-applet-config
 const firebaseConfig = {

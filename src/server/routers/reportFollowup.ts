@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { getAiClient, generateContentWithRetry } from "../ai";
-import { normalizeArabicText } from "../../utils/termExtractor";
-import { generateReportFollowUpFallback } from "../../utils/synthesisFallback";
-import { deduplicateSources, deduplicateReportText } from "../sourceUtils";
+import { getAiClient, generateContentWithRetry } from "../ai.js";
+import { normalizeArabicText } from "../../utils/termExtractor.js";
+import { generateReportFollowUpFallback } from "../../utils/synthesisFallback.js";
+import { deduplicateSources, deduplicateReportText } from "../sourceUtils.js";
 
 const router = Router();
 

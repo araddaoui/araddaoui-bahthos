@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { getAiClient, generateContentWithRetry, SYSTEM_INSTRUCTIONS } from "../ai";
-import { normalizeArabicText } from "../../utils/termExtractor";
+import { getAiClient, generateContentWithRetry, SYSTEM_INSTRUCTIONS } from "../ai.js";
+import { normalizeArabicText } from "../../utils/termExtractor.js";
 
 const router = Router();
 

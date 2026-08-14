@@ -1,4 +1,4 @@
-import { GlossaryTerm } from "../types";
+import { GlossaryTerm } from "../types.js";
 
 export function collapseSpacedArabicLetters(text: string): string {
   if (!text) return "";

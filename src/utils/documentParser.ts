@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { normalizeArabicText } from './termExtractor';
+import { normalizeArabicText } from './termExtractor.js';
 
 // Set up worker for pdfjs in browser using jsdelivr CDN
 if (typeof window !== 'undefined') {
