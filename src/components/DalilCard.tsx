@@ -12,7 +12,7 @@ interface DalilCardProps {
 }
 
 type AudioData = { audio: string; mimeType?: string };
-type AudioChunk = { text: string; paragraphIndex: number };
+type AudioChunk = { text: string; paragraphIndex: number; sentenceIndex: number; sentenceEnd: boolean };
 
 function cleanDalilDisplayText(text: string): string {
   if (!text) return "";
@@ -44,33 +44,37 @@ function splitIntoParagraphs(text: string): string[] {
 }
 
 function splitParagraphIntoAudioChunks(paragraph: string, paragraphIndex: number, maxCharacters = 480): AudioChunk[] {
-  const sentences = paragraph.match(/[^.!؟؛:…]+[.!؟؛:…]+|[^.!؟؛:…]+$/g) || [paragraph];
+  // Keep every sentence in its own request. This prevents the next TTS request
+  // from repeating the tail of the previous sentence or crossing its boundary.
+  const sentences = paragraph.match(/[^.!؟؛:…۔]+(?:[.!؟؛:…۔]+|$)/g) || [paragraph];
   const chunks: AudioChunk[] = [];
-  let current = "";
 
-  const pushWordsWithinLimit = (text: string) => {
-    for (const word of text.trim().split(/\s+/)) {
+  sentences.forEach((sentence, sentenceIndex) => {
+    const words = sentence.trim().split(/\s+/).filter(Boolean);
+    let current = "";
+    const sentenceParts: string[] = [];
+
+    for (const word of words) {
       const candidate = `${current} ${word}`.trim();
       if (current && candidate.length > maxCharacters) {
-        chunks.push({ text: current, paragraphIndex });
+        sentenceParts.push(current);
         current = word;
       } else {
         current = candidate;
       }
     }
-  };
+    if (current) sentenceParts.push(current);
 
-  for (const sentence of sentences) {
-    const trimmedSentence = sentence.trim();
-    const candidate = `${current} ${trimmedSentence}`.trim();
-    if (current && candidate.length > maxCharacters) {
-      chunks.push({ text: current, paragraphIndex });
-      current = "";
-    }
-    pushWordsWithinLimit(trimmedSentence);
-  }
+    sentenceParts.forEach((part, partIndex) => {
+      chunks.push({
+        text: part,
+        paragraphIndex,
+        sentenceIndex,
+        sentenceEnd: partIndex === sentenceParts.length - 1,
+      });
+    });
+  });
 
-  if (current) chunks.push({ text: current, paragraphIndex });
   return chunks;
 }
 
@@ -349,6 +353,12 @@ export default function DalilCard({
           console.warn("Background Arabic TTS next-chunk prefetch info:", err);
         });
         await endedPromise;
+        // Give the media element a clean boundary before the next sentence.
+        // Playback never overlaps; this pause also prevents the final word of
+        // one generated segment from being perceived with the next segment.
+        if (audioChunks[chunkIndex]?.sentenceEnd && !isStoppedRef.current) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 90));
+        }
       }
 
       if (!isStoppedRef.current && playbackRunIdRef.current === runId) {
@@ -535,8 +545,20 @@ export default function DalilCard({
           >
             <div className="space-y-2.5">
               {displayParagraphs.map((paragraph, paragraphIndex) => {
-                const isCurrentlyBeingRead = audioChunks[currentChunkIdx]?.paragraphIndex === paragraphIndex;
+                const activeChunk = audioChunks[currentChunkIdx];
+                const isCurrentlyBeingRead = activeChunk?.paragraphIndex === paragraphIndex;
                 const isHeading = paragraph.startsWith("نَسْتَعْرِضُ") || paragraph.startsWith("تَعْتَمِدُ") || paragraphIndex === 0;
+                const activeText = isCurrentlyBeingRead ? activeChunk.text : "";
+                const activeStart = activeText ? paragraph.indexOf(activeText) : -1;
+                const renderedParagraph = activeStart >= 0 ? (
+                  <>
+                    {paragraph.slice(0, activeStart)}
+                    <span className="rounded bg-[#d9a441]/35 px-0.5 text-inherit ring-1 ring-[#d9a441]/50">
+                      {activeText}
+                    </span>
+                    {paragraph.slice(activeStart + activeText.length)}
+                  </>
+                ) : paragraph;
                 return (
                   <p
                     key={`${paragraphIndex}-${paragraph.slice(0, 24)}`}
@@ -548,7 +570,7 @@ export default function DalilCard({
                         : "text-[#173d3b] leading-8"
                     }`}
                   >
-                    {paragraph}
+                    {renderedParagraph}
                   </p>
                 );
               })}

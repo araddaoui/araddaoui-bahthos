@@ -1276,7 +1276,12 @@ export default function App() {
 
   // Auto-trigger Al-Dalil initial briefing if active project has sources but briefing is not generated yet
   useEffect(() => {
-    const briefingNeedsDepth = Boolean(dalilBriefing && dalilBriefing.text.trim().length < 900);
+    const briefingText = dalilBriefing?.text || "";
+    const hasMetaOpening = /تتناول هذه الإحاطة|تركز المقارنة|من الناحية المنهجية|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(briefingText);
+    const paragraphCount = briefingText.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean).length;
+    const briefingNeedsDepth = Boolean(
+      dalilBriefing && (briefingText.trim().length < 1400 || paragraphCount < 6 || hasMetaOpening)
+    );
     if (sources.length > 0 && (!dalilBriefing || briefingNeedsDepth) && !isDalilGenerating && !dalilAttemptedRef.current) {
       dalilAttemptedRef.current = true;
       void triggerDalilUpdateBriefing(sources, true);
@@ -1341,14 +1346,14 @@ export default function App() {
       if (!briefingText && currentSourcesList.length > 0) {
         const sourceTitle = (source: Source, index: number) => source.title?.trim() || `الوثيقة ${index + 1}`;
         const sourceExcerpt = (source: Source, limit: number) => {
-          const raw = (source.summary || source.content || "").replace(/\s+/g, " ").trim();
-          return raw ? raw.slice(0, limit) : "لا يتوفر في هذا المصدر ملخص كافٍ للاقتباس المباشر.";
+          const raw = (source.content || source.summary || "").replace(/\s+/g, " ").trim();
+          return raw ? raw.slice(0, limit) : "لا يتوفر نص كافٍ في هذا المصدر.";
         };
         const titles = currentSourcesList.map(sourceTitle).join("، ");
         const first = currentSourcesList[0];
         const second = currentSourcesList[1] || currentSourcesList[0];
         const additional = currentSourcesList.slice(2, 5)
-          .map((source, index) => `المصدر ${index + 3} «${sourceTitle(source, index + 2)}» يضيف إلى مجموعة الأدلة المقتطف الآتي: «${sourceExcerpt(source, 300)}».`)
+          .map((source, index) => `تضيف الأدلة الواردة في «${sourceTitle(source, index + 2)}» قيداً أو زاويةً أخرى: «${sourceExcerpt(source, 520)}».`)
           .join(" ");
         briefingText = [
           `يُظْهِرُ التَّحْلِيلُ المُعَمَّقُ لِلْأَدِلَّةِ المُقَدَّمَةِ فِي «${sourceTitle(first, 0)}» وَ«${sourceTitle(second, 1)}» تَقَاطُعاً مِحْوَرِيّاً فِي طَبِيعَةِ المُشْكِلَةِ المَدْرُوسَةِ. فَبَيْنَمَا يَنْطَلِقُ الطَّرْحُ الْأَوَّلُ مِنْ مُعْطَيَاتٍ تُؤَكِّدُ أَنَّ: «${sourceExcerpt(first, 520)}»، يَتَّخِذُ الطَّرْحُ الثَّانِي مَسَاراً مُكَمِّلاً حِينَ يُشِيرُ إِلَى أَنَّ: «${sourceExcerpt(second, 520)}». وَهَذَا التَّبَايُنُ لَيْسَ تَنَاقُضاً مَنْهَجِيّاً، بَلْ هُوَ اخْتِلَافٌ فِي زَاوِيَةِ الرُّؤْيَةِ يُثْرِي فَهْمَ الظَّاهِرَةِ.`,

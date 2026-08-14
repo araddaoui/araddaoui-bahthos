@@ -970,15 +970,24 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
  * Repairs summaries produced by older prompt versions when they contain generic
  * language/domain claims not supported by the current source text.
  */
+function isGenericSourceSummary(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return /^(?:يقتصر هذا الوصف|الموضوع التخصصي لمستند|تستعرض هذه الدراسة تحليلاً متخصصاً|تستعرض هذه الدراسة تحليلاً|يقدم هذا المستند دراسة تحليلية رصينة)/i.test(normalized)
+    || /دون إضافة مجال أو لغة أو سياق غير مثبت/i.test(normalized)
+    || /لا يتوفر في هذا المصدر ملخص/i.test(normalized);
+}
+
 export function sanitizeSourceSummary(summary?: string, title?: string, content?: string): string {
   const rawSummary = String(summary || "").trim();
   const sourceText = `${title || ""} ${content || ""}`;
   const sourceMentionsArabic = /اللغة العربية|العربية الفصحى|arabic language/i.test(sourceText);
   const legacyGeneric = /الممارسات السياقية.*(?:اللغة العربية|العربية الفصحى)|ذات الصلة.*(?:اللغة العربية|العربية الفصحى)|صياغة.*(?:اللغة العربية|العربية الفصحى)/i.test(rawSummary);
-  if (legacyGeneric && !sourceMentionsArabic) {
-    return ensureArabicSummary("", title, content);
+  if ((legacyGeneric || isGenericSourceSummary(rawSummary)) && !sourceMentionsArabic) {
+    const regenerated = ensureArabicSummary("", title, content);
+    return isGenericSourceSummary(regenerated) ? "" : regenerated;
   }
-  return ensureArabicSummary(rawSummary, title, content);
+  const cleaned = ensureArabicSummary(rawSummary, title, content);
+  return isGenericSourceSummary(cleaned) ? "" : cleaned;
 }
 
 export function ensureArabicSummary(summary?: string, title?: string, content?: string): string {
@@ -1012,7 +1021,7 @@ export function ensureArabicSummary(summary?: string, title?: string, content?: 
     cleanSum = cleanSum.replace(/تناقش\s+موضوع\s*\.?/g, "").replace(/\(\s*\)/g, "").trim();
 
     const arabicCharCount = (cleanSum.match(/[\u0600-\u06FF]/g) || []).length;
-    if (cleanSum.length > 25 && arabicCharCount > 15) {
+    if (cleanSum.length > 25 && arabicCharCount > 15 && !isGenericSourceSummary(cleanSum)) {
       return cleanSum;
     }
   }
