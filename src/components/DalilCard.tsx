@@ -340,6 +340,12 @@ export default function DalilCard({
         if (!audioData) throw new Error("لم تتوفر بيانات صوتية عربية لهذا الجزء من الإحاطة.");
         if (isStoppedRef.current || playbackRunIdRef.current !== runId) return;
 
+        // Start generating the next chunk as soon as the current one arrives,
+        // before media setup and playback consume the available overlap time.
+        if (AUDIO_PREFETCH_AHEAD > 0) {
+          prefetchAudioWindow(chunkIndex + AUDIO_PREFETCH_AHEAD);
+        }
+
         const objectUrl = audioDataToObjectUrl(audioData);
         audio.src = objectUrl;
         audio.preload = "auto";
@@ -400,11 +406,6 @@ export default function DalilCard({
         setIsPlaying(true);
         setIsPaused(false);
 
-        // Fetch only the next chunk while this one is being heard. This is a
-        // sliding window of one look-ahead request, avoiding bandwidth bursts.
-        if (AUDIO_PREFETCH_AHEAD > 0) {
-          prefetchAudioWindow(chunkIndex + AUDIO_PREFETCH_AHEAD);
-        }
         await endedPromise;
         // Give the media element a clean boundary before the next sentence.
         // Playback never overlaps; this pause also prevents the final word of
