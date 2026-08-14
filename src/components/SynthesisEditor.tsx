@@ -29,6 +29,7 @@ interface SynthesisEditorProps {
   dalilCountdown?: number | null;
   isDalilGenerating?: boolean;
   onTriggerDalilBriefing?: () => void;
+  isActive?: boolean;
 }
 
 export default function SynthesisEditor({ 
@@ -37,7 +38,8 @@ export default function SynthesisEditor({
   dalilBriefing = null,
   dalilCountdown = null,
   isDalilGenerating = false,
-  onTriggerDalilBriefing
+  onTriggerDalilBriefing,
+  isActive = true,
 }: SynthesisEditorProps) {
   const [topic, setTopic] = useState(() => {
     const active = sources.filter((s) => s.enabled);
@@ -192,13 +194,16 @@ export default function SynthesisEditor({
           </p>
         </div>
 
-        {/* Al-Dalil Guided Companion Card - Prominently Placed Under Synthesis Editor */}
-        <DalilCard
-          dalilBriefing={dalilBriefing}
-          dalilCountdown={dalilCountdown}
-          isDalilGenerating={isDalilGenerating}
-          onTriggerDalilBriefing={onTriggerDalilBriefing}
-        />
+        {/* Keep the editor shell warm, but mount the audio-enabled companion only
+            when this tab is visible so tab switching never duplicates TTS requests. */}
+        {isActive && (
+          <DalilCard
+            dalilBriefing={dalilBriefing}
+            dalilCountdown={dalilCountdown}
+            isDalilGenerating={isDalilGenerating}
+            onTriggerDalilBriefing={onTriggerDalilBriefing}
+          />
+        )}
 
         {/* Configuration Panel */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">

@@ -1779,16 +1779,19 @@ export default function App() {
             )
           )}
 
-          {activeTab === "editor" && (
+          {/* Keep the editor shell mounted so its first visit is instantaneous.
+              Only the visible instance mounts the audio-enabled companion. */}
+          <div className={activeTab === "editor" ? "h-full w-full flex" : "hidden"}>
             <SynthesisEditor
               sources={sources}
               onSaveSynthesis={handleSaveSynthesis}
               dalilBriefing={dalilBriefing}
               dalilCountdown={dalilCountdown}
               isDalilGenerating={isDalilGenerating}
+              isActive={activeTab === "editor"}
               onTriggerDalilBriefing={() => triggerDalilUpdateBriefing(sources, true)}
             />
-          )}
+          </div>
 
           {activeTab === "history" && (
             <SynthesisHistory
