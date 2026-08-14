@@ -307,6 +307,7 @@ export default function DalilCard({
 
     // Retrieve or fetch TTS audio payload
     let audioData = cachedAudioDataRef.current;
+    let serverAudioError: string | null = null;
 
     if (!audioData) {
       setIsLoadingAudio(true);
@@ -319,15 +320,21 @@ export default function DalilCard({
           body: JSON.stringify({ text: fullText }),
         });
 
-        if (res.ok && !isStoppedRef.current) {
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          serverAudioError = `خدمة الصوت العربية غير متاحة حالياً (${res.status}). ${detail.slice(0, 120)}`;
+        } else if (!isStoppedRef.current) {
           const data = await res.json();
           if (data && data.audio) {
             audioData = { audio: data.audio, mimeType: data.mimeType || "audio/wav" };
             cachedAudioDataRef.current = audioData;
+          } else {
+            serverAudioError = "لم تُرجِع خدمة الصوت العربية ملفاً صوتياً قابلاً للتشغيل.";
           }
         }
       } catch (err) {
         console.warn("On-demand TTS fetch error:", err);
+        serverAudioError = "تعذر الوصول إلى خدمة الصوت العربية في الخادم.";
       } finally {
         setIsLoadingAudio(false);
       }
@@ -373,9 +380,10 @@ export default function DalilCard({
       };
 
       audio.onerror = (e) => {
-        console.warn("Audio element playback error, falling back to WebSpeech:", e);
+        console.warn("Generated Arabic audio playback error:", e);
         if (!isStoppedRef.current) {
-          playChunkWithWebSpeechFallback(rawSegments, 0);
+          stopAllSpeech(false);
+          setAudioNotice("تعذر تشغيل الملف الصوتي العربي؛ تحقّق من مخرج الصوت ثم أعد المحاولة.");
         }
       };
 
@@ -386,12 +394,14 @@ export default function DalilCard({
         setCurrentChunkIdx(0);
         return;
       } catch (playErr) {
-        console.warn("HTML5 audio.play() failed, falling back to WebSpeech:", playErr);
+        console.warn("HTML5 Arabic audio.play() failed:", playErr);
+        serverAudioError = "تعذر بدء تشغيل الملف الصوتي العربي في المتصفح.";
       }
     }
 
     if (!isStoppedRef.current) {
-      playChunkWithWebSpeechFallback(rawSegments, 0);
+      stopAllSpeech(false);
+      setAudioNotice(serverAudioError || "لم تتوفر إحاطة صوتية عربية. أعد المحاولة بعد التأكد من إعدادات الخادم.");
     }
   };
 

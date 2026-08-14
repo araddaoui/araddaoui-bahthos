@@ -54,3 +54,11 @@ The final validation suite passed TypeScript checking, production bundling, summ
 2. [Google Gemini AI Documentation](https://ai.google.dev/docs)
 3. [Firebase Security Rules Documentation](https://firebase.google.com/docs/rules)
 4. [Vercel Serverless Function Limits](https://vercel.com/docs/functions/serverless-functions/limitations)
+
+## Definitive Server-Side Audio Repair
+
+The production TTS issue was traced to the Vercel API entrypoint: `/api/index.ts` imported the root `server` module, which Vercel did not include in the serverless bundle. Runtime logs showed `ERR_MODULE_NOT_FOUND` for `/var/task/server.ts`, causing `/api/tts` to return HTTP 500 and the browser to fall back to its own voice behavior.
+
+The API entrypoint now registers the TTS, synthesis, document, chat, follow-up, glossary, and glossary-sweep routers directly, allowing Vercel to bundle the complete handler. The DalilCard playback path now requires a server-generated Arabic audio payload. It no longer falls back to browser speech when the server audio request fails, and it reports an Arabic backend/audio error instead of displaying a misleading browser-voice notice. The visual paragraph highlight advances only through actual generated-audio playback events.
+
+Local validation passed TypeScript checking, production bundling, the self-contained API bundle check, the TTS endpoint contract, and the full source-isolation integration suite.
