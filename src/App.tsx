@@ -10,12 +10,20 @@ const loadSynthesisHistory = () => import("./components/SynthesisHistory.js");
 const loadSettingsView = () => import("./components/SettingsView.js");
 
 const SourceViewer = lazy(loadSourceViewer);
-// Start downloading the editor chunk as soon as the main bundle evaluates.
-// This removes the first-click network wait without eagerly rendering the editor.
-const synthesisEditorModule = loadSynthesisEditor();
-const SynthesisEditor = lazy(() => synthesisEditorModule);
+const SynthesisEditor = lazy(loadSynthesisEditor);
 const SynthesisHistory = lazy(loadSynthesisHistory);
 const SettingsView = lazy(loadSettingsView);
+
+// Eagerly preload all route chunks in the background after initial render
+// so slow connections (e.g. 4.5 Mbps) never stall tab navigation.
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    void loadSourceViewer();
+    void loadSynthesisEditor();
+    void loadSynthesisHistory();
+    void loadSettingsView();
+  }, 500);
+}
 import LandingPage from "./components/LandingPage.js";
 import TermsOfService from "./components/TermsOfService.js";
 import PrivacyPolicy from "./components/PrivacyPolicy.js";

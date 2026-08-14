@@ -310,6 +310,14 @@ export default function DalilCard({
     setIsLoadingAudio(true);
     setAudioNotice(null);
 
+    // Fire off parallel background pre-fetching for ALL chunks immediately
+    // so slow network connections (e.g. 4.5 Mbps) download all audio concurrently.
+    audioChunks.forEach((_, idx) => {
+      void fetchAudioChunk(idx).catch((err) => {
+        console.warn(`Parallel prefetch info for chunk ${idx}:`, err);
+      });
+    });
+
     try {
       for (let chunkIndex = 0; chunkIndex < audioChunks.length; chunkIndex += 1) {
         if (isStoppedRef.current || playbackRunIdRef.current !== runId) return;
