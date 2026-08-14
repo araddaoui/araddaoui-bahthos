@@ -37,25 +37,43 @@ async function generateInteractionAudio(
   text: string,
   voiceName: string,
 ): Promise<GeneratedAudio> {
-  const interaction = await ai.interactions.create({
-    model,
-    input: `اقرأ النص التالي بصوت عربي فصيح وواضح، مع وقفات طبيعية بين الجمل:\n\n${text}`,
-    response_format: { type: "audio" },
-    generation_config: {
-      speech_config: [{ voice: voiceName || "Kore" }],
-    },
-  });
+  let lastError: any = null;
+  // Try a few common voices if the primary one fails
+  const voices = [voiceName || "Aoede", "Kore", "Puck", "Charon"];
 
-  const outputAudio = interaction?.output_audio;
-  if (!outputAudio?.data) {
-    throw new Error(`لم تُرجِع خدمة Gemini TTS بيانات صوتية من النموذج ${model}.`);
+  for (const voice of voices) {
+    try {
+      console.log(`[TTS] Attempting synthesis with model: ${model}, voice: ${voice}`);
+      const interaction = await ai.interactions.create({
+        model,
+        input: `اقرأ النص التالي بصوت عربي فصيح وواضح، مع وقفات طبيعية بين الجمل:\n\n${text}`,
+        response_format: { type: "audio" },
+        generation_config: {
+          speech_config: [{ voice }],
+        },
+      });
+
+      const outputAudio = interaction?.output_audio;
+      if (outputAudio?.data) {
+        console.log(`[TTS] Successfully generated audio using ${model}/${voice}`);
+        return packageAudio(
+          outputAudio.data,
+          outputAudio.mime_type || "audio/l16",
+          outputAudio.sample_rate || 24000,
+        );
+      }
+      console.warn(`[TTS] Model ${model} with voice ${voice} returned no audio data.`);
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[TTS] Attempt failed for ${model}/${voice}:`, err.message || err);
+      // If it's a 429 or 503, maybe wait a bit?
+      if (err.status === 429 || err.status === 503) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
   }
 
-  return packageAudio(
-    outputAudio.data,
-    outputAudio.mime_type || "audio/l16",
-    outputAudio.sample_rate || 24000,
-  );
+  throw lastError || new Error(`تعذر توليد الصوت العربي باستخدام النموذج ${model}.`);
 }
 
 router.post("/api/tts", async (req, res) => {
