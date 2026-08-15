@@ -485,7 +485,6 @@ export default function App() {
   // Paint the sidebar selection first, then hand the heavy view to React on the
   // next animation frame. Unlike useDeferredValue, this cannot remain stale for
   // seconds when the editor or source list is expensive to mount.
-  const [renderedTab, setRenderedTab] = useState<ActiveTab>(activeTab);
   const [editorWarm, setEditorWarm] = useState(false);
   useEffect(() => {
     const warmEditor = () => setEditorWarm(true);
@@ -510,11 +509,6 @@ export default function App() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, []);
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => setRenderedTab(activeTab));
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeTab]);
-
   // Lazily load messages for the current project
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
@@ -597,10 +591,9 @@ export default function App() {
     }
   }, [sourceIdentityKey, currentProjectId, dalilBriefing?.id]);
 
-  // Normalize summaries off the navigation-critical path. If the user opens
-  // the editor before the idle task runs, cancel it so editor entry stays free.
+  // Normalize summaries only after the source collection changes; navigation
+  // state must never schedule a full-document normalization pass.
   useEffect(() => {
-    if (activeTab === "editor") return;
     const timer = window.setTimeout(() => {
       setSources((previousSources) => {
         let changed = false;
@@ -616,7 +609,7 @@ export default function App() {
       });
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [sourceIdentityKey, activeTab]);
+  }, [sourceIdentityKey]);
 
   const [dalilCountdown, setDalilCountdown] = useState<number | null>(null);
   const [isDalilGenerating, setIsDalilGenerating] = useState(false);
@@ -1302,11 +1295,11 @@ export default function App() {
     });
   };
 
-  // Ensure every uploaded source automatically has an Arabic summary and 2 to 3 concepts,
-  // but keep this CPU-heavy fallback work away from editor navigation.
+  // Ensure every uploaded source automatically has an Arabic summary and 2 to 3 concepts.
+  // This work is scheduled only after the source collection changes, never after a menu click.
   useEffect(() => {
-    if (sources.length === 0 || activeTab === "editor") {
-      if (sources.length === 0) setGlossaryTerms([]);
+    if (sources.length === 0) {
+      setGlossaryTerms([]);
       return;
     }
 
@@ -1329,7 +1322,7 @@ export default function App() {
     }, 1000);
 
     return () => window.clearTimeout(timer);
-  }, [sourceIdentityKey, activeTab]);
+  }, [sourceIdentityKey]);
 
   // Guard ref to track whether initial briefing was triggered for the active sources
   const dalilAttemptedRef = useRef<boolean>(false);
@@ -1694,13 +1687,10 @@ export default function App() {
   };
 
   const handleWorkspaceTabChange = (tab: ActiveTab) => {
-    // Keep this handler synchronous and minimal. The selected tab paints first;
-    // the heavy view is mounted only after the next animation frame.
+    // The click path performs one urgent state update only. Every destination
+    // stays mounted behind a CSS visibility boundary, so this does not mount,
+    // unmount, or serialize source-scale data.
     setActiveTab(tab);
-    if (tab !== "sources" && tab !== "home") {
-      setSelectedSourceId(null);
-      setActiveMainView("chat");
-    }
   };
 
   if (currentPath === "/terms") {
@@ -1772,8 +1762,6 @@ export default function App() {
     );
   }
 
-  const isTabTransitioning = activeTab !== renderedTab;
-
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-[#fafaf8] text-[#1f1f1f] font-sans antialiased" dir="rtl" id="bahthos-root-container">
       {/* 1. RIGHT COLUMN (Narrow Sidebar Navigation) */}
@@ -1834,96 +1822,98 @@ export default function App() {
         <main className={`flex-1 h-full overflow-hidden relative ${
           activeTab === "sources" && selectedSourceId === null ? "hidden md:flex" : "flex"
         }`}>
-          {isTabTransitioning ? <WorkspaceViewFallback /> : <Suspense
-            fallback={<WorkspaceViewFallback />}
-          >
-            {/* Render content based on selected tab and reading state */}
-          {renderedTab === "home" && (
-            activeMainView === "chat" || !activeSelectedSource ? (
-              <ChatWindow
-                messages={messages}
-                sources={sources}
-                onSendMessage={handleSendMessage}
-                isThinking={isThinking}
-                onSourceClick={(id) => {
-                  setSelectedSourceId(id);
-                  setActiveMainView("source");
-                }}
-                onAddSource={handleAddSource}
-                dalilBriefing={dalilBriefing}
-                dalilCountdown={dalilCountdown}
-                isDalilGenerating={isDalilGenerating}
-                onTriggerDalilBriefing={handleTriggerDalilBriefing}
-              />
-            ) : (
-              <SourceViewer
-                source={activeSelectedSource}
-                glossaryTerms={glossaryTerms}
-                onToggleSource={handleToggleSource}
-                onClose={() => setActiveMainView("chat")}
-                onBackToChat={() => setActiveMainView("chat")}
-                onChatWithSingleSource={handleChatWithSingleSource}
-              />
-            )
-          )}
+          <div className={`absolute inset-0 ${activeTab === "home" ? "" : "hidden"}`} aria-hidden={activeTab !== "home"}>
+            <Suspense fallback={<WorkspaceViewFallback />}>
+              {activeMainView === "chat" || !activeSelectedSource ? (
+                <ChatWindow
+                  messages={messages}
+                  sources={sources}
+                  onSendMessage={handleSendMessage}
+                  isThinking={isThinking}
+                  onSourceClick={(id) => {
+                    setSelectedSourceId(id);
+                    setActiveMainView("source");
+                  }}
+                  onAddSource={handleAddSource}
+                  dalilBriefing={dalilBriefing}
+                  dalilCountdown={dalilCountdown}
+                  isDalilGenerating={isDalilGenerating}
+                  onTriggerDalilBriefing={handleTriggerDalilBriefing}
+                />
+              ) : (
+                <SourceViewer
+                  source={activeSelectedSource}
+                  glossaryTerms={glossaryTerms}
+                  onToggleSource={handleToggleSource}
+                  onClose={() => setActiveMainView("chat")}
+                  onBackToChat={() => setActiveMainView("chat")}
+                  onChatWithSingleSource={handleChatWithSingleSource}
+                />
+              )}
+            </Suspense>
+          </div>
 
-          {renderedTab === "sources" && (
-            activeSelectedSource ? (
-              <SourceViewer
-                source={activeSelectedSource}
-                glossaryTerms={glossaryTerms}
-                onToggleSource={handleToggleSource}
-                onClose={() => setSelectedSourceId(null)}
-                onBackToChat={() => {
-                  setActiveTab("home");
-                  setActiveMainView("chat");
-                }}
-                onChatWithSingleSource={handleChatWithSingleSource}
-              />
-            ) : (
-              /* Fallback if on sources tab but no source selected */
-              <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 text-gray-400 max-w-md mx-auto space-y-4">
-                <BookOpen className="w-16 h-16 text-gray-200" />
-                <div className="space-y-1.5">
-                  <h2 className="text-base font-bold text-[#1f1f1f]">استكشاف المستندات البحثية</h2>
-                  <p className="text-xs text-gray-500 leading-relaxed">
-                    الرجاء الضغط على أحد المستندات في القائمة لقراءة محتواه بالكامل، أو إضافة وثيقة جديدة في الأسفل.
-                  </p>
+          <div className={`absolute inset-0 ${activeTab === "sources" ? "" : "hidden"}`} aria-hidden={activeTab !== "sources"}>
+            <Suspense fallback={<WorkspaceViewFallback />}>
+              {activeSelectedSource ? (
+                <SourceViewer
+                  source={activeSelectedSource}
+                  glossaryTerms={glossaryTerms}
+                  onToggleSource={handleToggleSource}
+                  onClose={() => setSelectedSourceId(null)}
+                  onBackToChat={() => {
+                    setActiveTab("home");
+                    setActiveMainView("chat");
+                  }}
+                  onChatWithSingleSource={handleChatWithSingleSource}
+                />
+              ) : (
+                <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 text-gray-400 max-w-md mx-auto space-y-4">
+                  <BookOpen className="w-16 h-16 text-gray-200" />
+                  <div className="space-y-1.5">
+                    <h2 className="text-base font-bold text-[#1f1f1f]">استكشاف المستندات البحثية</h2>
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      الرجاء الضغط على أحد المستندات في القائمة لقراءة محتواه بالكامل، أو إضافة وثيقة جديدة في الأسفل.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )
-          )}
+              )}
+            </Suspense>
+          </div>
 
-                    {renderedTab === "history" && (
-            <SynthesisHistory
-              syntheses={syntheses}
-              sources={sources}
-              onDeleteSynthesis={handleDeleteSynthesis}
-            />
-          )}
+          <div className={`absolute inset-0 ${activeTab === "history" ? "" : "hidden"}`} aria-hidden={activeTab !== "history"}>
+            <Suspense fallback={<WorkspaceViewFallback />}>
+              <SynthesisHistory
+                syntheses={syntheses}
+                sources={sources}
+                onDeleteSynthesis={handleDeleteSynthesis}
+              />
+            </Suspense>
+          </div>
 
-          {renderedTab === "settings" && (
-            <SettingsView
-              temperature={temperature}
-              setTemperature={setTemperature}
-              onResetWorkspace={handleResetWorkspace}
-              currentUser={currentUser}
-              onSignOut={handleSignOut}
-              onShowLandingPage={() => {
-                setShowLandingPage(true);
-                try {
-                  localStorage.removeItem("bahthos_entered_app");
-                  localStorage.removeItem("tawlif_entered_app");
-                } catch (e) {}
-              }}
-            />
-          )}
-          </Suspense>}
+          <div className={`absolute inset-0 ${activeTab === "settings" ? "" : "hidden"}`} aria-hidden={activeTab !== "settings"}>
+            <Suspense fallback={<WorkspaceViewFallback />}>
+              <SettingsView
+                temperature={temperature}
+                setTemperature={setTemperature}
+                onResetWorkspace={handleResetWorkspace}
+                currentUser={currentUser}
+                onSignOut={handleSignOut}
+                onShowLandingPage={() => {
+                  setShowLandingPage(true);
+                  try {
+                    localStorage.removeItem("bahthos_entered_app");
+                    localStorage.removeItem("tawlif_entered_app");
+                  } catch (e) {}
+                }}
+              />
+            </Suspense>
+          </div>
 
-          {(editorWarm || renderedTab === "editor") && (
+          {(editorWarm || activeTab === "editor") && (
             <div
-              className={`absolute inset-0 z-10 flex bg-[#fafaf8] ${!isTabTransitioning && renderedTab === "editor" ? "" : "hidden"}`}
-              aria-hidden={renderedTab !== "editor"}
+              className={`absolute inset-0 z-10 flex bg-[#fafaf8] ${activeTab === "editor" ? "" : "hidden"}`}
+              aria-hidden={activeTab !== "editor"}
             >
               <Suspense fallback={<WorkspaceViewFallback />}>
                 <SynthesisEditor
@@ -1934,7 +1924,7 @@ export default function App() {
                   dalilCountdown={dalilCountdown}
                   isDalilGenerating={isDalilGenerating}
                   dalilError={dalilError}
-                  isActive={renderedTab === "editor" && !isTabTransitioning}
+                  isActive={activeTab === "editor"}
                   onTriggerDalilBriefing={handleTriggerDalilBriefing}
                 />
               </Suspense>

@@ -40,14 +40,16 @@ function arabicEvidence(source: any, limit: number): string {
 
 function isSubstantiveDalilText(text: string): boolean {
   const clean = text.replace(/\s+/g, " ").trim();
-  const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
-  const forbiddenMeta = /تتناول هذه الإحاطة|تركز المقارنة|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(clean);
+  const paragraphs = text.split(/\n+/).map((part) => part.trim()).filter((part) => part.length >= 80);
+  const arabicLetters = (clean.match(/[\u0600-\u06FF]/g) || []).length;
+  const latinLetters = (clean.match(/[A-Za-z]/g) || []).length;
 
-  // Do not require a fixed citation token pattern here. A strong Arabic
-  // synthesis may cite a translated title, a named author, a number, or a
-  // source-specific passage. The model prompt already requires evidence, while
-  // this gate should only reject empty, short, malformed, or English-heavy text.
-  return clean.length >= 1400 && paragraphs.length >= 6 && !forbiddenMeta && isArabicFirstText(clean);
+  // This is a safety check, not a second writing contract. Do not discard a
+  // source-grounded response merely because the model used fewer paragraphs,
+  // a translated title, or a short foreign proper name. The prompt remains the
+  // source of the frozen depth and Arabic-writing requirements.
+  return clean.length >= 900 && paragraphs.length >= 4 && arabicLetters >= 180
+    && latinLetters <= Math.max(180, Math.floor(arabicLetters * 0.25));
 }
 
 function buildDalilFallback(activeSources: any[]): string {
@@ -140,6 +142,7 @@ ${priorContext}
 ${sourcesContext}
 `;
 
+      let lastAiError: any = null;
       try {
         // Use Gemini 3.1 Pro for the deep comparative synthesis. Falling back
         // to the Flash model is handled only for transient model errors.
@@ -160,13 +163,36 @@ ${sourcesContext}
           console.warn("Al-Dalil model returned a short or meta-level briefing; using the content-grounded six-paragraph fallback.");
         }
       } catch (aiErr: any) {
+        lastAiError = aiErr;
         console.error("al-Dalil briefing generation failed:", aiErr);
       }
 
       // Never present a fabricated-looking briefing as if it were model analysis.
-      // The client keeps the previous valid briefing and can retry transparently.
+      // Classify provider failures so the client can tell a quota problem from a
+      // temporary outage, while preserving the previous valid briefing.
+      const errorText = String(lastAiError?.message || "").toLowerCase();
+      const errorStatus = Number(lastAiError?.status || 0);
+      const quotaFailure = errorStatus === 429 || errorText.includes("429") || errorText.includes("quota") || errorText.includes("exhausted") || errorText.includes("rate limit");
+      const missingKey = !process.env.GEMINI_API_KEY;
+      if (missingKey) {
+        return res.status(503).json({
+          error: "خدمة التوليف غير مهيأة في بيئة الإنتاج. يرجى ضبط مفتاح الذكاء الاصطناعي.",
+          code: "AI_KEY_MISSING",
+          retryable: false,
+          isFallback: false,
+        });
+      }
+      if (quotaFailure) {
+        return res.status(429).json({
+          error: "حصة التوليف لدى مزود الذكاء الاصطناعي مستنفدة مؤقتاً. يرجى الانتظار ثم إعادة المحاولة.",
+          code: "AI_QUOTA_EXHAUSTED",
+          retryable: true,
+          isFallback: false,
+        });
+      }
       return res.status(503).json({
-        error: "تعذر توليد إحاطة موثوقة من النصوص الحالية. يرجى إعادة المحاولة.",
+        error: "تعذر الاتصال بخدمة التوليف الآن. يرجى إعادة المحاولة بعد لحظات.",
+        code: "AI_SYNTHESIS_UNAVAILABLE",
         retryable: true,
         isFallback: false,
       });
