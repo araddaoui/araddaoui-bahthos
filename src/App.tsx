@@ -154,19 +154,19 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     }
 
     const currentCount = sourceCounts[sId] || 0;
-    if (currentCount < 3) {
+    if (currentCount < 6) {
       const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
       const eng = sanitized.term;
       const ar = sanitized.verified_term;
 
+      // Scope duplicate checks per source so new sources can introduce their own concepts freely
       const isDuplicate = cappedTerms.some(
         (ex) =>
-          areTermsEquivalent(ex.term, eng) ||
-          areTermsEquivalent(ex.verified_term || ex.transliteration, ar) ||
-          areTermsEquivalent(ex.term, ar) ||
-          areTermsEquivalent(ex.verified_term || ex.transliteration, eng) ||
-          eng.trim().toLowerCase() === (ex.term || "").trim().toLowerCase() ||
-          ar.trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase()
+          ex.sourceId === sId &&
+          (areTermsEquivalent(ex.term, eng) ||
+           areTermsEquivalent(ex.verified_term || ex.transliteration, ar) ||
+           eng.trim().toLowerCase() === (ex.term || "").trim().toLowerCase() ||
+           ar.trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase())
       );
       if (!isDuplicate) {
         sourceCounts[sId] = currentCount + 1;
@@ -198,8 +198,8 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
       if (count < 2) {
         const fallbacks = extractFallbackTermsFromText(src.content || "", src.id, src.title, cappedTerms);
         for (const fb of fallbacks) {
-          if ((sourceCounts[src.id] || 0) < 3) {
-            cappedTerms.push(fb);
+          if ((sourceCounts[src.id] || 0) < 6) {
+            cappedTerms.push({ ...fb, sourceId: src.id });
             sourceCounts[src.id] = (sourceCounts[src.id] || 0) + 1;
           }
         }
