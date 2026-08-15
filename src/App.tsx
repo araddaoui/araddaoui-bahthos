@@ -125,14 +125,10 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
 
   const validSourceIds = sources && sources.length > 0 ? new Set(sources.map((s) => s.id)) : null;
 
+  const fallbackSourceId = sources && sources.length > 0 ? sources[0].id : undefined;
+
   const validTerms = terms.filter((t) => {
     if (!t) return false;
-    // Strict isolation: if sources list is supplied, term MUST have a sourceId matching one of current sources
-    if (validSourceIds) {
-      if (!t.sourceId || !validSourceIds.has(t.sourceId)) {
-        return false;
-      }
-    }
     const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
     if (!sanitized.isValid) return false;
 
@@ -144,14 +140,15 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     return true;
   });
 
-  // Deduplicate terms globally across all sources and cap to max 3 items per source
+  // Deduplicate terms across sources and cap to max 6 items per source
   const sourceCounts: Record<string, number> = {};
   const cappedTerms: GlossaryTerm[] = [];
   for (const t of validTerms) {
-    const sId = t.sourceId;
+    let sId = t.sourceId;
     if (!sId || (validSourceIds && !validSourceIds.has(sId))) {
-      continue;
+      sId = fallbackSourceId;
     }
+    if (!sId) continue;
 
     const currentCount = sourceCounts[sId] || 0;
     if (currentCount < 6) {
@@ -902,13 +899,11 @@ export default function App() {
       console.error(e);
     }
 
-    // 5. Delete from Firestore asynchronously if user is logged in
+    // 5. Delete from Firestore in the background (non-blocking) if user is logged in
     if (currentUser && !isQuotaExceeded()) {
-      try {
-        await deleteUserProject(currentUser.uid, projectId);
-      } catch (err) {
+      deleteUserProject(currentUser.uid, projectId).catch((err) => {
         console.error("Failed to delete project from Firestore:", err);
-      }
+      });
     }
 
     // 6. Handle UI and state transition cleanly
