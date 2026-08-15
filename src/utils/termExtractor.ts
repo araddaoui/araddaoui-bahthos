@@ -273,11 +273,25 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     return true;
   }
 
-  // Reject geographical regions, country names, city names standalone
+  // Reject geographical regions, country names, city names, journals, and publishers
   const geographicalAndPlaces = [
-    "middle east", "qatar", "doha", "london", "al udeid", "as sayliyah", "sayliyah", "udeid", "united states", "europe", "asia", "latin america", "persian gulf", "arabian gulf", "الشرق الأوسط", "قطر", "الدوحة", "لندن", "واشنطن"
+    "middle east", "qatar", "doha", "london", "al udeid", "as sayliyah", "sayliyah", "udeid", "united states", "usa", "america", "europe", "asia", "latin america", "persian gulf", "arabian gulf", "saudi arabia", "riyadh", "new york", "san antonio", "washington", "cairo", "beirut", "tehran", "tel aviv", "jerusalem", "gaza", "israel",
+    "الشرق الأوسط", "قطر", "الدوحة", "لندن", "الولايات المتحدة", "أمريكا", "أوروبا", "آسيا", "أمريكا اللاتينية", "الخليج العربي", "السعودية", "الرياض", "نيويورك", "سان أنطونيو", "واشنطن", "القاهرة", "بيروت", "طهران", "تل أبيب", "القدس", "غزة", "إسرائيل"
   ];
-  if (geographicalAndPlaces.some((gp) => cleanTerm === gp)) {
+  if (geographicalAndPlaces.some((gp) => cleanTerm.includes(gp))) {
+    return true;
+  }
+
+  // Reject journal names, publisher names, and institutional publication fragments
+  const journalsAndPublishers = [
+    "foreign affairs", "international studies", "millennium", "wiley", "springer", "routledge", "cambridge", "oxford", "harvard", "jstor", "proquest", "buen", "press", "house", "review", "bulletin", "studies"
+  ];
+  if (journalsAndPublishers.some((jp) => cleanTerm.includes(jp))) {
+    return true;
+  }
+
+  // Reject dangling initials, author suffixes, or prepositional title fragments (e.g. "Retrenchment J", "Robert Mason To", "John Smith By")
+  if (/\b[a-z]\b$/i.test(cleanTerm) || /\b(to|by|and|from|in|on|with|at)\s*$/i.test(cleanTerm) || /\b[a-z]\s+(to|by|and|from|in|on|with|at)\b/i.test(cleanTerm)) {
     return true;
   }
 
@@ -535,10 +549,17 @@ export function cleanAndSanitizeAcademicTerm(
     }
   }
 
-  // Allow English-only terms if they are meaningful academic concepts (merit-based extraction)
+  // STRICT ARABIC REQUIREMENT: All concepts must be presented in professional Arabic.
+  // If verified_term lacks Arabic characters, attempt direct translation or reject.
   const hasArabic = /[\u0600-\u06FF]/.test(termAr);
-  if (!hasArabic && termEng.length < 5) {
-    return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
+  if (!hasArabic) {
+    // Try translation lookup from ACADEMIC_TERMS_MAP or registry
+    const translated = termEng.split(" ").map(w => ACADEMIC_TERMS_MAP[w.toLowerCase()] || "").join(" ").trim();
+    if (translated.length >= 3) {
+      termAr = translated;
+    } else {
+      return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
+    }
   }
 
   // 7. Final trivial/citation check
@@ -550,7 +571,7 @@ export function cleanAndSanitizeAcademicTerm(
     term: termEng || termAr,
     verified_term: termAr,
     draft_term: termAr,
-    isValid: termAr.length >= 3 && termAr.length <= 60,
+    isValid: termAr.length >= 3 && termAr.length <= 60 && /[\u0600-\u06FF]/.test(termAr),
   };
 }
 
