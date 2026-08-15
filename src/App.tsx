@@ -196,11 +196,17 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     for (const src of sources) {
       const count = sourceCounts[src.id] || 0;
       if (count < 2) {
-        const fallbacks = extractFallbackTermsFromText(src.content || "", src.id, src.title, cappedTerms);
+        const fallbacks = extractFallbackTermsFromText(src.content || "", src.id, src.title);
         for (const fb of fallbacks) {
           if ((sourceCounts[src.id] || 0) < 6) {
-            cappedTerms.push({ ...fb, sourceId: src.id });
-            sourceCounts[src.id] = (sourceCounts[src.id] || 0) + 1;
+            // Check for duplicates only within this specific source's list in cappedTerms
+            const isDuplicateForSource = cappedTerms.some(
+              (ex) => ex.sourceId === src.id && areTermsEquivalent(ex.term, fb.term)
+            );
+            if (!isDuplicateForSource) {
+              cappedTerms.push({ ...fb, sourceId: src.id });
+              sourceCounts[src.id] = (sourceCounts[src.id] || 0) + 1;
+            }
           }
         }
       }
@@ -220,15 +226,15 @@ export function ensureEverySourceHasTerms(sources: Source[], currentTerms: Gloss
     const existingForSource = updatedTerms.filter((t) => t.sourceId === source.id);
     if (existingForSource.length < 2) {
       const textToExtract = source.content || source.title || "مستند بحثي";
-      const extracted = extractFallbackTermsFromText(textToExtract, source.id, source.title, updatedTerms);
+      const extracted = extractFallbackTermsFromText(textToExtract, source.id, source.title);
       const toAdd = extracted.filter(
         (t) =>
           !updatedTerms.some(
             (ex) =>
-              areTermsEquivalent(ex.term, t.term) ||
-              areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term) ||
-              t.term.trim().toLowerCase() === ex.term.trim().toLowerCase() ||
-              (t.verified_term || t.transliteration || "").trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase()
+              ex.sourceId === source.id && (
+                areTermsEquivalent(ex.term, t.term) ||
+                areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term)
+              )
           )
       );
       updatedTerms = [...updatedTerms, ...toAdd];

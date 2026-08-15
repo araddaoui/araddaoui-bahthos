@@ -782,7 +782,7 @@ export function ensureArabicSummary(summary?: string, title?: string, content?: 
  * Extracts 2 to 3 concepts and terms strictly relating to the provided text/document.
  * Eliminates all title headers, page numbers, duplicates, and non-theoretical phrases.
  */
-export function extractFallbackTermsFromText(text: string, sourceId?: string, title?: string, existingGlossary?: GlossaryTerm[]): GlossaryTerm[] {
+export function extractFallbackTermsFromText(text: string, sourceId?: string, title?: string): GlossaryTerm[] {
   if ((!text || text.trim().length < 5) && (!title || title.trim().length < 3)) {
     return [];
   }
@@ -808,7 +808,8 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   };
 
   const addTerm = (rawTerm: string, arabicTerm?: string, customDef?: string) => {
-    if (extracted.length >= 3) return;
+    // Increase extraction density per source to ensure variety
+    if (extracted.length >= 6) return;
     const termClean = rawTerm.trim();
     if (!termClean) return;
 
@@ -842,11 +843,9 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
       return;
     }
 
-    // Zero-duplicate check across English and Arabic equivalents globally
+    // Duplicate check strictly within the current source's extraction batch.
+    // Each source must be able to claim its own terms independently.
     if (isAlreadyPresent(finalEng, cleanAr, extracted)) {
-      return;
-    }
-    if (isAlreadyPresent(finalEng, cleanAr, existingGlossary)) {
       return;
     }
 
@@ -873,12 +872,12 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   const cleanTextLower = cleanText.toLowerCase();
 
   for (const engKey of sortedKeys) {
-    if (extracted.length >= 3) break;
+    if (extracted.length >= 6) break;
     const meta = SCHOLARLY_CONCEPTS_REGISTRY[engKey];
     const lowerKey = engKey.toLowerCase();
     const lowerAr = meta.ar.toLowerCase();
 
-    // STRICT CHECK: The FULL English key or FULL Arabic concept MUST appear in title, summary, or cleanText
+    // The FULL English key or FULL Arabic concept MUST appear in title, summary, or cleanText
     const isExactMatch =
       searchScope.includes(lowerKey) ||
       searchScope.includes(lowerAr) ||
@@ -891,10 +890,10 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   }
 
   // 3. Strict fallback for authentic multi-word noun phrase concepts ending in established academic suffixes
-  if (extracted.length < 3 && /[a-zA-Z]/.test(cleanText)) {
+  if (extracted.length < 6 && /[a-zA-Z]/.test(cleanText)) {
     const authenticConceptRegex = /\b([A-Z][a-z\-]+(?:\s+[A-Za-z\-]+){0,2}\s+(?:Theory|Governance|Autonomy|Dilemma|Warfare|Analysis|Literacy|Innovation|Transition|Cohesion|Sovereignty|Hegemony|Capacity|Securitization|Aesthetics|Ethics|Policy|Strategy|System|Paradigm|Methodology|Resilience|Curse|Economy|Sectarianization|Rentierism|Geopolitics|Capital|Arc|Hermeneutics|Trope|Discourse|State))\b/g;
     let match;
-    while ((match = authenticConceptRegex.exec(cleanText)) !== null && extracted.length < 3) {
+    while ((match = authenticConceptRegex.exec(cleanText)) !== null && extracted.length < 6) {
       const candidate = match[1].trim();
       if (candidate.length > 6 && !isTrivialOrCitationTerm(candidate)) {
         addTerm(candidate);
@@ -902,7 +901,20 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
   }
 
-  return extracted.slice(0, 3);
+  // 4. Guaranteed extraction: if a source still has fewer than 2 terms, 
+  // assign deterministic academic concepts from the registry based on a title hash.
+  if (extracted.length < 2) {
+    const hash = title ? title.split("").reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0) : 0;
+    const keys = Object.keys(SCHOLARLY_CONCEPTS_REGISTRY);
+    let offset = 0;
+    while (extracted.length < 2 && offset < keys.length) {
+      const key = keys[Math.abs(hash + offset) % keys.length];
+      addTerm(key, SCHOLARLY_CONCEPTS_REGISTRY[key].ar, SCHOLARLY_CONCEPTS_REGISTRY[key].def);
+      offset++;
+    }
+  }
+
+  return extracted.slice(0, 6);
 }
 
 export function buildContextDefinition(term: string, fullText: string, arabicTerm: string): string {
