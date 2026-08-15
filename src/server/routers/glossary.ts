@@ -126,12 +126,8 @@ text.substring(0, 3500);
         const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
         if (!sanitized.isValid) return null;
         if (/^[a-zA-Z\s\-]+$/.test(sanitized.verified_term) && /^[a-zA-Z\s\-]+$/.test(sanitized.term)) return null;
-        if (existingTerms && Array.isArray(existingTerms) && existingTerms.some((ex: any) =>
-          areTermsEquivalent(ex.term || "", sanitized.term) ||
-          areTermsEquivalent(ex.verified_term || ex.transliteration || "", sanitized.verified_term)
-        )) {
-          return null;
-        }
+        // Removed project-wide suppression to allow each source to be judged on its own merits.
+        // Each source can now contribute its own terminology even if similar terms exist in other sources.
         const cleanDef = (t.definition && !t.definition.includes("مفهوم تحليلي وإطار نظري") && t.definition.length > 25)
           ? spellcheckAndRepairArabicAndEnglishText(t.definition)
           : buildContextDefinition(sanitized.term, text || "", sanitized.verified_term);
@@ -147,7 +143,7 @@ text.substring(0, 3500);
       .slice(0, 3);
 
     if (!normalizedTerms || normalizedTerms.length === 0) {
-      normalizedTerms = extractFallbackTermsFromText(text, undefined, undefined, existingTerms).slice(0, 3).map((t) => ({
+      normalizedTerms = extractFallbackTermsFromText(text, undefined, undefined).slice(0, 3).map((t) => ({
         term: t.term,
         draft_term: t.draft_term,
         verified_term: t.verified_term,
@@ -159,7 +155,7 @@ text.substring(0, 3500);
     return res.json({ terms: normalizedTerms });
   } catch (error: any) {
     console.warn("Passive glossary extraction backend failed, using local extraction fallback:", error);
-    const fallbacks = extractFallbackTermsFromText(text, undefined, undefined, existingTerms).map((t) => ({
+    const fallbacks = extractFallbackTermsFromText(text, undefined, undefined).map((t) => ({
       term: t.term,
       draft_term: t.draft_term,
       verified_term: t.verified_term,

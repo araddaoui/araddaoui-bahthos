@@ -1255,8 +1255,7 @@ export default function App() {
       const fallbackTerms = extractFallbackTermsFromText(
         text,
         sourceId,
-        undefined,
-        latestGlossaryTermsRef.current,
+        undefined
       );
       if (fallbackTerms.length > 0) {
         addGlossaryTermsDirectly(fallbackTerms, sourceId);
@@ -1294,14 +1293,16 @@ export default function App() {
           sourceId: resolvedSourceId
         }));
 
+      // Scoped duplicate check: only suppress duplicates if they belong to the SAME source.
+      // This ensures that different sources can contribute their own terminology independently.
       const filteredNew = normalizedNewTerms.filter(
         (t) =>
           !prev.some(
             (ex) =>
-              areTermsEquivalent(ex.term, t.term) ||
-              areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term) ||
-              t.term.trim().toLowerCase() === ex.term.trim().toLowerCase() ||
-              (t.verified_term || t.transliteration || "").trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase()
+              ex.sourceId === t.sourceId && (
+                areTermsEquivalent(ex.term, t.term) ||
+                areTermsEquivalent(ex.verified_term || ex.transliteration, t.verified_term || t.transliteration || t.term)
+              )
           )
       );
 

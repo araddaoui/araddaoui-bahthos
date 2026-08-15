@@ -499,15 +499,16 @@ export function cleanAndSanitizeAcademicTerm(
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
-  // 4. Reject if term still contains internal commas or punctuation or numbers
-  if (/[,،;؛:!?؟]/.test(termAr) || /[,;:!?]/.test(termEng) || /\d/.test(termAr) || /\d/.test(termEng)) {
+  // 4. Reject if term still contains internal punctuation (numbers are now allowed in academic terms)
+  if (/[,،;؛:!?؟]/.test(termAr) || /[,;:!?]/.test(termEng)) {
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
   // 5. Ensure word count bounds (Concepts are nominal phrases of 1 to 4 words max)
   const arWords = termAr.split(/\s+/).filter(Boolean);
   const engWords = termEng.split(/\s+/).filter(Boolean);
-  if (arWords.length > 4 || (termEng && engWords.length > 5)) {
+  // Concepts are nominal phrases of 1 to 5 words max
+  if (arWords.length > 5 || (termEng && engWords.length > 6)) {
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
@@ -534,8 +535,9 @@ export function cleanAndSanitizeAcademicTerm(
     }
   }
 
-  // Reject if termAr STILL contains zero Arabic characters (untranslated English)
-  if (!/[\u0600-\u06FF]/.test(termAr)) {
+  // Allow English-only terms if they are meaningful academic concepts (merit-based extraction)
+  const hasArabic = /[\u0600-\u06FF]/.test(termAr);
+  if (!hasArabic && termEng.length < 5) {
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
@@ -559,26 +561,8 @@ export interface ScholarlyConceptMeta {
 }
 
 export const SCHOLARLY_CONCEPTS_REGISTRY: Record<string, ScholarlyConceptMeta> = {
-  "methodology": { ar: "المنهجية البحثية", def: "الإطار النظامي والقواعد الإجرائية التي تحكم عملية البحث والتحليل العلمي." },
-  "theoretical framework": { ar: "الإطار النظري", def: "مجموعة المفاهيم والتعاريف والافتراضات التي تشكل الرؤية العلمية للموضوع المدروس." },
-  "empirical evidence": { ar: "الأدلة التجريبية", def: "المعطيات والوقائع المستمدة من الملاحظة المباشرة أو التجربة الميدانية." },
-  "qualitative analysis": { ar: "التحليل الكيفي", def: "منهجية تعتمد على فهم الظواهر في سياقها الطبيعي من خلال البيانات غير الرقمية." },
-  "quantitative analysis": { ar: "التحليل الكمي", def: "منهجية تعتمد على البيانات الرقمية والإحصائية لاختبار الفرضيات وقياس الظواهر." },
-  "comparative study": { ar: "الدراسة المقارنة", def: "منهجية تقوم على تحليل أوجه الشبه والاختلاف بين ظاهرتين أو أكثر." },
-  "literature review": { ar: "مراجعة الأدبيات", def: "مسح نقدي للدراسات والأبحاث السابقة المتعلقة بموضوع البحث الحالي." },
-  "case study": { ar: "دراسة الحالة", def: "تحليل معمق ومفصل لوحدة واحدة (فرد، منظمة، أو حدث) لفهم الظاهرة بعمق." },
-  "conceptual model": { ar: "النموذج المفاهيمي", def: "تمثيل نظري يوضح العلاقات المفترضة بين المتغيرات والمفاهيم الأساسية." },
-  "discourse analysis": { ar: "تحليل الخطاب", def: "دراسة اللغة المستخدمة في سياقها الاجتماعي والسياسي للكشف عن المعاني الضمنية." },
-  "epistemology": { ar: "الإبستمولوجيا", def: "فرع الفلسفة الذي يدرس طبيعة المعرفة ومصادرها وحدودها وصلاحيتها." },
-  "paradigm shift": { ar: "التحول البارادايمي", def: "تغيير جذري في المفاهيم والممارسات الأساسية داخل تخصص علمي معين." },
-  "causality": { ar: "السببية", def: "العلاقة التي تربط بين السبب والنتيجة، حيث يؤدي الأول إلى حدوث الثاني." },
-  "correlation": { ar: "الارتباط", def: "علاقة إحصائية بين متغيرين تتغير قيمهما معاً دون ضرورة وجود علاقة سببية." },
-  "hypothesis": { ar: "الفرضية البحثية", def: "تخمين ذكي أو إجابة مؤقتة لسؤال البحث تخضع للاختبار والتحقق." },
-  "validity": { ar: "الصدق", def: "مدى قدرة أداة البحث على قياس ما وضعت لقياسه فعلياً." },
-  "reliability": { ar: "الثبات", def: "مدى اتساق نتائج البحث عند تكرار الدراسة في نفس الظروف." },
-  "inductive reasoning": { ar: "الاستدلال الاستقرائي", def: "الانتقال من الملاحظات الجزئية إلى بناء تعميمات أو نظريات عامة." },
-  "deductive reasoning": { ar: "الاستدلال الاستنباطي", def: "الانتقال من النظريات العامة إلى التنبؤ بحالات جزئية محددة." },
-  "triangulation": { ar: "التثليث المنهجي", def: "استخدام مصادر بيانات أو منهجيات متعددة لزيادة مصداقية نتائج البحث." }
+  // Purged to ensure project isolation.
+  // Concepts are now dynamically extracted from the active source text only.
 };
 
 // Translation dictionary for common academic terms (backward compatible map)
@@ -601,17 +585,22 @@ export function areTermsEquivalent(termA: string, termB: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
 
-  // Compare via scholarly concepts registry (English key or Arabic translation) with exact equality
-  for (const [engKey, meta] of Object.entries(SCHOLARLY_CONCEPTS_REGISTRY)) {
-    const keyClean = cleanStr(engKey);
-    const arClean = cleanStr(meta.ar);
-    const isAMatch = a === keyClean || a === arClean;
-    const isBMatch = b === keyClean || b === arClean;
-    if (isAMatch && isBMatch) {
-      return true;
+  // Registry-based equivalence check (if registry is populated)
+  const registryEntries = Object.entries(SCHOLARLY_CONCEPTS_REGISTRY);
+  if (registryEntries.length > 0) {
+    for (const [engKey, meta] of registryEntries) {
+      const keyClean = cleanStr(engKey);
+      const arClean = cleanStr(meta.ar);
+      const isAMatch = a === keyClean || a === arClean;
+      const isBMatch = b === keyClean || b === arClean;
+      if (isAMatch && isBMatch) {
+        return true;
+      }
     }
   }
-  return false;
+
+  // Fallback to substring match for cross-language equivalence if one is a subset of the other
+  return a.includes(b) || b.includes(a);
 }
 
 
@@ -808,15 +797,15 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   };
 
   const addTerm = (rawTerm: string, arabicTerm?: string, customDef?: string) => {
-    // Increase extraction density per source to ensure variety
-    if (extracted.length >= 6) return;
+    // Limit extraction per source to ensure merit-based selection
+    if (extracted.length >= 3) return;
     const termClean = rawTerm.trim();
     if (!termClean) return;
 
     let verifiedArabic = arabicTerm;
     let authoritativeDef = customDef;
 
-    // Look up in scholarly concepts registry
+    // Look up in scholarly concepts registry (now strictly dynamic)
     const registryKey = termClean.toLowerCase();
     const registryEntry = SCHOLARLY_CONCEPTS_REGISTRY[registryKey];
     if (registryEntry) {
@@ -826,10 +815,9 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
       if (/[\u0600-\u06FF]/.test(termClean)) {
         verifiedArabic = termClean;
       } else {
-        verifiedArabic = termClean
-          .split(" ")
-          .map((w) => ACADEMIC_TERMS_MAP[w.toLowerCase()] || w)
-          .join(" ");
+        // Only use mapping for very common academic structures if needed, 
+        // but prefer raw term for merit-based extraction.
+        verifiedArabic = termClean;
       }
     }
 
@@ -844,7 +832,6 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
 
     // Duplicate check strictly within the current source's extraction batch.
-    // Each source must be able to claim its own terms independently.
     if (isAlreadyPresent(finalEng, cleanAr, extracted)) {
       return;
     }
@@ -866,55 +853,32 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     });
   };
 
-  // 1. Scan against SCHOLARLY_CONCEPTS_REGISTRY sorted by key length descending
-  // Add concepts ONLY if the full concept or full Arabic equivalent appears in searchScope or cleanText
-  const sortedKeys = Object.keys(SCHOLARLY_CONCEPTS_REGISTRY).sort((a, b) => b.length - a.length);
-  const cleanTextLower = cleanText.toLowerCase();
-
-  for (const engKey of sortedKeys) {
-    if (extracted.length >= 6) break;
-    const meta = SCHOLARLY_CONCEPTS_REGISTRY[engKey];
-    const lowerKey = engKey.toLowerCase();
-    const lowerAr = meta.ar.toLowerCase();
-
-    // The FULL English key or FULL Arabic concept MUST appear in title, summary, or cleanText
-    const isExactMatch =
-      searchScope.includes(lowerKey) ||
-      searchScope.includes(lowerAr) ||
-      cleanTextLower.includes(lowerKey) ||
-      cleanTextLower.includes(lowerAr);
-
-    if (isExactMatch) {
-      addTerm(engKey, meta.ar, meta.def);
-    }
-  }
-
-  // 3. Strict fallback for authentic multi-word noun phrase concepts ending in established academic suffixes
-  if (extracted.length < 6 && /[a-zA-Z]/.test(cleanText)) {
-    const authenticConceptRegex = /\b([A-Z][a-z\-]+(?:\s+[A-Za-z\-]+){0,2}\s+(?:Theory|Governance|Autonomy|Dilemma|Warfare|Analysis|Literacy|Innovation|Transition|Cohesion|Sovereignty|Hegemony|Capacity|Securitization|Aesthetics|Ethics|Policy|Strategy|System|Paradigm|Methodology|Resilience|Curse|Economy|Sectarianization|Rentierism|Geopolitics|Capital|Arc|Hermeneutics|Trope|Discourse|State))\b/g;
+  // 1. Scan for authentic multi-word noun phrase concepts ending in established academic suffixes
+  // This ensures terms are merit-based and derived directly from the source text.
+  if (/[a-zA-Z]/.test(cleanText)) {
+    // Capture document-specific concepts (Proper Case phrases of 2-4 words)
+    // Examples: "Westphalian Sovereignty", "International Relations Theory", "Hegemony Paradigm"
+    const authenticConceptRegex = /\b[A-Z][a-z\-']*(?:\s+[A-Z][a-z\-']*){1,3}\b/g;
     let match;
-    while ((match = authenticConceptRegex.exec(cleanText)) !== null && extracted.length < 6) {
-      const candidate = match[1].trim();
+    while ((match = authenticConceptRegex.exec(cleanText)) !== null && extracted.length < 3) {
+      const candidate = match[0].trim();
       if (candidate.length > 6 && !isTrivialOrCitationTerm(candidate)) {
         addTerm(candidate);
       }
     }
   }
 
-  // 4. Guaranteed extraction: if a source still has fewer than 2 terms, 
-  // assign deterministic academic concepts from the registry based on a title hash.
-  if (extracted.length < 2) {
-    const hash = title ? title.split("").reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0) : 0;
-    const keys = Object.keys(SCHOLARLY_CONCEPTS_REGISTRY);
-    let offset = 0;
-    while (extracted.length < 2 && offset < keys.length) {
-      const key = keys[Math.abs(hash + offset) % keys.length];
-      addTerm(key, SCHOLARLY_CONCEPTS_REGISTRY[key].ar, SCHOLARLY_CONCEPTS_REGISTRY[key].def);
-      offset++;
+  // 2. Scan for Arabic concepts (multi-word phrases starting with common conceptual markers)
+  const arabicConceptRegex = /(?:نظرية|حوكمة|سيادة|هيمنة|تحليل|استراتيجية|نظام|إطار|منهجية|تأطير|سردية|صراع|توازن)\s+[\u0600-\u06FF]{3,}(?:\s+[\u0600-\u06FF]{3,}){0,2}/g;
+  let arMatch;
+  while ((arMatch = arabicConceptRegex.exec(cleanText)) !== null && extracted.length < 3) {
+    const candidate = arMatch[0].trim();
+    if (candidate.length > 8) {
+      addTerm(candidate);
     }
   }
 
-  return extracted.slice(0, 6);
+  return extracted;
 }
 
 export function buildContextDefinition(term: string, fullText: string, arabicTerm: string): string {

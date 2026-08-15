@@ -195,15 +195,8 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
         resData.terms = [];
       }
 
-      // Ensure every source gets 2 to 3 genuine scholarly terms by calling fallback extractor if needed
-      if (resData.terms.length < 2) {
-        const fallbacks = extractFallbackTermsFromText(parsedContent || "", "temp_id", resData.title || fileName || "", resData.terms);
-        for (const fb of fallbacks) {
-          if (resData.terms.length < 3) {
-            resData.terms.push(fb);
-          }
-        }
-      }
+      // Removed forced term minimums to ensure merit-based extraction.
+      // Documents will now only yield concepts that are meaningfully present in the text.
 
       return res.json(resData);
     } catch (err: any) {
