@@ -25,6 +25,10 @@ type AudioChunk = {
 // Keep only one look-ahead request. More parallel requests saturate a slow
 // connection and delay the first sentence instead of improving continuity.
 const AUDIO_PREFETCH_AHEAD = 1;
+// Voice is temporarily disabled at the user’s request. Keeping this as a
+// feature flag preserves the proven text and highlighting implementation for a
+// later, deliberate reactivation after the provider quota issue is resolved.
+const ENABLE_ARABIC_TTS = false;
 
 function cleanDalilDisplayText(text: string): string {
   if (!text) return "";
@@ -283,7 +287,7 @@ export default function DalilCard({
   }, [dalilBriefing?.id]);
 
   const handleTogglePlay = async () => {
-    if (!dalilBriefing?.text || audioChunks.length === 0) return;
+    if (!ENABLE_ARABIC_TTS || !dalilBriefing?.text || audioChunks.length === 0) return;
 
     if (isLoadingAudio) {
       stopAllSpeech();
@@ -484,8 +488,8 @@ export default function DalilCard({
             </button>
           )}
 
-          {/* Text-To-Speech Controls (Speaker icon only, toggling to Pause) */}
-          {dalilBriefing && !isDalilGenerating && (
+          {/* Text-To-Speech Controls are temporarily disabled. */}
+          {ENABLE_ARABIC_TTS && dalilBriefing && !isDalilGenerating && (
             <div className="flex items-center gap-1 bg-teal-950/60 p-1 rounded-lg border border-teal-700/50">
               <button
                 onClick={handleTogglePlay}
@@ -601,7 +605,7 @@ export default function DalilCard({
             </span>
           </div>
 
-          {audioNotice && (
+          {ENABLE_ARABIC_TTS && audioNotice && (
             <div className="mb-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold leading-5 text-amber-900">
               {audioNotice}
             </div>

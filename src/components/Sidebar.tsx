@@ -298,8 +298,7 @@ export default function Sidebar({
 
                 {/* Left indicators */}
                 {isActive && (
-                  <motion.div
-                    layoutId="active-indicator"
+                  <div
                     className="absolute right-0 top-1.5 bottom-1.5 w-1 bg-[#094d4e] rounded-l-md md:hidden"
                   />
                 )}

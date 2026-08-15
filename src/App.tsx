@@ -486,6 +486,30 @@ export default function App() {
   // next animation frame. Unlike useDeferredValue, this cannot remain stale for
   // seconds when the editor or source list is expensive to mount.
   const [renderedTab, setRenderedTab] = useState<ActiveTab>(activeTab);
+  const [editorWarm, setEditorWarm] = useState(false);
+  useEffect(() => {
+    const warmEditor = () => setEditorWarm(true);
+    let cancelWarmEditor: () => void;
+    const requestIdle = (window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+    }).requestIdleCallback;
+    if (typeof requestIdle === "function") {
+      const idleId = requestIdle(warmEditor, { timeout: 1800 });
+      cancelWarmEditor = () => window.cancelIdleCallback(idleId);
+    } else {
+      const timeoutId = window.setTimeout(warmEditor, 900);
+      cancelWarmEditor = () => window.clearTimeout(timeoutId);
+    }
+    return cancelWarmEditor;
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadSourceViewer();
+      void loadSynthesisHistory();
+      void loadSettingsView();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setRenderedTab(activeTab));
     return () => window.cancelAnimationFrame(frame);
@@ -1896,8 +1920,11 @@ export default function App() {
           )}
           </Suspense>}
 
-          {!isTabTransitioning && renderedTab === "editor" && (
-            <div className="absolute inset-0 z-10 flex bg-[#fafaf8]">
+          {(editorWarm || renderedTab === "editor") && (
+            <div
+              className={`absolute inset-0 z-10 flex bg-[#fafaf8] ${!isTabTransitioning && renderedTab === "editor" ? "" : "hidden"}`}
+              aria-hidden={renderedTab !== "editor"}
+            >
               <Suspense fallback={<WorkspaceViewFallback />}>
                 <SynthesisEditor
                   key={currentProjectId || "guest"}
@@ -1907,7 +1934,7 @@ export default function App() {
                   dalilCountdown={dalilCountdown}
                   isDalilGenerating={isDalilGenerating}
                   dalilError={dalilError}
-                  isActive
+                  isActive={renderedTab === "editor" && !isTabTransitioning}
                   onTriggerDalilBriefing={handleTriggerDalilBriefing}
                 />
               </Suspense>

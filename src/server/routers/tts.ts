@@ -3,6 +3,7 @@ import { getAiClient } from "../ai.js";
 import { pcmToWav } from "../audio.js";
 
 const router = Router();
+const ENABLE_ARABIC_TTS = false;
 
 type GeneratedAudio = {
   audio: string;
@@ -63,6 +64,13 @@ async function generateInteractionAudio(
 }
 
 router.post("/api/tts", async (req, res) => {
+  if (!ENABLE_ARABIC_TTS) {
+    return res.status(410).json({
+      error: "تم إيقاف القراءة الصوتية العربية مؤقتاً لتخفيف الحمل على التطبيق.",
+      disabled: true,
+    });
+  }
+
   try {
     const { text, voiceName = "Kore" } = req.body || {};
     if (!text || typeof text !== "string" || !text.trim()) {
