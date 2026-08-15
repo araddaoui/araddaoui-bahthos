@@ -889,13 +889,30 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
   }
 
-  // 2. Scan for Arabic concepts (multi-word phrases starting with common conceptual markers)
-  const arabicConceptRegex = /(?:نظرية|حوكمة|سيادة|هيمنة|تحليل|استراتيجية|نظام|إطار|منهجية|تأطير|سردية|صراع|توازن)\s+[\u0600-\u06FF]{3,}(?:\s+[\u0600-\u06FF]{3,}){0,2}/g;
-  let arMatch;
-  while ((arMatch = arabicConceptRegex.exec(cleanText)) !== null && extracted.length < 3) {
-    const candidate = arMatch[0].trim();
-    if (candidate.length > 8) {
-      addTerm(candidate);
+  // 2. Scan for authentic Arabic noun phrases and thematic constructs directly from text
+  // Extract meaningful consecutive Arabic words (excluding common stop words)
+  const arabicWords = cleanText.match(/[\u0600-\u06FF]{4,}/g) || [];
+  const arabicStopWords = new Set([
+    "في", "من", "على", "أن", "إن", "هذا", "هذه", "التي", "الذي", "التالي", "حيث", "كما", "هو", "هي", "تم", "كان", "كانت",
+    "ولكن", "عن", "مع", "هو", "إلى", "البحث", "دراسة", "مستند", "تقرير", "صفحة", "المصادر", "المستند"
+  ]);
+
+  for (let i = 0; i < arabicWords.length - 1 && extracted.length < 3; i++) {
+    const w1 = arabicWords[i];
+    const w2 = arabicWords[i + 1];
+    if (!arabicStopWords.has(w1) && !arabicStopWords.has(w2)) {
+      const candidate = `${w1} ${w2}`;
+      if (candidate.length >= 8 && !isTrivialOrCitationTerm(candidate)) {
+        addTerm(candidate, candidate, `مفهوم تحليلي مستخرج مباشرة من نص المصدر: "${candidate}"`);
+      }
+    }
+  }
+
+  // 3. If still fewer than 2 terms, use title keywords or first meaningful sentence fragment
+  if (extracted.length < 2 && title && title.length > 5) {
+    const cleanTitleConcept = title.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim();
+    if (cleanTitleConcept.length >= 6 && !isTrivialOrCitationTerm(cleanTitleConcept)) {
+      addTerm(cleanTitleConcept, cleanTitleConcept, `مفهوم مركزي مستخلص من عنوان المصدر: "${cleanTitleConcept}"`);
     }
   }
 
