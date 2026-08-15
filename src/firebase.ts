@@ -238,8 +238,13 @@ export async function syncCollection<T extends { id?: string; term?: string }>(
     const batch = writeBatch(db);
     let opCount = 0;
 
-    // Prevent accidental deletion of remote documents when local items array is temporarily partial or syncing.
-    // Remote documents are preserved; new or modified items are upserted.
+    // Sync remote collection by deleting items not in the new set and upserting changed/new items.
+    snap.forEach((d) => {
+      if (!newIds.has(d.id)) {
+        batch.delete(d.ref);
+        opCount++;
+      }
+    });
 
     for (const item of items) {
       const docId = getItemId(item);

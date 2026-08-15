@@ -1064,7 +1064,22 @@ export default function App() {
     }
   }, [dalilBriefing, currentProjectId, currentUser, sourceIdentityKey]);
 
-  // Save sources, messages, syntheses, glossary terms, and dalilBriefings to Firebase Firestore when they change (debounced)
+  // Save sources and glossary terms immediately (critical data)
+  useEffect(() => {
+    if (!currentUser || isFirebaseLoading || isQuotaExceeded()) return;
+    if (currentProjectId !== loadedProjectIdRef.current) return;
+    if (isProjectDeleted(currentProjectId)) return;
+
+    // Sources and glossary are critical; save immediately to prevent loss on refresh
+    saveProjectData(currentUser.uid, currentProjectId, {
+      sources,
+      glossaryTerms,
+      syntheses, // include syntheses here too as they are small
+      dalilBriefings: dalilBriefing ? [dalilBriefing] : []
+    }).catch((err) => console.error("Failed to sync critical project data to Firestore:", err));
+  }, [sources, glossaryTerms, syntheses, dalilBriefing, currentUser, currentProjectId, isFirebaseLoading]);
+
+  // Save messages (larger payload) with debounce
   useEffect(() => {
     if (!currentUser || isFirebaseLoading || isQuotaExceeded()) return;
     if (currentProjectId !== loadedProjectIdRef.current) return;
@@ -1072,12 +1087,8 @@ export default function App() {
 
     const timer = setTimeout(() => {
       saveProjectData(currentUser.uid, currentProjectId, {
-        sources,
         messages,
-        syntheses,
-        glossaryTerms,
-        dalilBriefings: dalilBriefing ? [dalilBriefing] : []
-      }).catch((err) => console.error("Failed to sync project data to Firestore:", err));
+      }).catch((err) => console.error("Failed to sync messages to Firestore:", err));
 
       const currentProjectObj = projects.find((p) => p.id === currentProjectId);
       if (currentProjectObj) {
@@ -1089,7 +1100,7 @@ export default function App() {
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [sources, messages, syntheses, glossaryTerms, dalilBriefing, temperature, currentUser, currentProjectId, isFirebaseLoading]);
+  }, [messages, temperature, currentUser, currentProjectId, isFirebaseLoading]);
 
   const handleResetWorkspace = async () => {
     clearDeletedProjectsRegistry();
@@ -1485,11 +1496,14 @@ export default function App() {
 
     drafts.forEach((draft, index) => {
       const source = newSources[index];
+      // Always attempt to add terms from draft, and always run local extraction 
+      // as a reliable fallback to ensure the "min 2 terms" rule is met.
       if (draft.terms && draft.terms.length > 0) {
         addGlossaryTermsDirectly(draft.terms, source.id);
-      } else if (runMissingTermExtraction) {
-        void extractGlossaryTerms(draft.content.substring(0, 4000), source.id);
       }
+      
+      // Force local fallback extraction for every new source to ensure glossary growth
+      void extractGlossaryTerms(draft.content.substring(0, 5000), source.id);
     });
   };
 
