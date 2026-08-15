@@ -20,12 +20,26 @@ function shortReference(title: unknown, index: number): string {
 }
 
 function sanitizeArabicReportText(text: string): string {
-  return text
+  const cleaned = text
     .replace(/https?:\/\/\S+|www\.\S+/gi, "")
     .replace(/\b[^\s]+\.(?:pdf|docx?|txt)\b/gi, "الوثيقة")
     .replace(/["“][A-Za-z][^"”]{2,120}["”]/g, "«الوثيقة»")
     .replace(/\s{2,}/g, " ")
     .trim();
+
+  // If the text ends abruptly without terminal punctuation (., !, ؟), trim back to the last complete sentence
+  if (cleaned.length > 0 && !/[.!؟؛]$/.test(cleaned)) {
+    const lastPunctuation = Math.max(
+      cleaned.lastIndexOf('.'),
+      cleaned.lastIndexOf('!'),
+      cleaned.lastIndexOf('؟'),
+      cleaned.lastIndexOf('؛')
+    );
+    if (lastPunctuation > 200) {
+      return cleaned.substring(0, lastPunctuation + 1).trim();
+    }
+  }
+  return cleaned;
 }
 
 function arabicEvidence(source: any, limit: number): string {
@@ -129,7 +143,7 @@ router.post("/api/synthesize", async (req, res) => {
 7. العربية الخالصة: اكتب الجمل العربية وحدها. ترجم كل فكرة أو اقتباس أجنبي إلى العربية الفصحى، ولا تنقل أي جملة إنجليزية أو فرنسية أو مقتطفاً مبتوراً. إذا لزم ذكر مصدر، استخدم «الوثيقة الأولى» أو عنواناً عربياً موجزاً لا يتجاوز ست كلمات.
 8. الحظر التقني: لا تذكر أسماء الملفات أو الامتدادات أو الروابط. استخدم الإحالات العربية القصيرة فقط.
 9. الفواصل الصوتية: استخدم علامة || فقط للفواصل الصوتية بين الجمل الكبيرة، ولا تستخدم الماركداون (Markdown).
-10. الطول والعمق: اكتب سبع فقرات تقريباً، ولا يقل النص عن 1400 حرف، على أن تكون الفقرات قائمة على وقائع أو عبارات أو أرقام محددة من النصوص لا على قوالب إنشائية.
+10. الطول والعمق واستكمال الجمل: اكتب سبع فقرات تقريباً، ولا يقل النص عن 1400 حرف. يُحظر تماماً قطع الجمل أو ترك أي فقرة غير مكتملة؛ يجب أن تنتهي كل جملة بنقطة واضحة ومكتملة المعنى.
 
 الهدف هو تقديم قيمة مضافة للباحث تجعله يفهم "جوهر" ما تقوله الوثائق مجتمعة، وليس مجرد وصف لوجودها.
 
@@ -148,7 +162,7 @@ ${sourcesContext}
           config: {
             systemInstruction: DALIL_SYSTEM_INSTRUCTION,
             temperature: 0.3,
-            maxOutputTokens: 2500
+            maxOutputTokens: 4096
           },
         });
 
