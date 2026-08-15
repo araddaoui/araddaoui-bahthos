@@ -818,8 +818,8 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   };
 
   const addTerm = (rawTerm: string, arabicTerm?: string, customDef?: string) => {
-    // Limit extraction per source to ensure merit-based selection
-    if (extracted.length >= 3) return;
+    // Limit extraction per source to ensure merit-based selection (up to 6 per source)
+    if (extracted.length >= 6) return;
     const termClean = rawTerm.trim();
     if (!termClean) return;
 
@@ -881,7 +881,7 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     // Examples: "Westphalian Sovereignty", "International Relations Theory", "Hegemony Paradigm"
     const authenticConceptRegex = /\b[A-Z][a-z\-']*(?:\s+[A-Z][a-z\-']*){1,3}\b/g;
     let match;
-    while ((match = authenticConceptRegex.exec(cleanText)) !== null && extracted.length < 3) {
+    while ((match = authenticConceptRegex.exec(cleanText)) !== null && extracted.length < 6) {
       const candidate = match[0].trim();
       if (candidate.length > 6 && !isTrivialOrCitationTerm(candidate)) {
         addTerm(candidate);
@@ -897,7 +897,7 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     "ولكن", "عن", "مع", "هو", "إلى", "البحث", "دراسة", "مستند", "تقرير", "صفحة", "المصادر", "المستند"
   ]);
 
-  for (let i = 0; i < arabicWords.length - 1 && extracted.length < 3; i++) {
+  for (let i = 0; i < arabicWords.length - 1 && extracted.length < 6; i++) {
     const w1 = arabicWords[i];
     const w2 = arabicWords[i + 1];
     if (!arabicStopWords.has(w1) && !arabicStopWords.has(w2)) {
