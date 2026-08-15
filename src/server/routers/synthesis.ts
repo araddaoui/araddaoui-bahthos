@@ -114,9 +114,9 @@ router.post("/api/synthesize", async (req, res) => {
       // belongs to an earlier source snapshot and can contaminate a new project.
       const priorContext = "لا توجد إحاطة سابقة؛ يُحظر الاعتماد على أي محتوى سابق.\n";
 
-      const dalilPrompt = `${DALIL_SYSTEM_INSTRUCTION}
-
-أنتَ "الدليل" - المحلل الأكاديمي الصارم في نظام بحث OS.
+      // DALIL_SYSTEM_INSTRUCTION is supplied through config.systemInstruction
+      // below; do not duplicate the full contract inside the user payload.
+      const dalilPrompt = `أنتَ "الدليل" - المحلل الأكاديمي الصارم في نظام بحث OS.
 مهمتك هي إجراء تحليل موضوعي وتوليف نقدي عميق لمحتوى المصادر المرفقة.
 
 حظر قاطع لخطاب "المنهج" (META-DISCOURSE PROHIBITION):
