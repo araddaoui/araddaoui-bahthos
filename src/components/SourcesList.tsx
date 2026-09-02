@@ -306,12 +306,19 @@ function SourcesList({
       const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, data.originalText || content));
       const detectedLang = detectSourceLanguage(data.originalText || content, data.title, data.language);
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
+      // If the server returned no concepts (quota exhausted, missing API key, model error, or
+      // the AI simply found none), fall back to LOCAL extraction so the user is never left empty.
+      let terms = Array.isArray(data.terms) ? data.terms : [];
+      if (!Array.isArray(data.terms) || data.terms.length === 0) {
+        console.warn("Server returned no terms; using local fallback extractor.");
+        terms = extractFallbackTermsFromText(content || data.originalText || "", undefined, cleanTitle);
+      }
       const draft: SourceDraft = {
         title: cleanTitle,
         content: data.originalText || content,
         language: detectedLang,
         summary: finalArabicSummary,
-        terms: data.terms,
+        terms,
       };
       if (commit) onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms);
       return draft;
