@@ -145,6 +145,59 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
   // Too short or too long
   if (cleanTerm.length < 3 || cleanTerm.length > 55) return true;
 
+  // Reject AI-invented boilerplate forewords that are NEVER part of a real concept.
+  // (e.g. "مفهوم تحليلي مستخرج مباشرة من نص المصدر: ..." or "مفهوم تحليلي يُقصد به في النص: ...")
+  if (
+    cleanTerm.includes("مفهوم تحليلي") ||
+    cleanTerm.includes("مستخرج مباشرة") ||
+    cleanTerm.includes("مستخرج من") ||
+    cleanTerm.includes("من نص المصدر") ||
+    cleanTerm.includes("يُقصد به في النص") ||
+    cleanTerm.includes("مستخلص من عنوان المصدر") ||
+    cleanTerm.includes("مفهوم مركزي")
+  ) {
+    return true;
+  }
+
+  // Reject classic Arabic sentence-fragment constructions taken verbatim from source text.
+  // These are 2-word windows of error/truncation messages or grammatical fragments, not concepts.
+  const arabicFragmentSubstrings = [
+    "اقتصاص بقية", "بقية النص", "النص لتجاوز", "لتجاوز الحد", "الحد الأقصى",
+    "الأقصى للمعالجة", "الحد الاقصى", "اقتصاص", "لتجاوز", "تجازي", "تجاوز الحد",
+    "كآلية", "لتجويد", "مخرجات العملية", "الرقمي ك", "بقية", "للاستخدام",
+  ];
+  for (const frag of arabicFragmentSubstrings) {
+    if (cleanTerm.includes(frag)) return true;
+  }
+
+  // Reject Arabic terms that are composed mostly of function words / prepositions / verbs /
+  // filler, i.e. a grammatical fragment rather than a nominal concept.
+  const arabicFragmentStopwords = new Set([
+    "من", "في", "على", "إلى", "عن", "مع", "بين", "حتى", "ثم", "أو", "بل", "أن", "إن",
+    "قد", "لن", "لو", "إذا", "حيث", "عندما", "بعد", "قبل", "دون", "بسبب", "حسب",
+    "نحو", "لدى", "عند", "خلال", "ضمن", "خارج", "فوق", "تحت", "أمام", "خلف", "كان",
+    "كانت", "يكون", "يتم", "تتم", "تم", "يوجد", "توجد", "يعد", "تعد", "يعتبر", "تعتبر",
+    "يعني", "يؤدي", "تؤدي", "أدى", "هو", "هي", "هذا", "هذه", "ذلك", "تلك", "الذي",
+    "التي", "الذين", "معالجة", "التالي", "التالية", "أيضا", "كذلك", "بشكل", "بصورة",
+    "بعض", "كل", "جميع", "كم", "بقية", "باقي", "اقتصاص", "لتجاوز", "تجاوز", "الأقصى",
+    "النص", "المستند", "الصفحة", "الجزء", "العملية", "المخرجات", "مباشرة", "الرقمي",
+  ]);
+  const cleanArWords = cleanTerm.split(/\s+/).filter(Boolean);
+  if (cleanArWords.length >= 2) {
+    const normalizeWord = (w: string) => w
+      .replace(/^ال/, "")
+      .replace(/^[وفبكل]/, "")
+      .replace(/ة$/, "ه")
+      .trim();
+    const firstNorm = normalizeWord(cleanArWords[0]);
+    if (firstNorm && arabicFragmentStopwords.has(firstNorm)) return true;
+    let stopCount = 0;
+    for (const w of cleanArWords) {
+      if (arabicFragmentStopwords.has(normalizeWord(w))) stopCount++;
+    }
+    if (stopCount > Math.floor(cleanArWords.length / 2)) return true;
+  }
+
   // Reject broad academic disciplines and generic fields when standalone or overly generic (e.g. "Computer Science", "Higher Education Policy", "Public Administration", "Thought Leadership")
   const genericDisciplinesAndBroadTerms = [
     "computer science", "marketing", "management", "finance", "accounting", "business",
@@ -302,6 +355,12 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
       cleanDef.length < 15 ||
       cleanDef.includes('""') ||
       cleanDef.includes(":\s*\"\"") ||
+      // Reject any AI-invented explanatory foreword baked into the definition
+      cleanDef.includes("مستخرج مباشرة") ||
+      cleanDef.includes("مستخرج من نص") ||
+      cleanDef.includes("من نص المصدر") ||
+      cleanDef.includes("يُقصد به في النص") ||
+      cleanDef.includes("مستخلص من عنوان المصدر") ||
       cleanDef.includes("مفهوم تحليلي يُقصد به في النص: \"\"") ||
       /issn|doi|n°|001-|[0-9]{3,}|journal of|all rights reserved|executive summary|full terms|cite this article|http|\b\d{1,4}\s*[-–—]\s*\d{1,4}\b/i.test(cleanDef) ||
       cleanDef.includes("جامعة") || cleanDef.includes("أنموذجا") || cleanDef.includes("أنموذجاً") || cleanDef.includes("سنة أولى") || cleanDef.includes("تدريس الترجمة في ظل") || cleanDef.includes("567")
@@ -894,7 +953,11 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   const arabicWords = cleanText.match(/[\u0600-\u06FF]{4,}/g) || [];
   const arabicStopWords = new Set([
     "في", "من", "على", "أن", "إن", "هذا", "هذه", "التي", "الذي", "التالي", "حيث", "كما", "هو", "هي", "تم", "كان", "كانت",
-    "ولكن", "عن", "مع", "هو", "إلى", "البحث", "دراسة", "مستند", "تقرير", "صفحة", "المصادر", "المستند"
+    "ولكن", "عن", "مع", "هو", "إلى", "البحث", "دراسة", "مستند", "تقرير", "صفحة", "المصادر", "المستند",
+    // Additional fragment/function words and error-message vocabulary that must never form a candidate
+    "بقية", "باقي", "اقتصاص", "تقليم", "لتجاوز", "تجاوز", "تجاوزت", "الأقصى", "الحد", "الحدود",
+    "النص", "النصوص", "المعالجة", "معالجة", "عملية", "المخرجات", "مخرجات", "كآلية", "لتجويد", "تجويد",
+    "مباشرة", "المصدر", "الخامس", "عبارة", "الجزء", "الأجزاء", "الصفحة", "الملف", "الملفات",
   ]);
 
   for (let i = 0; i < arabicWords.length - 1 && extracted.length < 6; i++) {
@@ -902,8 +965,14 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     const w2 = arabicWords[i + 1];
     if (!arabicStopWords.has(w1) && !arabicStopWords.has(w2)) {
       const candidate = `${w1} ${w2}`;
+      // Only accept genuine DEFINITE nominal noun-phrase concepts. Real Arabic academic terms
+      // are almost always definite ("التحصيل الأكاديمي", "التعلم عن بعد"). Sentence windows,
+      // verb-led fragments ("تناولت الدراسة"), indefinite constructs ("مفهوم التعلم"), and
+      // connective/possessive fragments ("التعلم وفاعليته") are NOT concepts and must be skipped.
+      if (/^[\u0600-\u06FF]/.test(w1) && !w1.startsWith("ال")) continue;
+      if (/^[وفكبل]/.test(w2)) continue;
       if (candidate.length >= 8 && !isTrivialOrCitationTerm(candidate)) {
-        addTerm(candidate, candidate, `مفهوم تحليلي مستخرج مباشرة من نص المصدر: "${candidate}"`);
+        addTerm(candidate, candidate, buildContextDefinition(candidate, cleanText, candidate));
       }
     }
   }
@@ -912,7 +981,7 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   if (extracted.length < 2 && title && title.length > 5) {
     const cleanTitleConcept = title.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim();
     if (cleanTitleConcept.length >= 6 && !isTrivialOrCitationTerm(cleanTitleConcept)) {
-      addTerm(cleanTitleConcept, cleanTitleConcept, `مفهوم مركزي مستخلص من عنوان المصدر: "${cleanTitleConcept}"`);
+      addTerm(cleanTitleConcept, cleanTitleConcept, buildContextDefinition(cleanTitleConcept, cleanText, cleanTitleConcept));
     }
   }
 
@@ -987,11 +1056,11 @@ export function buildContextDefinition(term: string, fullText: string, arabicTer
     if (matchingSentence) {
       const cleanSentence = spellcheckAndRepairArabicAndEnglishText(matchingSentence.replace(/^[^\u0600-\u06FF]+/, "")).trim();
       if (cleanSentence && cleanSentence.length >= 20) {
-        return `مفهوم تحليلي يُقصد به في النص: "${cleanSentence}"`;
+        return `مفهوم يشير في سياق هذا المصدر إلى: "${cleanSentence}"`;
       }
     }
   }
 
-  return `مفهوم تحليلي وإطار تخصصي يدرس الأبعاد النظرية والممارسات التطبيقية المتعلقة بـ (${cleanAr}) في أدبيات المجال والدراسات المتاحة.`;
+  return `مفهوم وإطار تخصصي يشير إلى (${cleanAr}) في أدبيات المجال والدراسات ذات الصلة.`;
 }
 
