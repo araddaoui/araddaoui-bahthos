@@ -49,6 +49,13 @@ export function normalizeArabicText(text?: string): string {
   // Examples: "آلترجمة" -> "الترجمة", "آلذكاء" -> "الذكاء", "آلداآت" -> "الأدوات", "آلوآضيع" -> "المواضيع", etc.
   res = res.replace(/\bآل([اأإؤئب-ي]+)/g, "ال$1");
 
+  // 1b. Fix the lam-alef ligature artifacts that occur in most Arabic PDF text extraction:
+  // "امل..." -> "الم..." (a mim/lam swap: "املتعددة"->"المتعددة", "املرن"->"المرن") and
+  // "اال..." -> "الإ..." (a doubled-alif lam-alef: "االلكتروني"->"الإلكتروني").
+  // These are font-extraction defects, not genuine words, so they can be normalized safely.
+  res = res.replace(/(?<![\u0600-\u06FF])(امل)(?=[\u0600-\u06FF]{2,})/g, "الم");
+  res = res.replace(/(?<![\u0600-\u06FF])(اال)(?=[\u0600-\u06FF]{2,})/g, "الإ");
+
   // Fix common OCR typos, broken prefix fragments, and mangled word forms
   res = res.replace(/\bالفاءة\b/g, "الكفاءة");
   res = res.replace(/\bفاءة\b/g, "كفاءة");
@@ -224,7 +231,8 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
     "النظرية", "نظرية", "منهجية البحث", "منهجية", "البحث", "بحث", "الدراسة", "دراسة",
     "الورقة البحثية", "التحليل", "البيانات", "النتائج", "المناقشة", "استعراض الأدبيات",
     "الإطار النظرى", "الإطار النظري", "الإطار المنهجي", "الإطار", "المقاربة", "المنهج", "المناهج",
-    "المفهوم", "المفاهيم", "المصطلح", "المصطلحات"
+    "المفهوم", "المفاهيم", "المصطلح", "المصطلحات", "العملية", "العملية التعليمية", "الممارسات",
+    "الخدمة", "الخدمات", "المنظومة", "البنية", "النظام", "الرؤية", "الرسالة", "الأهداف", "الغايات",
   ];
   if (genericDisciplinesAndBroadTerms.some(gd => cleanTerm === gd || cleanTerm.replace(/^(the|a|an)\s+/, "") === gd)) {
     return true;
@@ -966,7 +974,7 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   // like "مفهوم التعلم الرقمي ومدى تأثيره" is trimmed to "التعلم الرقمي".
   // NOTE: bare prepositions (عن، في، على، من، إلى) are intentionally NOT boundaries here,
   // because genuine concepts legitimately contain them (e.g. "التعلم عن بعد", "التعليم في ").
-  const conceptBoundary = /^(?:و|ثم|أو|بل|لكن|مدى|أهمية|هذا|هذه|التي|الذي|الذين|أن|إن|لكن|هو|هي|كان|كانت|تعد|يعتبر|تعتبر|يتم|تتم|يساهم|تساهم|يساعد|تساعد|يؤثر|تؤثر|يؤدي|تؤدي|يمثل|تمثل|يشمل|تشمل|يعتمد|تعتمد|ويعتبر|ويعتمد|ويعد|ويساهم|ويساعد|ويعني|يعني|تُعنى|فاعليته|وتأثير|تأثير|وأثر|أثر|ودور|ودور|ومدى|وأهمية|بأنه|بأنها|إلا|حيث|بينما|فيما)/;
+  const conceptBoundary = /^(?:و|ثم|أو|بل|لكن|مدى|أهمية|هذا|هذه|التي|الذي|الذين|أن|إن|لكن|هو|هي|كان|كانت|تعد|يعتبر|تعتبر|يتم|تتم|يساهم|تساهم|يساعد|تساعد|يؤثر|تؤثر|يؤدي|تؤدي|يمثل|تمثل|يشمل|تشمل|يعتمد|تعتمد|ويعتبر|ويعتمد|ويعد|ويساهم|ويساعد|ويعني|يعني|تُعنى|فاعليته|وتأثير|تأثير|وأثر|أثر|ودور|ودور|ومدى|وأهمية|بأنه|بأنها|إلا|حيث|بينما|فيما|لإنجاز|لتحقيق|لتحسين|لتنمية|لتوظيف|لتطوير|لتجويد|مفاهيم|أهمية|كآلية|كأداة|كوسيلة|وكان|فقد|مايو|توظيف|إنجاز|تحقيق|تحسين|تنمية|بداية|مع بداية)/;
   const trimToNominalConcept = (raw: string): string => {
     const tokens = raw.trim().split(/\s+/).filter(Boolean);
     const kept: string[] = [];
@@ -985,7 +993,7 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
       const rawCandidate = (match[1] || "").trim();
       if (!rawCandidate) continue;
       const candidate = normalizeArabicText(trimToNominalConcept(rawCandidate))
-        .replace(/[،;؛:!?؟.]+$/g, "").trim();
+        .replace(/[،;؛:!?؟.]+(?:\s*[،;؛:!?؟.()]+)*\s*$/g, "").trim();
       if (candidate.length < 5) continue;
       // Require a definite nominal phrase (starts with "ال"), i.e. a genuine academic concept
       // rather than a verb-led or connective fragment.
