@@ -179,7 +179,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
       resData.summary = spellcheckAndRepairArabicAndEnglishText(resData.summary);
 
       if (resData.terms && Array.isArray(resData.terms)) {
-        resData.terms = sanitizeAndRepairTermsPipeline(resData.terms, parsedContent || "", resData.title || fileName || "", 3);
+        resData.terms = sanitizeAndRepairTermsPipeline(resData.terms, parsedContent || "", resData.title || fileName || "", 2);
       } else {
         resData.terms = [];
       }

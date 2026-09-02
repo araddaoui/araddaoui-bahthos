@@ -118,7 +118,7 @@ text.substring(0, 3500);
     const replyText = response.text || "";
     const jsonText = replyText.trim();
     const data = JSON.parse(jsonText);
-    const normalizedTerms = sanitizeAndRepairTermsPipeline(data.terms || [], text || "", "", 3)
+    const normalizedTerms = sanitizeAndRepairTermsPipeline(data.terms || [], text || "", "", 2)
       .map((t) => ({
         term: t.term,
         draft_term: t.draft_term,
