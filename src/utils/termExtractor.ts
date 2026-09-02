@@ -948,33 +948,81 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
     }
   }
 
-  // 2. Scan for authentic Arabic noun phrases and thematic constructs directly from text
-  // Extract meaningful consecutive Arabic words (excluding common stop words)
-  const arabicWords = cleanText.match(/[\u0600-\u06FF]{4,}/g) || [];
-  const arabicStopWords = new Set([
-    "في", "من", "على", "أن", "إن", "هذا", "هذه", "التي", "الذي", "التالي", "حيث", "كما", "هو", "هي", "تم", "كان", "كانت",
-    "ولكن", "عن", "مع", "هو", "إلى", "البحث", "دراسة", "مستند", "تقرير", "صفحة", "المصادر", "المستند",
-    // Additional fragment/function words and error-message vocabulary that must never form a candidate
-    "بقية", "باقي", "اقتصاص", "تقليم", "لتجاوز", "تجاوز", "تجاوزت", "الأقصى", "الحد", "الحدود",
-    "النص", "النصوص", "المعالجة", "معالجة", "عملية", "المخرجات", "مخرجات", "كآلية", "لتجويد", "تجويد",
-    "مباشرة", "المصدر", "الخامس", "عبارة", "الجزء", "الأجزاء", "الصفحة", "الملف", "الملفات",
-  ]);
+  // 2. Scan for authentic Arabic noun phrases and thematic constructs directly from text.
+  // Anchored to real definitional/framing contexts ("مفهوم X", "نظرية X", quoted terms) AND
+  // genuine definite noun-adjective compounds, so the fallback never mints bogus compounds
+  // like "العدد نوفمبر", "التعليمية تاريخ", or "القبول امللخص" (all of which pair a definite
+  // noun with a NON-definite second word).
+  const markerPatterns = [
+    // Term introduced by a framing/disciplinary marker, e.g. "مفهوم التعلم الرقمي", "نظرية التنظيم الذاتي",
+    // "مصطلح الترجمة الآلية", "متغير التحصيل الأكاديمي". Word tokens may be 2+ chars so genuine
+    // concepts containing short prepositions (e.g. "التعلم عن بعد") are captured.
+    /(?:مفهوم|مصطلح|نظرية|نموذج|استراتيجية|ظاهرة|متغير|منهج|مدخل|إستراتيجية)\s+([\u0600-\u06FF]{2,35}(?:\s+[\u0600-\u06FF]{2,30}){0,3})/g,
+    // Term or definition framed by "(...)" parens, e.g. "(التعلم المدمج)"
+    /\(([\u0600-\u06FF]{2,50}(?:\s+[\u0600-\u06FF]{2,30}){0,3})\)/g,
+  ];
 
+  // Arabic connectives/clause markers that terminate a nominal concept so a marker capture
+  // like "مفهوم التعلم الرقمي ومدى تأثيره" is trimmed to "التعلم الرقمي".
+  // NOTE: bare prepositions (عن، في، على، من، إلى) are intentionally NOT boundaries here,
+  // because genuine concepts legitimately contain them (e.g. "التعلم عن بعد", "التعليم في ").
+  const conceptBoundary = /^(?:و|ثم|أو|بل|لكن|مدى|أهمية|هذا|هذه|التي|الذي|الذين|أن|إن|لكن|هو|هي|كان|كانت|تعد|يعتبر|تعتبر|يتم|تتم|يساهم|تساهم|يساعد|تساعد|يؤثر|تؤثر|يؤدي|تؤدي|يمثل|تمثل|يشمل|تشمل|يعتمد|تعتمد|ويعتبر|ويعتمد|ويعد|ويساهم|ويساعد|ويعني|يعني|تُعنى|فاعليته|وتأثير|تأثير|وأثر|أثر|ودور|ودور|ومدى|وأهمية|بأنه|بأنها|إلا|حيث|بينما|فيما)/;
+  const trimToNominalConcept = (raw: string): string => {
+    const tokens = raw.trim().split(/\s+/).filter(Boolean);
+    const kept: string[] = [];
+    for (const tk of tokens) {
+      if (kept.length >= 4) break;
+      if (kept.length > 0 && conceptBoundary.test(tk)) break;
+      kept.push(tk);
+    }
+    return kept.join(" ");
+  };
+
+  for (const pattern of markerPatterns) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(cleanText)) !== null && extracted.length < 6) {
+      const rawCandidate = (match[1] || "").trim();
+      if (!rawCandidate) continue;
+      const candidate = normalizeArabicText(trimToNominalConcept(rawCandidate))
+        .replace(/[،;؛:!?؟.]+$/g, "").trim();
+      if (candidate.length < 5) continue;
+      // Require a definite nominal phrase (starts with "ال"), i.e. a genuine academic concept
+      // rather than a verb-led or connective fragment.
+      const words = candidate.split(/\s+/);
+      if (!/^[\u0600-\u06FF]/.test(candidate) || !words[0].startsWith("ال")) continue;
+      if (words.length > 1 && /^[وفكبل]/.test(words[1])) continue;
+      // Reject a candidate that ends with a dangling short preposition ("التعلم عن") or a
+      // 2-letter particle, which means the framing capture stopped mid-phrase.
+      const last = words[words.length - 1];
+      if (last.length < 3 || /^(?:عن|في|من|إلى|على|مع|لها|له|منه|فيها)$/.test(last)) continue;
+      if (isTrivialOrCitationTerm(candidate)) continue;
+      addTerm(candidate, candidate, buildContextDefinition(candidate, cleanText, candidate));
+    }
+  }
+
+  // 2b. Restricted plain-phrase scan. Unlike the old loose 2-word window this ONLY accepts
+  // definite noun-adjective compounds (e.g. "التعلم المدمج", "الانحراف المعياري") where BOTH
+  // immediate words are definite, which is the canonical form of a genuine Arabic academic term.
+  // Tokenizing 1+ chars keeps short function words (في، من، عن) as natural separators so definite
+  // words from DIFFERENT phrases never collide, and definite function words (التي، الذي...) are
+  // denied as concept heads.
+  const arabicWords = cleanText.match(/[\u0600-\u06FF]+/g) || [];
+  const denyFreeDefinite = new Set([
+    "التي", "اختي", "الذي", "الذين", "اللذان", "اللتان", "هذا", "هذه", "ذلك", "تلك",
+    "الدراسة", "البحث", "النتائج", "المقدمة", "الخاتمة", "المراجع", "المصادر", "وكان",
+  ]);
   for (let i = 0; i < arabicWords.length - 1 && extracted.length < 6; i++) {
     const w1 = arabicWords[i];
     const w2 = arabicWords[i + 1];
-    if (!arabicStopWords.has(w1) && !arabicStopWords.has(w2)) {
-      const candidate = `${w1} ${w2}`;
-      // Only accept genuine DEFINITE nominal noun-phrase concepts. Real Arabic academic terms
-      // are almost always definite ("التحصيل الأكاديمي", "التعلم عن بعد"). Sentence windows,
-      // verb-led fragments ("تناولت الدراسة"), indefinite constructs ("مفهوم التعلم"), and
-      // connective/possessive fragments ("التعلم وفاعليته") are NOT concepts and must be skipped.
-      if (/^[\u0600-\u06FF]/.test(w1) && !w1.startsWith("ال")) continue;
-      if (/^[وفكبل]/.test(w2)) continue;
-      if (candidate.length >= 8 && !isTrivialOrCitationTerm(candidate)) {
-        addTerm(candidate, candidate, buildContextDefinition(candidate, cleanText, candidate));
-      }
-    }
+    // Both immediate words must be definite noun-adjective constructs (الـ + الـ) and non-trivial.
+    if (!w1.startsWith("ال") || !w2.startsWith("ال")) continue;
+    if (denyFreeDefinite.has(w1) || denyFreeDefinite.has(w2)) continue;
+    if (w1.length > 30 || w2.length > 30) continue;
+    const candidate = `${w1} ${w2}`;
+    if (candidate.length < 8) continue;
+    if (isTrivialOrCitationTerm(candidate)) continue;
+    addTerm(candidate, candidate, buildContextDefinition(candidate, cleanText, candidate));
   }
 
   // 3. If still fewer than 2 terms, use title keywords or first meaningful sentence fragment
