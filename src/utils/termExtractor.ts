@@ -988,6 +988,66 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
   return extracted;
 }
 
+/**
+ * Pipeline: sanitize, validate, and repair the raw terms array returned by the LLM.
+ * Drops invalid/citation/fragment terms, repairs definitions, and guarantees a minimum
+ * number of genuine scholarly concepts per document by topping up from local extraction
+ * when the model returns too few.
+ */
+export function sanitizeAndRepairTermsPipeline(
+  rawTerms: any[],
+  parsedContent: string = "",
+  sourceTitle: string = "",
+  minimumTerms: number = 3
+): GlossaryTerm[] {
+  let cleanedTerms: GlossaryTerm[] = (Array.isArray(rawTerms) ? rawTerms : [])
+    .map((t: any) => {
+      const sanitized = cleanAndSanitizeAcademicTerm(t?.term, t?.draft_term, t?.verified_term, t?.definition);
+      if (!sanitized.isValid) return null;
+      if (isTrivialOrCitationTerm(sanitized.term, t?.definition)) return null;
+      if (isTrivialOrCitationTerm(sanitized.verified_term, t?.definition)) return null;
+
+      const rawDef =
+        t?.definition &&
+        !t.definition.includes('""') &&
+        !/:\s*""/.test(t.definition) &&
+        !t.definition.includes('مفهوم تحليلي يُقصد به في النص: ""') &&
+        t.definition.length > 25
+          ? t.definition
+          : "";
+
+      const cleanDef = normalizeArabicText(
+        rawDef || buildContextDefinition(sanitized.term, parsedContent, sanitized.verified_term)
+      );
+
+      if (/[0-9]{3,}/.test(cleanDef) || cleanDef.includes("جامعة") || cleanDef.includes("أنموذج")) {
+        return null;
+      }
+
+      return {
+        term: sanitized.term,
+        transliteration: sanitized.verified_term,
+        draft_term: sanitized.draft_term,
+        verified_term: sanitized.verified_term,
+        definition: cleanDef,
+      };
+    })
+    .filter((t): t is GlossaryTerm => Boolean(t));
+
+  // Guarantee a solid basis of valid scholarly concepts per document.
+  if (cleanedTerms.length < minimumTerms && parsedContent.length > 50) {
+    const fallbacks = extractFallbackTermsFromText(parsedContent, undefined, sourceTitle).filter(
+      (fb) => !cleanedTerms.some((ex) => areTermsEquivalent(ex.term, fb.term) || areTermsEquivalent(ex.verified_term, fb.verified_term))
+    );
+    for (const fb of fallbacks) {
+      if (cleanedTerms.length >= minimumTerms) break;
+      cleanedTerms.push(fb);
+    }
+  }
+
+  return cleanedTerms;
+}
+
 export function buildContextDefinition(term: string, fullText: string, arabicTerm: string): string {
   const cleanAr = (arabicTerm || term || "").trim();
   const cleanEng = (term || "").toLowerCase().trim();

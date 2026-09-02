@@ -2,7 +2,8 @@ import { Router } from "express";
 import { Type } from "@google/genai";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, normalizeArabicText, cleanAndSanitizeAcademicTerm, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "../../utils/termExtractor.js";
+import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, normalizeArabicText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText,
+        sanitizeAndRepairTermsPipeline } from "../../utils/termExtractor.js";
 import { getAiClient, generateContentWithRetry } from "../ai.js";
 
 const router = Router();
@@ -178,37 +179,10 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
       resData.summary = spellcheckAndRepairArabicAndEnglishText(resData.summary);
 
       if (resData.terms && Array.isArray(resData.terms)) {
-        resData.terms = resData.terms
-          .map((t: any) => {
-            const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
-            if (!sanitized.isValid) return null;
-
-            if (isTrivialOrCitationTerm(sanitized.term, t.definition)) return null;
-            if (isTrivialOrCitationTerm(sanitized.verified_term, t.definition)) return null;
-
-            const cleanDef = (t.definition &&
-              !t.definition.includes('""') &&
-              !t.definition.includes(':\s*""') &&
-              !t.definition.includes("مفهوم تحليلي يُقصد به في النص: \"\"") &&
-              t.definition.length > 25)
-              ? spellcheckAndRepairArabicAndEnglishText(t.definition)
-              : buildContextDefinition(sanitized.term, parsedContent || "", sanitized.verified_term);
-
-            return {
-              term: sanitized.term,
-              transliteration: sanitized.verified_term,
-              draft_term: sanitized.draft_term,
-              verified_term: sanitized.verified_term,
-              definition: cleanDef,
-            };
-          })
-          .filter(Boolean);
+        resData.terms = sanitizeAndRepairTermsPipeline(resData.terms, parsedContent || "", resData.title || fileName || "", 3);
       } else {
         resData.terms = [];
       }
-
-      // Removed forced term minimums to ensure merit-based extraction.
-      // Documents will now only yield concepts that are meaningfully present in the text.
 
       return res.json(resData);
     } catch (err: any) {

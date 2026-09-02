@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Type } from "@google/genai";
 import { getAiClient, generateContentWithRetry } from "../ai.js";
-import { extractFallbackTermsFromText, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "../../utils/termExtractor.js";
+import { extractFallbackTermsFromText, sanitizeAndRepairTermsPipeline } from "../../utils/termExtractor.js";
 
 const router = Router();
 
@@ -118,36 +118,14 @@ text.substring(0, 3500);
     const replyText = response.text || "";
     const jsonText = replyText.trim();
     const data = JSON.parse(jsonText);
-    let normalizedTerms = (data.terms || [])
-      .map((t: any) => {
-        const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term, t.definition);
-        if (!sanitized.isValid) return null;
-        if (/^[a-zA-Z\s\-]+$/.test(sanitized.verified_term) && /^[a-zA-Z\s\-]+$/.test(sanitized.term)) return null;
-        // Removed project-wide suppression to allow each source to be judged on its own merits.
-        // Each source can now contribute its own terminology even if similar terms exist in other sources.
-        const cleanDef = (t.definition && !t.definition.includes("مفهوم تحليلي وإطار نظري") && t.definition.length > 25)
-          ? spellcheckAndRepairArabicAndEnglishText(t.definition)
-          : buildContextDefinition(sanitized.term, text || "", sanitized.verified_term);
-        return {
-          term: sanitized.term,
-          draft_term: sanitized.draft_term,
-          verified_term: sanitized.verified_term,
-          transliteration: sanitized.verified_term,
-          definition: cleanDef,
-        };
-      })
-      .filter(Boolean)
-      .slice(0, 3);
-
-    if (!normalizedTerms || normalizedTerms.length === 0) {
-      normalizedTerms = extractFallbackTermsFromText(text, undefined, undefined).slice(0, 3).map((t) => ({
+    const normalizedTerms = sanitizeAndRepairTermsPipeline(data.terms || [], text || "", "", 3)
+      .map((t) => ({
         term: t.term,
         draft_term: t.draft_term,
         verified_term: t.verified_term,
         transliteration: t.transliteration,
         definition: t.definition,
       }));
-    }
 
     return res.json({ terms: normalizedTerms });
   } catch (error: any) {
