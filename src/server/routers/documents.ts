@@ -78,13 +78,25 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
       });
     }
 
-    let defaultFallback: any = {
-      title: spellcheckAndRepairArabicAndEnglishText(fileName || "مستند مرفق"),
-      language: detectSourceLanguage(parsedContent || "", fileName || ""),
-      summary: spellcheckAndRepairArabicAndEnglishText(sanitizeSourceSummary("", fileName || "مستند مرفق", parsedContent)),
-      extractedText: parsedContent || "",
-      terms: [],
-    };
+    let defaultFallback: any = (() => {
+      const localTitle = spellcheckAndRepairArabicAndEnglishText(fileName || "مستند مرفق");
+      // Derive genuine local concepts WITHOUT any AI call so the user always gets
+      // content-based terms even when the free Gemini quota is exhausted.
+      const localTerms = extractFallbackTermsFromText(parsedContent || "", undefined, localTitle).map((t) => ({
+        term: t.term,
+        transliteration: t.transliteration,
+        draft_term: t.draft_term,
+        verified_term: t.verified_term,
+        definition: t.definition,
+      }));
+      return {
+        title: localTitle,
+        language: detectSourceLanguage(parsedContent || "", fileName || ""),
+        summary: spellcheckAndRepairArabicAndEnglishText(sanitizeSourceSummary("", localTitle, parsedContent)),
+        extractedText: parsedContent || "",
+        terms: localTerms,
+      };
+    })();
 
     try {
       const ai = getAiClient();
@@ -207,7 +219,14 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
           details: err.message || "PDF exceeds 4.5MB limit for direct processing."
         });
       }
-      return res.json(defaultFallback);
+      const errStr = (err?.message || "").toLowerCase();
+      const quotaHit = errStr.includes("quota") || errStr.includes("limit") || errStr.includes("429") || errStr.includes("exhausted") || errStr.includes("rate");
+      return res.json({
+        ...defaultFallback,
+        fallback: true,
+        // Inform the app that the AI quota was reached so the UI can show a clear message.
+        quotaLimitReached: quotaHit,
+      });
     }
   } catch (err: any) {
     console.error("Extract handler error:", err);
