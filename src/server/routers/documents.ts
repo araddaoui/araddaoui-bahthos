@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { Type } from "@google/genai";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, normalizeArabicText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText,
         sanitizeAndRepairTermsPipeline } from "../../utils/termExtractor.js";
 import { getAiClient, generateContentWithRetry } from "../ai.js";
+import { ensurePdfDomGlobals } from "../pdfDomGlobals.js";
 
 const router = Router();
 
@@ -54,6 +54,12 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
           console.warn(`⚠️ PDF exceeds 4.5MB – fallback to direct Gemini multimodal parsing`);
         }
 
+        // pdf-parse bundles pdfjs-dist, which requires browser globals such as
+        // DOMMatrix. The Vercel Node runtime lacks them, so polyfill first and
+        // load the parser lazily to avoid a hard "DOMMatrix is not defined".
+        ensurePdfDomGlobals();
+        const { PDFParse } = await import("pdf-parse");
+
         const parser = new PDFParse({ data: new Uint8Array(buffer) });
         const textResult = await Promise.race([
           parser.getText(),
@@ -67,6 +73,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
       } catch (err: any) {
         console.warn("⚠️ Local PDF text extraction failed or timed out:", err.message);
         console.warn("🔄 Will rely on direct Gemini multimodal PDF processing via base64...");
+        parsedContent = ""; // ensure the Gemini multimodal path is used as fallback
       }
     }
 
