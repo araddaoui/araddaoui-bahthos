@@ -655,7 +655,34 @@ function parseTableBlock(tableLines: string[]) {
 }
 
 /**
- * Helper to parse and render a markdown table into a styled React component
+ * Maps a table header label to a short, human-friendly Arabic field label used on cards.
+ */
+function matrixFieldLabel(header: string): string {
+  const h = (header || "").toLowerCase();
+  if (/الرقم|رقم\b|number/i.test(h)) return "رقم الوثيقة";
+  if (/الوثيقة|المستند|document|title/i.test(h)) return "الوثيقة والمحور";
+  if (/الأدلة|النتائج|evidence|results|support/i.test(h)) return "الأدلة والنتائج المؤيدة";
+  if (/التباين|التحليل|نقدي|contradiction|analysis/i.test(h)) return "التباين والتحليل النقدي";
+  if (/الإجابة|الجواب|answer|ج:/i.test(h)) return "الإجابة العلمية";
+  if (/السؤال|question/i.test(h) || /^س/.test(h)) return "السؤال";
+  return (header || "").trim() || "التفصيل";
+}
+
+/**
+ * Helper to pixel-perfectly render the FIRST header cell as the card title when it carries the
+ * document reference (e.g. "الوثيقة 3" or a document title), otherwise fall back to the index.
+ */
+function cardTitleFromCell(cell: string, index: number): string {
+  const t = (cell || "").trim();
+  if (!t) return `الوثيقة ${index}`;
+  // Strip a leading row-number so we don't duplicate it as title and badge.
+  return t.replace(/^\d{1,3}\s*[.\-–—]\s*/, "").trim() || `الوثيقة ${index}`;
+}
+
+/**
+ * Helper to parse and render a markdown table into resilient, vertically-stacked CARDS instead of a
+ * <table>. Cards have no column-alignment or empty-cell failure modes, so they are immune to the
+ * malformed/mixed table markdown the synthesis AI emits. Field labels come from the header row.
  */
 function renderMarkdownTableReact(tableLines: string[], key: string): React.ReactNode {
   if (tableLines.length === 0) return null;
@@ -664,40 +691,57 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
 
   if (headerCells.length === 0 && rows.length === 0) return null;
 
-  // Optimized column widths for max 4 columns. Use lighter weighting on the narrow index column
-  // and give long evidence/analysis text room so Arabic wraps naturally instead of being chopped word-by-word.
-  const colWidths = headerCells.length === 2
-    ? ["w-[25%]", "w-[75%]"]
-    : headerCells.length === 3
-    ? ["w-[10%]", "w-[42%]", "w-[48%]"]
-    : ["w-[6%]", "w-[30%]", "w-[34%]", "w-[30%]"];
+  const isMatrixStyle = headerCells.length >= 3 && /الرقم|الوثيقة|المستند/i.test(headerCells.join(" ") || "");
 
   return (
-    <div key={key} className="my-6 overflow-x-auto rounded-xl border border-teal-200/90 shadow-xs bg-white">
-      <table className="w-full text-right border-collapse text-xs md:text-sm table-auto min-w-[520px]" dir="rtl">
-        {headerCells.length > 0 && (
-          <thead className="bg-[#094d4e] text-white">
-            <tr>
-              {headerCells.map((h, i) => (
-                <th key={i} className={`p-3.5 px-4 font-extrabold border-b border-teal-700 text-right align-middle leading-snug break-words ${colWidths[i] || ""}`}>
-                  {renderInlineMarkdown(h)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-        )}
-        <tbody className="divide-y divide-teal-100/80">
-          {rows.map((rowCells, rIdx) => (
-            <tr key={rIdx} className={rIdx % 2 === 0 ? "bg-white hover:bg-teal-50/40" : "bg-teal-50/25 hover:bg-teal-50/60"}>
-              {rowCells.map((cell, cIdx) => (
-                <td key={cIdx} className={`p-3.5 px-4 text-gray-850 leading-relaxed font-normal align-top text-right break-words ${colWidths[cIdx] || ""}`}>
-                  {renderInlineMarkdown(cell)}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div key={key} className="my-6 space-y-4">
+      {rows.map((rowCells, rIdx) => {
+        const first = (rowCells[0] || "").trim();
+        const idxMatch = /^(\d{1,3})/.exec(first);
+        const badge = idxMatch ? idxMatch[1] : String(rIdx + 1);
+        const titleCell = idxMatch ? first.replace(/^\d{1,3}/, "").trim() : first;
+        const title = titleCell || `الوثيقة ${badge}`;
+
+        const fields = rowCells.slice(idxMatch ? 1 : 0);
+        const fieldLabels = headerCells.slice(idxMatch ? 1 : 0);
+
+        return (
+          <div
+            key={rIdx}
+            className="rounded-xl border border-teal-200/90 bg-white shadow-2xs overflow-hidden"
+            dir="rtl"
+          >
+            <div className="flex items-center gap-3 px-4 py-3 bg-[#094d4e]/5 border-b border-teal-100">
+              <span className="shrink-0 h-7 w-7 rounded-md bg-[#094d4e] text-white text-xs font-black flex items-center justify-center">
+                {badge}
+              </span>
+              <h4 className="text-sm md:text-base font-extrabold text-[#094d4e] leading-snug break-words">
+                {renderInlineMarkdown(title)}
+              </h4>
+            </div>
+            <div className="px-4 py-3 space-y-2.5">
+              {fields.length === 0 ? (
+                <p className="text-xs md:text-sm text-gray-600">{renderInlineMarkdown(first)}</p>
+              ) : (
+                fields.map((cell, cIdx) => {
+                  const label = (fieldLabels[cIdx] || (rIdx + 1)).toString();
+                  const pretty = isMatrixStyle ? matrixFieldLabel(label) : label;
+                  return (
+                    <div key={cIdx} className="flex items-start gap-2.5">
+                      <span className="shrink-0 mt-0.5 inline-flex items-center rounded-md bg-teal-50 border border-teal-200/70 px-2 py-0.5 text-[10px] font-extrabold text-[#094d4e]">
+                        {pretty || "التفصيل"}
+                      </span>
+                      <p className="flex-1 text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 break-words">
+                        {renderInlineMarkdown(cell)}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
