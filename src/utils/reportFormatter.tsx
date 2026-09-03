@@ -16,7 +16,20 @@ export function stripEvidenceTags(text: string): string {
  */
 export function normalizeReportStructure(text: string): string {
   if (!text) return "";
-  let result = stripEvidenceTags(text);
+
+  // 0.P Protect clean matrix tables FIRST, before anything strips/collapses newlines or runs the
+  // fragile normalization regexes. Several pipeline steps (stripEvidenceTags -> normalizeArabicText
+  // joins lines, header-detach, table-grouping, reparagraphing) match *inside* valid pipe rows and
+  // fragment them into '| :' noise / merged rows. Snapshot each boundary-delimited pipe region into
+  // a sentinel token, run the rest of the pipeline, then restore verbatim at the end.
+  const matrixBlocks: string[] = [];
+  const TABLE_SENTINEL = "\u0000MATRIX\u0000";
+  let result = text.replace(/[ \t]*\|[^\n]*\|[ \t]*(?:\n[ \t]*\|[^\n]*\|[ \t]*)*\n?/g, (block) => {
+    matrixBlocks.push(block.trim().replace(/\n{3,}/g, "\n\n"));
+    return "\n\n" + TABLE_SENTINEL + (matrixBlocks.length - 1) + TABLE_SENTINEL + "\n\n";
+  });
+
+  result = stripEvidenceTags(result);
 
   // 0. Fix common Arabic typos, grammar agreement issues, and garbled BiDi parentheses
   result = result
@@ -147,6 +160,14 @@ export function normalizeReportStructure(text: string): string {
 
   // Deduplicate Q&A blocks and bullet items, renumbering questions sequentially
   result = deduplicateReportBlocks(result);
+
+  // Restore the protected matrix tables verbatim.
+  if (matrixBlocks.length > 0) {
+    result = result.replace(
+      new RegExp(TABLE_SENTINEL + "(\\d+)" + TABLE_SENTINEL, "g"),
+      (_, idx) => "\n\n" + matrixBlocks[Number(idx)] + "\n\n"
+    );
+  }
 
   return result.trim();
 }
@@ -501,6 +522,29 @@ export function rebuildEvidenceMatrix(text: string): string {
       j++;
     }
     i = j;
+
+    // Pass through already well-formed pipe tables verbatim. Reconstructing a clean pipe table
+    // corrupts it (delimiter residues become '| :' fragments and rows get merged), so only
+    // malformed regions (tab-separated or broken/fragment rows) should be rebuilt.
+    const regionTrimmed = region.map((r) => r.trim()).filter((r) => r !== "");
+    const isCleanPipe = regionTrimmed.every(
+      (r) => r.startsWith("|") && r.endsWith("|") && !/^\|[ \t:]*\|?$/.test(r)
+    );
+    if (isCleanPipe && regionTrimmed.length > 0) {
+      const hasContentRow = regionTrimmed.some((r) => {
+        const nonEmptyCells = r
+          .slice(1, r.endsWith("|") ? r.length - 1 : r.length)
+          .split("|")
+          .map((c) => c.replace(/[\s:\-|_.*•]/g, "").trim())
+          .filter(Boolean);
+        return nonEmptyCells.length >= 2;
+      });
+      if (hasContentRow) {
+        for (const line of region) out.push(line);
+        i = j;
+        continue;
+      }
+    }
 
     // Detect header (first region line mentioning matrix keywords).
     let header: string[] | null = null;
