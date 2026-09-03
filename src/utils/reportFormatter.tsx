@@ -31,6 +31,10 @@ export function normalizeReportStructure(text: string): string {
   result = result.replace(/([^\n|]+)\s*(\|[ \t]*الرقم[ \t]*\|)/gi, "$1\n\n$2");
   result = result.replace(/([^\n|]+)\s*(\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|)/g, "$1\n\n$2");
 
+  // 0.1 Rebuild any malformed evidence-matrix table region (tab-separated, rows split across
+  // physical lines, trailing row indices) into a clean pipe-delimited markdown table.
+  result = rebuildEvidenceMatrix(result);
+
   // 1. Clean leading bullets/dots/numbers before pipes '|' on table lines
   result = result.replace(/^[ \t]*[•*.\d\s]+(?=\|)/gm, "");
 
@@ -339,6 +343,146 @@ const DEFAULT_MATRIX_HEADERS = [
   "التباين والتحليل النقدي",
 ];
 
+const _IS_MATRIX_INDEX = (s: string): boolean => /^\d{1,3}$/.test(s) || /^[٠-٩]{1,3}$/.test(s);
+
+/**
+ * Splits a raw table row into cells, tolerating BOTH pipe ('|') and tab ('\t') separators.
+ * The synthesis AI frequently emits evidence matrices tab-separated with row numbers on
+ * standalone/line-split tokens, so we must accept tabs as cell boundaries too.
+ */
+function splitMatrixCells(line: string): string[] {
+  const cleared = line.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "");
+  return cleared
+    .split(/\t|\|/)
+    .map((s) => s.trim())
+    .filter((s) => s !== "" && s !== ":");
+}
+
+/**
+ * Re-shapes a stream of raw evidence-matrix lines (some spanning multiple physical lines,
+ * some tab-separated, some with the NEXT row's index appended to the previous row) into a
+ * list of fixed-column rows.
+ *
+ * Rules:
+ *  - A line whose first token is a number (row index) starts a new row.
+ *  - Otherwise the line's tokens are continuations appended into the current row's cells in order.
+ *  - A short trailing number on its own (e.g. "...التباين...\t3") is lifted as the NEXT row's index.
+ */
+function reconstructMatrixRows(lines: string[], nCols = 4): string[][] {
+  const rows: string[][] = [];
+  let cur: string[] = [];
+  let started = false;
+
+  const flush = () => {
+    if (cur.length) rows.push([...cur]);
+    cur = [];
+    started = false;
+  };
+
+  for (const line of lines) {
+    const toks = splitMatrixCells(line);
+    if (toks.length === 0) continue;
+
+    let trailingIdx: string | null = null;
+    if (toks.length >= 2 && _IS_MATRIX_INDEX(toks[toks.length - 1])) {
+      trailingIdx = toks.pop() as string;
+    }
+
+    const startsNew = !started || _IS_MATRIX_INDEX(toks[0]);
+    if (startsNew) {
+      flush();
+      started = true;
+    }
+
+    for (const t of toks) {
+      if (cur.length < nCols) cur.push(t);
+    }
+
+    if (trailingIdx !== null) {
+      flush();
+      started = true;
+      cur = [trailingIdx];
+    }
+  }
+
+  flush();
+  return rows;
+}
+
+const _MATRIX_DELIM_RE = /^\|?\s*:?-+\s*([|:]).*:?-+\s*\|?\s*$/;
+const _MATRIX_HEADER_RE = /^[|]?\s*(الرقم|رقم|الوثيقة|المستند)/;
+const _MATRIX_HEADER_KW_RE = /الرقم|الوثيقة|المستند|الأدلة|التباين|المحور/;
+const _MATRIX_REGION_END_RE = /^#{1,6}\s/;
+
+/**
+ * Searches the report text for a malformed evidence-matrix table region (tab-separated header,
+ * rows split across physical lines, trailing row indices) and rewrites it as a clean, well-formed
+ * pipe-delimited markdown table so downstream React/Word rendering is deterministic.
+ */
+export function rebuildEvidenceMatrix(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    const isHeaderish = _MATRIX_HEADER_RE.test(trimmed.replace(/\t/g, " "));
+    const hasTab = trimmed.includes("\t");
+
+    if (!isHeaderish && !hasTab) {
+      out.push(raw);
+      i++;
+      continue;
+    }
+
+    // Gather the contiguous matrix region.
+    const region: string[] = [raw];
+    let j = i + 1;
+    while (j < lines.length) {
+      const nxt = lines[j].trim();
+      if (!nxt) {
+        j++;
+        continue;
+      }
+      if (_MATRIX_REGION_END_RE.test(nxt)) break;
+      region.push(lines[j]);
+      j++;
+    }
+    i = j;
+
+    // Detect header (first region line mentioning matrix keywords).
+    let header: string[] | null = null;
+    let dataStart = 0;
+    if (_MATRIX_HEADER_KW_RE.test(region[0].replace(/\t/g, " "))) {
+      header = splitMatrixCells(region[0]).slice(0, 4);
+      dataStart = 1;
+    }
+
+    const dataLines = region
+      .slice(dataStart)
+      .map((r) => r.trim())
+      .filter((r) => r !== "" && !_MATRIX_DELIM_RE.test(r.replace(/\t/g, " ")));
+
+    const dataRows = reconstructMatrixRows(dataLines, 4);
+
+    if (header && header.length > 0) {
+      out.push("| " + header.join(" | ") + " |");
+      out.push("| :--- | :--- | :--- | :--- |");
+    }
+    for (const row of dataRows) {
+      if (row.length > 4) {
+        out.push("| " + row.slice(0, 4).join(" | ") + " |");
+      } else {
+        while (row.length < 4) row.push("");
+        out.push("| " + row.join(" | ") + " |");
+      }
+    }
+  }
+
+  return out.join("\n");
+}
+
 /**
  * Helper to clean and parse a block of markdown table lines into header cells and data rows.
  * Strips delimiter lines, removes artifacts, normalizes columns to max 4.
@@ -448,16 +592,17 @@ function renderMarkdownTableReact(tableLines: string[], key: string): React.Reac
 
   if (headerCells.length === 0 && rows.length === 0) return null;
 
-  // Optimized column widths for max 4 columns
+  // Optimized column widths for max 4 columns. Use lighter weighting on the narrow index column
+  // and give long evidence/analysis text room so Arabic wraps naturally instead of being chopped word-by-word.
   const colWidths = headerCells.length === 2
     ? ["w-[25%]", "w-[75%]"]
     : headerCells.length === 3
     ? ["w-[10%]", "w-[42%]", "w-[48%]"]
-    : ["w-[8%]", "w-[28%]", "w-[34%]", "w-[30%]"];
+    : ["w-[6%]", "w-[30%]", "w-[34%]", "w-[30%]"];
 
   return (
     <div key={key} className="my-6 overflow-x-auto rounded-xl border border-teal-200/90 shadow-xs bg-white">
-      <table className="w-full text-right border-collapse text-xs md:text-sm table-fixed" dir="rtl">
+      <table className="w-full text-right border-collapse text-xs md:text-sm table-auto min-w-[520px]" dir="rtl">
         {headerCells.length > 0 && (
           <thead className="bg-[#094d4e] text-white">
             <tr>
@@ -499,7 +644,7 @@ function renderMarkdownTableHtml(tableLines: string[]): string {
     ? ["25%", "75%"]
     : headerCells.length === 3
     ? ["10%", "42%", "48%"]
-    : ["8%", "28%", "34%", "30%"];
+    : ["6%", "30%", "34%", "30%"];
 
   let html = `<table style="width: 100%; border-collapse: collapse; margin-top: 18pt; margin-bottom: 22pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; mso-table-lspace: 0pt; mso-table-rspace: 0pt;" dir="rtl">\n`;
   if (headerCells.length > 0) {
