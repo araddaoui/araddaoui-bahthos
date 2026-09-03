@@ -71,6 +71,71 @@ function extractDocSubstance(source: any, idx: number, topic: string): {
   };
 }
 
+/**
+ * Builds a complete, sequential evidence-matrix table block sourced directly from the
+ * deduplicated source list. Numbers rows 1..N with one row per source, so the matrix is
+ * always complete and never depends on freeform/partial AI table output.
+ */
+export function buildEvidenceMatrixBlock(
+  sources: any[],
+  topic: string
+): string {
+  const rawActive = Array.isArray(sources) && sources.length > 0 ? sources : [
+    { title: "المصدر المرفق الأول", summary: "تحليل المحاور الرئيسية واستعراض الأدلة والمعطيات." }
+  ];
+  const activeSources = deduplicateSources(rawActive);
+
+  const requestedTopic = topic?.trim() || "";
+  const safeTopic = /[\u0600-\u06FF]/.test(requestedTopic)
+    ? requestedTopic.slice(0, 140)
+    : "التوليف المقارن للمصادر الحالية";
+  const activeCount = activeSources.length;
+
+  let block = `### مصفوفة الأدلة والتعارضات: ${safeTopic}\n\n`;
+  block += `توضيح النطاق: يعتمد هذا التقرير التوليفي والتحليل المتقدم على ${activeCount} من مصادر البحث النشطة المتاحة لصلتها المباشرة بالموضوع المدروس.\n\n`;
+  block += `| الرقم | الوثيقة والمحور الرئيسي | الأدلة والنتائج المؤيدة | التحليل النقدي والتباين المنهجي |\n`;
+  block += `| :--- | :--- | :--- | :--- |\n`;
+
+  activeSources.forEach((src: any, idx: number) => {
+    const details = extractDocSubstance(src, idx, safeTopic);
+    block += `| ${idx + 1} | **"${details.title}"** - المحور: ${details.coreIssue} | ${details.supportingEvidence} | **التباين:** ${details.divergenceAndContext} |\n`;
+  });
+
+  return block;
+}
+
+/**
+ * Replaces any AI-emitted (possibly malformed) markdown table block in a report with a
+ * complete, source-driven evidence matrix built from the deduplicated source list, so the
+ * matrix always starts at 1, always covers every source, and never shows stray/empty rows.
+ */
+export function injectEvidenceMatrixIntoReport(
+  reportText: string,
+  sources: any[],
+  topic: string
+): string {
+  const matrixBlock = buildEvidenceMatrixBlock(sources, topic);
+  if (!reportText || !reportText.trim()) return matrixBlock;
+
+  // Drop consecutive markdown-table-ish lines (start with "|", tab-pipe rows, or pipe noise)
+  // from the AI text so no broken/partial table survives alongside the canonical matrix.
+  const filteredLines = reportText.split("\n").filter((line) => {
+    const t = line.trim();
+    if (!t) return true;
+    const looksLikeTable =
+      /^\|/.test(t) ||
+      /^\d{1,3}[ \t]*\|/.test(t) ||
+      /\|['"«»\u0600-\u06FF]/.test(t) ||
+      /^\|[ \t]*:*-*[ \t]*\|/.test(t);
+    return !looksLikeTable;
+  });
+  const body = filteredLines.join("\n").replace(/^\s+|\s+$/g, "");
+  const trimmedBody = body.replace(/\n{3,}/g, "\n\n").trim();
+
+  if (!trimmedBody) return matrixBlock;
+  return matrixBlock + "\n\n---\n\n" + trimmedBody;
+}
+
 export function generateClientSynthesisFallback(
   sources: any[],
   topic: string,
@@ -91,18 +156,7 @@ export function generateClientSynthesisFallback(
   let reportText = "";
 
   if (toolType === "matrix") {
-    reportText = `### مصفوفة الأدلة والتعارضات: ${safeTopic}\n\n`;
-    reportText += scopeDisclosure;
-    
-    // Strict clean 4-column matrix
-    reportText += `| الرقم | الوثيقة والمحور الرئيسي | الأدلة والنتائج المؤيدة | التحليل النقدي والتباين المنهجي |\n`;
-    reportText += `| :--- | :--- | :--- | :--- |\n`;
-    
-    activeSources.forEach((src: any, idx: number) => {
-      const details = extractDocSubstance(src, idx, safeTopic);
-      reportText += `| ${idx + 1} | **"${details.title}"** - المحور: ${details.coreIssue} | ${details.supportingEvidence} | **التباين:** ${details.divergenceAndContext} |\n`;
-    });
-
+    reportText = buildEvidenceMatrixBlock(sources, topic);
     reportText += `\n---\n\n`;
     reportText += `### التحليل التوليفي والمقارن الشامل للأدلة والتعارضات\n\n`;
     

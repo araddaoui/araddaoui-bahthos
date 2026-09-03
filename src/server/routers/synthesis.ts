@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getAiClient, generateContentWithRetry } from "../ai.js";
 import { normalizeArabicText, sanitizeSourceSummary } from "../../utils/termExtractor.js";
-import { generateClientSynthesisFallback } from "../../utils/synthesisFallback.js";
+import { generateClientSynthesisFallback, injectEvidenceMatrixIntoReport } from "../../utils/synthesisFallback.js";
 import { deduplicateSources, deduplicateReportText } from "../sourceUtils.js";
 import { DALIL_SYSTEM_INSTRUCTION } from "../prompts.js";
 
@@ -333,8 +333,14 @@ scopeIntro + sourcesContext;
           deduplicateReportText(normalizeArabicText(response.text.trim()))
         );
         if (isArabicFirstText(cleanText)) {
+          const finalText =
+            toolType === "matrix"
+              ? sanitizeArabicReportText(
+                  injectEvidenceMatrixIntoReport(cleanText, activeSources, topic || "تحليل ومقارنة شاملة للمصادر")
+                )
+              : cleanText;
           return res.json({
-            text: cleanText,
+            text: finalText,
             isFallback: false
           });
         }
