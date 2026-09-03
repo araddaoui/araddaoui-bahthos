@@ -366,7 +366,9 @@ function splitMatrixCells(line: string): string[] {
  * Rules:
  *  - A line whose first token is a number (row index) starts a new row.
  *  - Otherwise the line's tokens are continuations appended into the current row's cells in order.
- *  - A short trailing number on its own (e.g. "...التباين...\t3") is lifted as the NEXT row's index.
+ *  - On a TAB-separated (mangled) line only, a bare trailing number (e.g. "...التباين...\t3") is
+ *    lifted as the NEXT row's index. Clean pipe rows never trigger this, so real numeric content
+ *    in the last column is never corrupted.
  */
 function reconstructMatrixRows(lines: string[], nCols = 4): string[][] {
   const rows: string[][] = [];
@@ -380,11 +382,13 @@ function reconstructMatrixRows(lines: string[], nCols = 4): string[][] {
   };
 
   for (const line of lines) {
+    const isTabForm = line.includes("\t");
     const toks = splitMatrixCells(line);
     if (toks.length === 0) continue;
 
     let trailingIdx: string | null = null;
-    if (toks.length >= 2 && _IS_MATRIX_INDEX(toks[toks.length - 1])) {
+    // Only recover a trailing next-row index from tab-separated (mangled) lines — never clean pipes.
+    if (isTabForm && toks.length >= 2 && _IS_MATRIX_INDEX(toks[toks.length - 1])) {
       trailingIdx = toks.pop() as string;
     }
 
@@ -406,7 +410,18 @@ function reconstructMatrixRows(lines: string[], nCols = 4): string[][] {
   }
 
   flush();
-  return rows;
+
+  // Drop "stub" rows produced when the AI emitted a bare row number with no cell content.
+  // A stub = first cell is a number/index AND every other cell is empty.
+  const isStub = (cells: string[]): boolean =>
+    cells.length > 0 &&
+    _IS_MATRIX_INDEX(cells[0]) &&
+    cells.slice(1).every((c) => c.trim() === "");
+
+  const meaningful = rows.filter((cells) => !isStub(cells));
+
+  // If nothing meaningful remains, keep a single empty result so callers can drop the table.
+  return meaningful.length > 0 ? meaningful : [];
 }
 
 const _MATRIX_DELIM_RE = /^\|?\s*:?-+\s*([|:]).*:?-+\s*\|?\s*$/;
@@ -436,16 +451,26 @@ export function rebuildEvidenceMatrix(text: string): string {
       continue;
     }
 
-    // Gather the contiguous matrix region.
+    // Gather the contiguous matrix region. Stop at headings and at clear non-table prose lines
+    // (no leading pipe, no tab separator, no row number, and not a matrix-keyword header/log)
+    // so that any analysis paragraph following the table is never swallowed into a row.
     const region: string[] = [raw];
     let j = i + 1;
     while (j < lines.length) {
-      const nxt = lines[j].trim();
+      const rawNxt = lines[j];
+      const nxt = rawNxt.trim();
       if (!nxt) {
         j++;
         continue;
       }
       if (_MATRIX_REGION_END_RE.test(nxt)) break;
+      // Detect tabs on the RAW line because trim() strips a leading/trailing tab marker.
+      const isPipeRow = /^\|/.test(nxt);
+      const isTabRow = rawNxt.includes("\t");
+      const isRowIndexLine = /^\d{1,3}(\t|\s|و|\.)/.test(nxt) || /^[٠-٩]{1,3}(\t)/.test(nxt);
+      const isHeaderishLog = /^[|]?\s*(الرقم|رقم|الوثيقة|المستند|الأدلة|التباين|المحور)/.test(nxt.replace(/\t/g, " "));
+      const isDelimLine = _MATRIX_DELIM_RE.test(nxt.replace(/\t/g, " "));
+      if (!isPipeRow && !isTabRow && !isRowIndexLine && !isHeaderishLog && !isDelimLine) break;
       region.push(lines[j]);
       j++;
     }
@@ -465,6 +490,10 @@ export function rebuildEvidenceMatrix(text: string): string {
       .filter((r) => r !== "" && !_MATRIX_DELIM_RE.test(r.replace(/\t/g, " ")));
 
     const dataRows = reconstructMatrixRows(dataLines, 4);
+
+    // Only emit the header/delimiter if the region actually has content rows; otherwise
+    // drop the whole (empty) table so we never render a header with no data below it.
+    if (dataRows.length === 0) continue;
 
     if (header && header.length > 0) {
       out.push("| " + header.join(" | ") + " |");
@@ -512,6 +541,17 @@ function parseTableBlock(tableLines: string[]) {
       const stripped = cell.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s:\-|_.*•]/g, "");
       return stripped.length > 0;
     });
+  };
+
+  // A "stub" matrix row carries only a row number (column 0) with all content columns empty.
+  // The AI sometimes emits such placeholders instead of real cells; drop them so the matrix is
+  // not padded with meaningless empty rows.
+  const isMatrixStubRow = (rowCells: string[]): boolean => {
+    if (!rowCells || rowCells.length < 2) return false;
+    const first = (rowCells[0] || "").trim();
+    const isIndex = /^\d{1,3}$/.test(first) || /^[٠-٩]{1,3}$/.test(first);
+    if (!isIndex) return false;
+    return rowCells.slice(1).every((c) => (c || "").trim() === "");
   };
 
   // Filter out pure delimiter/alignment rows (e.g. | :--- | :--- | or empty cells)
@@ -569,6 +609,7 @@ function parseTableBlock(tableLines: string[]) {
   for (const rowLine of dataRowsLines) {
     let rowCells = parseRow(rowLine);
     if (!isMeaningfulRow(rowCells)) continue;
+    if (isMatrixStubRow(rowCells)) continue;
 
     if (rowCells.length > headerCells.length) {
       rowCells = rowCells.slice(0, headerCells.length);
@@ -577,6 +618,11 @@ function parseTableBlock(tableLines: string[]) {
       rowCells.push("");
     }
     rows.push(rowCells);
+  }
+
+  // If the only "data" was stub rows, return an empty table so callers skip rendering it.
+  if (rows.length === 0) {
+    return { headerCells: [], rows: [] };
   }
 
   return { headerCells, rows };
