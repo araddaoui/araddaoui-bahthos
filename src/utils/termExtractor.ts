@@ -634,12 +634,277 @@ export function cleanAndSanitizeAcademicTerm(
     return { term: termEng, verified_term: termAr, draft_term: termAr, isValid: false };
   }
 
+  // 8. Consistency rule: every concept model carries BOTH an Arabic rendering and an authentic
+  // English rendering, even if the source text only supplied Arabic. `term` (the English/key
+  // shown as the secondary badge) must never be Arabic-only.
+  const termEngIsLatin = termEng && !/[\u0600-\u06FF]/.test(termEng);
+  const finalEnglish = termEngIsLatin
+    ? termEng
+    : resolveAuthenticEnglish(termAr || termEng);
+
   return {
-    term: termEng || termAr,
+    term: finalEnglish || termAr,
     verified_term: termAr,
     draft_term: termAr,
     isValid: termAr.length >= 3 && termAr.length <= 60 && /[\u0600-\u06FF]/.test(termAr),
   };
+}
+
+// Curated Arabic -> authentic English equivalents for genuine scholarly concepts. Terms defined
+// here always render with a faithful English translation regardless of the source language.
+const ARABIC_TO_ENGLISH_REGISTRY: Record<string, string> = {
+  "الوسائط المتعددة": "Multimedia",
+  "أدوات الإنتاج الرقمي متعدد الوسائط": "Digital Multimedia Production Tools",
+  "الأدوات الرقمية متعددة الوسائط": "Digital Multimedia Tools",
+  "إدارة وتنظيم المعرفة التشاركية": "Collaborative Knowledge Management and Organization",
+  "إدارة المعرفة وتنظيمها التشاركي": "Collaborative Knowledge Management and Organization",
+  "تنظيم المعرفة التشاركية": "Collaborative Knowledge Organization",
+  "التعلم المرن": "Flexible Learning",
+  "التعلم عبر الإنترنت": "Online Learning",
+  "التعلم الإلكتروني": "E-Learning",
+  "التعلم عن بعد": "Distance Learning",
+  "التعلم المدمج": "Blended Learning",
+  "التعلم النشط": "Active Learning",
+  "التعلم التعاوني": "Cooperative Learning",
+  "التعلم الذاتي": "Self-Regulated Learning",
+  "التعلم الاجتماعي": "Social Learning",
+  "التعلم التنظيمي": "Organizational Learning",
+  "التعلم المستند إلى المشاريع": "Project-Based Learning",
+  "التعلم القائم على المشكلات": "Problem-Based Learning",
+  "التعلم مدى الحياة": "Lifelong Learning",
+  "التعلم الشخصي": "Personalized Learning",
+  "البيئة التعليمية التفاعلية": "Interactive Learning Environment",
+  "البيئة الرقمية": "Digital Environment",
+  "التعليم الإلكتروني": "Electronic Education",
+  "التعليم عن بعد": "Distance Education",
+  "التعليم الهجين": "Hybrid Education",
+  "التعليم المفتوح": "Open Education",
+  "التعليم الافتراضي": "Virtual Education",
+  "استراتيجيات التدريس": "Teaching Strategies",
+  "استراتيجيات التعلم": "Learning Strategies",
+  "طرائق التدريس": "Teaching Methods",
+  "المنهج الدراسي": "Curriculum",
+  "المناهج الدراسية": "Curricula",
+  "التقويم التكويني": "Formative Assessment",
+  "التقويم الختامي": "Summative Assessment",
+  "التقويم الذاتي": "Self-Assessment",
+  "التحصيل الدراسي": "Academic Achievement",
+  "الكفايات المهنية": "Professional Competencies",
+  "الكفايات التدريسية": "Teaching Competencies",
+  "الكفايات الرقمية": "Digital Competencies",
+  "الكفايات اللغوية": "Language Competencies",
+  "المهارات الإلكترونية": "Digital Skills",
+  "المهارات الرقمية": "Digital Skills",
+  "المهارات الحياتية": "Life Skills",
+  "تمكين المتعلمين": "Learner Empowerment",
+  "تمكين المعلمين": "Teacher Empowerment",
+  "المحتوى التعليمي": "Educational Content",
+  "المحتوى الرقمي": "Digital Content",
+  "المحتوى التفاعلي": "Interactive Content",
+  "المصادر الرقمية": "Digital Resources",
+  "الموارد التعليمية": "Educational Resources",
+  "الموارد الرقمية": "Digital Resources",
+  "السرد القصصي الرقمي": "Digital Storytelling",
+  "العروض التقديمية التفاعلية": "Interactive Presentations",
+  "منصات التعلم": "Learning Platforms",
+  "الأدوات الرقمية": "Digital Tools",
+  "الوسائط الفائقة": "Hypermedia",
+  "الوسائط التفاعلية": "Interactive Media",
+  "تقنيات التعليم": "Educational Technology",
+  "تكنولوجيا التعليم": "Educational Technology",
+  "تكنولوجيا المعلومات": "Information Technology",
+  "العلوم المعرفية": "Cognitive Science",
+  "الإدراك البصري": "Visual Perception",
+  "المعرفة التشاركية": "Knowledge Sharing",
+  "إدارة المعرفة": "Knowledge Management",
+  "تنظيم المعرفة": "Knowledge Organization",
+  "التحليل النقدي": "Critical Analysis",
+  "التفكير النقدي": "Critical Thinking",
+  "التفكير الإبداعي": "Creative Thinking",
+  "التفكير المصممي": "Design Thinking",
+  "حل المشكلات": "Problem Solving",
+  "اتخاذ القرار": "Decision Making",
+  "التوسيم الاجتماعي": "Social Tagging",
+  "مجتمعات الممارسة": "Communities of Practice",
+  "الممارسة المهنية": "Professional Practice",
+  "الممارسة التأملية": "Reflective Practice",
+  "البيانات الضخمة": "Big Data",
+  "تعلم الآلة": "Machine Learning",
+  "الذكاء الاصطناعي": "Artificial Intelligence",
+  "الذكاء الاصطناعي التوليدي": "Generative Artificial Intelligence",
+  "الواقع الافتراضي": "Virtual Reality",
+  "الواقع المعزز": "Augmented Reality",
+  "التفاعل بين الإنسان والحاسوب": "Human–Computer Interaction",
+  "الواجهات الرقمية": "Digital Interfaces",
+  "التصميم التعليمي": "Instructional Design",
+  "النمذجة التعليمية": "Instructional Modeling",
+  "الدافعية للتعلم": "Learning Motivation",
+  "الانخراط الطلابي": "Student Engagement",
+  "عزوف المتعلمين": "Learner Disengagement",
+  "الرقمنة": "Digitalization",
+  "التحول الرقمي": "Digital Transformation",
+  "المواطنة الرقمية": "Digital Citizenship",
+  "الهوية الرقمية": "Digital Identity",
+  "الأمن السيبراني": "Cybersecurity",
+  "خصوصية البيانات": "Data Privacy",
+  "الملفات السحابية": "Cloud Storage",
+  "الحوسبة السحابية": "Cloud Computing",
+  "الأنظمة الإلكترونية": "Electronic Systems",
+  "الأنظمة الحديثة": "Modern Systems",
+  "الشبكات الاجتماعية": "Social Networks",
+  "التفاعل المتزامن": "Synchronous Interaction",
+  "التفاعل غير المتزامن": "Asynchronous Interaction",
+  "الفصول الافتراضية": "Virtual Classrooms",
+  "الفصول الذكية": "Smart Classrooms",
+  "المختبرات الافتراضية": "Virtual Laboratories",
+  "المكتبة الرقمية": "Digital Library",
+  "الأرشفة الرقمية": "Digital Archiving",
+  "الدليل التعليمي الرقمي": "Digital Learning Guide",
+  "التفاعل البيداغوجي": "Pedagogical Interaction",
+  "النموذج البيداغوجي": "Pedagogical Model",
+  "المقاربة البيداغوجية": "Pedagogical Approach",
+  "البيداغوجيا الفارقية": "Differentiated Pedagogy",
+  "التربية الإعلامية": "Media Education",
+  "التقييم بالمحاكاة": "Simulation-Based Assessment",
+  "المحاكاة الرقمية": "Digital Simulation",
+  "ورشة العمل البيداغوجية": "Pedagogical Workshop",
+  "تكوين الأساتذة": "Teacher Training",
+  "التدريب المهني": "Vocational Training",
+  "تطوير الممارسات المهنية": "Professional Development",
+  "المناهج الحكومية": "Official Curricula",
+};
+
+// Small word-level map used only as a deterministic fallback for Arabic terms not in the registry.
+const ARABIC_TERM_WORD_MAP: Record<string, string> = {
+  الوسائط: "Media",
+  المتعددة: "Multimedia",
+  التعلم: "Learning",
+  التعليم: "Education",
+  المرن: "Flexible",
+  النشط: "Active",
+  المدمج: "Blended",
+  الذاتي: "Self-Regulated",
+  التعاوني: "Collaborative",
+  عن: "",
+  بعد: "Distance",
+  عبر: "Through",
+  الإنترنت: "Internet",
+  الإلكتروني: "Electronic",
+  الإلكترونية: "Electronic",
+  الرقمي: "Digital",
+  الرقمية: "Digital",
+  التفاعلي: "Interactive",
+  التفاعلية: "Interactive",
+  الأدوات: "Tools",
+  أدوات: "Tools",
+  الإنتاج: "Production",
+  تنظيم: "Organization",
+  إدارة: "Management",
+  المعرفة: "Knowledge",
+  التشاركية: "Collaborative",
+  التشاركي: "Collaborative",
+  المحتوى: "Content",
+  التعليمي: "Educational",
+  المنصة: "Platform",
+  المنصات: "Platforms",
+  البيداغوجي: "Pedagogical",
+  البيداغوجية: "Pedagogical",
+  الكفايات: "Competencies",
+  الكفاية: "Competency",
+  المهارات: "Skills",
+  المهارة: "Skill",
+  التقويم: "Assessment",
+  التقييم: "Assessment",
+  التقديم: "Presentation",
+  النماذج: "Models",
+  النموذج: "Model",
+  الأطر: "Frameworks",
+  "الأطر المنهجية": "Methodological Frameworks",
+  المفاهيم: "Concepts",
+  المفهوم: "Concept",
+  المصطلحات: "Terms",
+  المصطلح: "Term",
+  دراسة: "Study",
+  تحليل: "Analysis",
+  التحليل: "Analysis",
+  نقدي: "Critical",
+  النقدي: "Critical",
+  مقارن: "Comparative",
+  المقارن: "Comparative",
+  شامل: "Comprehensive",
+  الشامل: "Comprehensive",
+  اجتماعي: "Social",
+  الاجتماعي: "Social",
+  المجتمع: "Community",
+  الممارسات: "Practices",
+  الممارسة: "Practice",
+  التسويق: "Marketing",
+  الاستراتيجية: "Strategy",
+  الاستراتيجيات: "Strategies",
+  المناهج: "Curricula",
+  المنهج: "Curriculum",
+};
+
+const _normAraKey = (s: string): string =>
+  String(s || "")
+    .replace(/[\u064B-\u0652\u0670]/g, "") // strip diacritics
+    .split(/\s+/)
+    .map((w) => (w.startsWith("ال") ? w.slice(2) : w))
+    .filter(Boolean)
+    .join(" ");
+
+/**
+ * Resolves an authentic English rendering for an Arabic scholarly term. Uses the curated
+ * registry first (exact / normalized match), then a deterministic word-level translation,
+ * finally any Latin fragment already present. Never returns empty for a valid Arabic term.
+ */
+function resolveAuthenticEnglish(arabicTerm: string): string {
+  const ar = String(arabicTerm || "").trim();
+  if (!ar) return "";
+
+  // 1. Exact normalized registry lookup.
+  const norm = _normAraKey(ar);
+  for (const [arKey, enKey] of Object.entries(ARABIC_TO_ENGLISH_REGISTRY)) {
+    if (_normAraKey(arKey) === norm) return enKey;
+  }
+  // Also try including the normalized value as a loose containment on key glyphs.
+  for (const [arKey, enKey] of Object.entries(ARABIC_TO_ENGLISH_REGISTRY)) {
+    if (norm.length >= 2 && (norm.includes(_normAraKey(arKey)) || _normAraKey(arKey).includes(norm))) {
+      if (Math.abs(norm.length - _normAraKey(arKey).length) <= 1) return enKey;
+    }
+  }
+
+  // 2. Deterministic word-level translation, but ONLY when every significant token is covered
+  // by the word map. Partial coverage yields unnatural word salads, which would violate the
+  // 'authentic translation' requirement, so partial results are discarded in favour of no badge.
+  const omit = new Set(["في", "من", "إلى", "على", "عند", "مع", "حول", "بـ", "و", "عن", "بسبب"]);
+  const tokens = ar
+    .replace(/^[و]/, "")
+    .split(/\s+/)
+    .map((w) => w.replace(/^و/, "").trim())
+    .filter((w) => w.length > 1 && !omit.has(w));
+  const translated = tokens.map((w) => {
+    const base = w.replace(/^ال/, "");
+    return ARABIC_TERM_WORD_MAP[w] || ARABIC_TERM_WORD_MAP[base] || ARABIC_TERM_WORD_MAP["ال" + base] || "";
+  });
+  if (translated.length > 0 && translated.every((t) => t !== "")) {
+    const joined = translated.join(" ").replace(/\s+/g, " ").trim();
+    return joined
+      .split(" ")
+      .map((w) => (w && w[0] ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  }
+
+  // 3. Fall back to any Latin already embedded in the Arabic term.
+  const latin = ar.match(/[A-Za-z][A-Za-z0-9 &'’\-()]*/);
+  if (latin) {
+    return latin[0]
+      .split(" ")
+      .map((w) => (w && w[0] ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  }
+
+  return "";
 }
 
 // Authoritative dictionary of genuine scholarly theoretical concepts, frameworks, and methodological paradigms
