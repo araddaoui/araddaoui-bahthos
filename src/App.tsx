@@ -140,8 +140,28 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     return true;
   });
 
-  // Deduplicate terms across sources and cap to max 6 items per source
+  // Deduplicate concepts GLOBALLY (across all sources) and keep at most 2 per
+  // source. The same scholarly concept must not appear more than once even if
+  // two uploaded sources happen to discuss it, otherwise the glossary doubles
+  // up (e.g. "Foreign Policy Analysis" appearing once per source).
   const sourceCounts: Record<string, number> = {};
+  const seenGlobally = new Set<string>();
+  const capPerSource = 2;
+
+  const isGloballyDuplicated = (eng: string, ar: string): boolean => {
+    for (const key of seenGlobally) {
+      const [kEng, kAr] = key.split("\u0001");
+      if (areTermsEquivalent(kEng, eng) || areTermsEquivalent(kAr, ar)) return true;
+    }
+    return false;
+  };
+
+  const addSeen = (eng: string, ar: string) => {
+    const engKey = (eng || "").trim().toLowerCase();
+    const arKey = (ar || "").trim().toLowerCase();
+    seenGlobally.add(`${engKey}\u0001${arKey}`);
+  };
+
   const cappedTerms: GlossaryTerm[] = [];
   for (const t of validTerms) {
     let sId = t.sourceId;
@@ -151,61 +171,57 @@ export function cleanAndMigrateGlossary(terms: GlossaryTerm[], sources?: Source[
     if (!sId) continue;
 
     const currentCount = sourceCounts[sId] || 0;
-    if (currentCount < 6) {
-      const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
-      const eng = sanitized.term;
-      const ar = sanitized.verified_term;
+    if (currentCount >= capPerSource) continue;
 
-      // Scope duplicate checks per source so new sources can introduce their own concepts freely
-      const isDuplicate = cappedTerms.some(
-        (ex) =>
-          ex.sourceId === sId &&
-          (areTermsEquivalent(ex.term, eng) ||
-           areTermsEquivalent(ex.verified_term || ex.transliteration, ar) ||
-           eng.trim().toLowerCase() === (ex.term || "").trim().toLowerCase() ||
-           ar.trim().toLowerCase() === (ex.verified_term || ex.transliteration || "").trim().toLowerCase())
-      );
-      if (!isDuplicate) {
-        sourceCounts[sId] = currentCount + 1;
-        const cleanDef = (t.definition &&
-          !t.definition.includes('""') &&
-          !t.definition.includes(':\s*""') &&
-          !t.definition.includes("مفهوم تحليلي يُقصد به في النص: \"\"") &&
-          t.definition.length > 25)
-          ? spellcheckAndRepairArabicAndEnglishText(t.definition)
-          : buildContextDefinition(eng, "", ar);
+    const sanitized = cleanAndSanitizeAcademicTerm(t.term, t.draft_term, t.verified_term || t.transliteration, t.definition);
+    const eng = sanitized.term;
+    const ar = sanitized.verified_term;
+    if (!eng && !ar) continue;
 
-        cappedTerms.push({
-          ...t,
-          sourceId: sId,
-          term: eng,
-          draft_term: sanitized.draft_term,
-          verified_term: ar,
-          transliteration: ar,
-          definition: cleanDef,
-        });
-      }
-    }
+    // Reject the same concept anywhere in the glossary, regardless of source.
+    if (isGloballyDuplicated(eng, ar)) continue;
+
+    sourceCounts[sId] = currentCount + 1;
+    addSeen(eng, ar);
+    const cleanDef = (t.definition &&
+      !t.definition.includes('""') &&
+      !t.definition.includes(':\s*""') &&
+      !t.definition.includes("مفهوم تحليلي يُقصد به في النص: \"\"") &&
+      t.definition.length > 25)
+      ? spellcheckAndRepairArabicAndEnglishText(t.definition)
+      : buildContextDefinition(eng, "", ar);
+
+    cappedTerms.push({
+      ...t,
+      sourceId: sId,
+      term: eng,
+      draft_term: sanitized.draft_term,
+      verified_term: ar,
+      transliteration: ar,
+      definition: cleanDef,
+    });
   }
 
-  // Backfill genuine concepts for any active source that has fewer than 2 terms
+  // Backfill genuine concepts for any active source that still has fewer than
+  // 2 terms, keeping global dedup and the 2-per-source cap.
   if (sources && Array.isArray(sources)) {
     for (const src of sources) {
-      const count = sourceCounts[src.id] || 0;
-      if (count < 2) {
-        const fallbacks = extractFallbackTermsFromText(src.content || "", src.id, src.title);
-        for (const fb of fallbacks) {
-          if ((sourceCounts[src.id] || 0) < 6) {
-            // Check for duplicates only within this specific source's list in cappedTerms
-            const isDuplicateForSource = cappedTerms.some(
-              (ex) => ex.sourceId === src.id && areTermsEquivalent(ex.term, fb.term)
-            );
-            if (!isDuplicateForSource) {
-              cappedTerms.push({ ...fb, sourceId: src.id });
-              sourceCounts[src.id] = (sourceCounts[src.id] || 0) + 1;
-            }
-          }
-        }
+      let count = sourceCounts[src.id] || 0;
+      if (count >= capPerSource) continue;
+      const fallbacks = extractFallbackTermsFromText(src.content || "", src.id, src.title);
+      for (const fb of fallbacks) {
+        if (count >= capPerSource) break;
+        const fbEng = fb.term || "";
+        const fbAr = fb.verified_term || fb.transliteration || "";
+        // Skip if this exact concept already exists anywhere in the glossary.
+        if (isGloballyDuplicated(fbEng, fbAr)) continue;
+        let sId = src.id;
+        if (validSourceIds && !validSourceIds.has(sId)) sId = fallbackSourceId;
+        if (!sId) continue;
+        cappedTerms.push({ ...fb, sourceId: sId });
+        sourceCounts[sId] = (sourceCounts[sId] || count) + 1;
+        count = sourceCounts[sId];
+        addSeen(fbEng || fbAr, fbAr || fbEng);
       }
     }
   }
