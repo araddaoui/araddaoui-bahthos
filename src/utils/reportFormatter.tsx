@@ -31,6 +31,12 @@ export function normalizeReportStructure(text: string): string {
   result = result.replace(/([^\n|]+)\s*(\|[ \t]*الرقم[ \t]*\|)/gi, "$1\n\n$2");
   result = result.replace(/([^\n|]+)\s*(\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|)/g, "$1\n\n$2");
 
+  // 0.05 Drop stray table-noise fragments (lone '|', '| :', '| :---') that the AI sometimes
+  // emits between real rows. They carry no content and, if left, render as broken empty rows
+  // or text paragraphs. Only lines that consist SOLELY of pipe/colon/dash/whitespace are removed.
+  result = result.replace(/^[ \t]*\|[ \t:]*$/gm, "\n");
+  result = result.replace(/^[ \t]*\|[ \t]*:?-{1,}[ \t]*\|?[ \t]*$/gm, "\n");
+
   // 0.1 Rebuild any malformed evidence-matrix table region (tab-separated, rows split across
   // physical lines, trailing row indices) into a clean pipe-delimited markdown table.
   result = rebuildEvidenceMatrix(result);
@@ -373,12 +379,19 @@ function splitMatrixCells(line: string): string[] {
 function reconstructMatrixRows(lines: string[], nCols = 4): string[][] {
   const rows: string[][] = [];
   let cur: string[] = [];
-  let started = false;
+
+  const foldInto = (cells: string[], token: string, cols: number) => {
+    if (cells.length < cols) {
+      cells.push(token);
+    } else if (cells.length === cols) {
+      // Fold overflow into the LAST cell so no real content is dropped.
+      cells[cols - 1] = cells[cols - 1] + " " + token;
+    }
+  };
 
   const flush = () => {
     if (cur.length) rows.push([...cur]);
     cur = [];
-    started = false;
   };
 
   for (const line of lines) {
@@ -392,19 +405,17 @@ function reconstructMatrixRows(lines: string[], nCols = 4): string[][] {
       trailingIdx = toks.pop() as string;
     }
 
-    const startsNew = !started || _IS_MATRIX_INDEX(toks[0]);
+    const startsNew = cur.length === 0 || _IS_MATRIX_INDEX(toks[0]);
     if (startsNew) {
       flush();
-      started = true;
     }
 
     for (const t of toks) {
-      if (cur.length < nCols) cur.push(t);
+      foldInto(cur, t, nCols);
     }
 
     if (trailingIdx !== null) {
       flush();
-      started = true;
       cur = [trailingIdx];
     }
   }
@@ -451,26 +462,41 @@ export function rebuildEvidenceMatrix(text: string): string {
       continue;
     }
 
-    // Gather the contiguous matrix region. Stop at headings and at clear non-table prose lines
-    // (no leading pipe, no tab separator, no row number, and not a matrix-keyword header/log)
-    // so that any analysis paragraph following the table is never swallowed into a row.
+    // Gather the contiguous matrix region. Inside a matrix we keep consuming fragment lines that
+    // continue a row (tab-separated, leading-pipe, leading row-index, or containing an internal
+    // '|' mixed separator). We STOP at a heading, a '---' divider, or a clearly standalone prose
+    // paragraph that is blank-line-separated, so the analysis section is never swallowed.
     const region: string[] = [raw];
     let j = i + 1;
+    let prevBlank = false;
     while (j < lines.length) {
       const rawNxt = lines[j];
       const nxt = rawNxt.trim();
       if (!nxt) {
+        prevBlank = true;
         j++;
         continue;
       }
-      if (_MATRIX_REGION_END_RE.test(nxt)) break;
-      // Detect tabs on the RAW line because trim() strips a leading/trailing tab marker.
+      if (_MATRIX_REGION_END_RE.test(nxt) || nxt === "---") break;
+
       const isPipeRow = /^\|/.test(nxt);
       const isTabRow = rawNxt.includes("\t");
       const isRowIndexLine = /^\d{1,3}(\t|\s|و|\.)/.test(nxt) || /^[٠-٩]{1,3}(\t)/.test(nxt);
       const isHeaderishLog = /^[|]?\s*(الرقم|رقم|الوثيقة|المستند|الأدلة|التباين|المحور)/.test(nxt.replace(/\t/g, " "));
       const isDelimLine = _MATRIX_DELIM_RE.test(nxt.replace(/\t/g, " "));
-      if (!isPipeRow && !isTabRow && !isRowIndexLine && !isHeaderishLog && !isDelimLine) break;
+      const isMixedContinuation = /\|/.test(nxt);
+      const isStandaloneProse =
+        prevBlank &&
+        nxt.length >= 60 &&
+        !rawNxt.includes("\t") &&
+        !/\|/.test(nxt) &&
+        /[.؛!؟]$/.test(nxt);
+
+      if (isStandaloneProse) break;
+      if (!isPipeRow && !isTabRow && !isRowIndexLine && !isHeaderishLog && !isDelimLine && !isMixedContinuation) break;
+
+      // A non-blank table/fragment line resets the blank run.
+      prevBlank = false;
       region.push(lines[j]);
       j++;
     }
