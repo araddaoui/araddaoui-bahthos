@@ -215,58 +215,79 @@ export async function deleteUserProject(userId: string, projectId: string): Prom
   }
 }
 
+// Serialize syncCollection per (userId, projectId, collectionName). The function
+// is a full-reconcile (delete remote docs absent from the passed array, then
+// upsert the array). If two calls overlap, the older one can read its snapshot
+// AFTER the newer one has committed, and then delete documents the newer call
+// just wrote — losing data that nothing will ever re-sync. The queue guarantees
+// only one reconcile runs per collection at a time, in trigger order, so the
+// final write always reflects the latest state.
+const syncQueues = new Map<string, Promise<void>>();
+
+function runInSyncQueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const previous = syncQueues.get(key) ?? Promise.resolve();
+  const run = previous.then(fn, fn);
+  syncQueues.set(key, run.then(() => undefined, () => undefined));
+  return run;
+}
+
 // Reusable helper to diff and sync a collection in Firestore
-export async function syncCollection<T extends { id?: string; term?: string }>(
+export function syncCollection<T extends { id?: string; term?: string }>(
   userId: string,
   projectId: string,
   collectionName: string,
   items: T[] | undefined
 ): Promise<void> {
-  if (isFirestoreQuotaExceeded || items === undefined) return;
-
-  try {
-    const colRef = collection(db, "users", userId, "projects", projectId, collectionName);
-    const snap = await getDocs(colRef);
-    const getItemId = (item: T): string => item.id || item.term || "";
-    const newIds = new Set(items.map((item) => getItemId(item)));
-
-    const existingMap = new Map<string, any>();
-    snap.forEach((d) => {
-      existingMap.set(d.id, d.data());
-    });
-
-    const batch = writeBatch(db);
-    let opCount = 0;
-
-    // Sync remote collection by deleting items not in the new set and upserting changed/new items.
-    snap.forEach((d) => {
-      if (!newIds.has(d.id)) {
-        batch.delete(d.ref);
-        opCount++;
-      }
-    });
-
-    for (const item of items) {
-      const docId = getItemId(item);
-      if (!docId) continue;
-
-      const sanitized = sanitizeForFirestore(item);
-      const existingData = existingMap.get(docId);
-
-      // Diff check: only write if document is new or changed
-      if (!existingData || JSON.stringify(existingData) !== JSON.stringify(sanitized)) {
-        const docRef = doc(db, "users", userId, "projects", projectId, collectionName, docId);
-        batch.set(docRef, sanitized, { merge: true });
-        opCount++;
-      }
-    }
-
-    if (opCount > 0) {
-      await batch.commit();
-    }
-  } catch (err) {
-    handleFirestoreError(err, `syncCollection(${collectionName})`);
+  if (isFirestoreQuotaExceeded || items === undefined) {
+    return Promise.resolve();
   }
+
+  const queueKey = `${userId}/${projectId}/${collectionName}`;
+  return runInSyncQueue(queueKey, async () => {
+    try {
+      const colRef = collection(db, "users", userId, "projects", projectId, collectionName);
+      const snap = await getDocs(colRef);
+      const getItemId = (item: T): string => item.id || item.term || "";
+      const newIds = new Set(items.map((item) => getItemId(item)));
+
+      const existingMap = new Map<string, any>();
+      snap.forEach((d) => {
+        existingMap.set(d.id, d.data());
+      });
+
+      const batch = writeBatch(db);
+      let opCount = 0;
+
+      // Sync remote collection by deleting items not in the new set and upserting changed/new items.
+      snap.forEach((d) => {
+        if (!newIds.has(d.id)) {
+          batch.delete(d.ref);
+          opCount++;
+        }
+      });
+
+      for (const item of items) {
+        const docId = getItemId(item);
+        if (!docId) continue;
+
+        const sanitized = sanitizeForFirestore(item);
+        const existingData = existingMap.get(docId);
+
+        // Diff check: only write if document is new or changed
+        if (!existingData || JSON.stringify(existingData) !== JSON.stringify(sanitized)) {
+          const docRef = doc(db, "users", userId, "projects", projectId, collectionName, docId);
+          batch.set(docRef, sanitized, { merge: true });
+          opCount++;
+        }
+      }
+
+      if (opCount > 0) {
+        await batch.commit();
+      }
+    } catch (err) {
+      handleFirestoreError(err, `syncCollection(${collectionName})`);
+    }
+  });
 }
 
 // Helper to save all documents of a project to Firestore
