@@ -957,6 +957,12 @@ export function extractFallbackTermsFromText(text: string, sourceId?: string, ti
 
     const cleanDef = normalizeArabicText(authoritativeDef || buildContextDefinition(finalEng, cleanText, cleanAr));
 
+    // Never ship a concept we cannot ground in a commonly accepted scholarly
+    // definition. Fabricated or empty definitions mean the concept is dropped.
+    if (!cleanDef || isFabricatedOrUnscholarlyDefinition(cleanDef)) {
+      return;
+    }
+
     // Final safety check against numbers or page ranges in definition
     if (/[0-9]{3,}/.test(cleanDef) || cleanDef.includes("Ø¬Ø§Ù…Ø¹Ø©") || cleanDef.includes("Ø£Ù†Ù…ÙˆØ°Ø¬Ø§")) {
       return;
@@ -1107,6 +1113,12 @@ export function sanitizeAndRepairTermsPipeline(
         rawDef || buildContextDefinition(sanitized.term, parsedContent, sanitized.verified_term)
       );
 
+      // A definition that is empty, fabricated, or not grounded in a commonly
+      // accepted scholarly rendering means the concept is dropped, never padded.
+      if (!cleanDef || isFabricatedOrUnscholarlyDefinition(cleanDef)) {
+        return null;
+      }
+
       if (/[0-9]{3,}/.test(cleanDef) || cleanDef.includes("Ø¬Ø§Ù…Ø¹Ø©") || cleanDef.includes("Ø£Ù†Ù…ÙˆØ°Ø¬")) {
         return null;
       }
@@ -1133,6 +1145,53 @@ export function sanitizeAndRepairTermsPipeline(
   }
 
   return cleanedTerms;
+}
+
+/**
+ * Rejects a "definition" that is not real words: repeated numbers, repeated
+ * letters, stray symbols, or an unreasonable proportion of digits. Corrupted
+ * extraction text must never masquerade as a scholarly definition.
+ */
+export function isGarbledOrOpaqueText(def: string | undefined | null): boolean {
+  const t = (def ?? "").trim();
+  if (!t) return true;
+  // Repeated-run garble: "111111", "xxxxxxx", "<<<<<<", "aaaaaa".
+  // Dots are tolerated ("..." occurs in ordinary prose).
+  if (/([^.\s])\1{2,}/.test(t.replace(/[\u200C\u200D\s]/g, ""))) {
+    return true;
+  }
+  const body = t.replace(/\s+/g, "");
+  if (!body) return true;
+  const digitShare = (body.match(/\d/g) || []).length / body.length;
+  if (digitShare > 0.25) return true;
+  // Anything that is not a letter, numeral, combining mark, dash, bracket,
+  // quote, or ordinary punctuation is opaque garble (e.g. "*", "=", "+", "&").
+  return /[^\p{L}\p{N}\p{M}\p{Pd}\p{Ps}\p{Pe}\p{Pi}\p{Pf}\p{Po}\p{Cf}]/u.test(body);
+}
+
+/**
+ * Rejects a "definition" that is not grounded in a commonly accepted scholarly
+ * rendering of the concept: context-quotes, boilerplate filler, or "in this
+ * source" framing are fabrications and must never reach the user. A missing or
+ * too-short definition is also rejected so callers drop the concept instead of
+ * shipping an invented one.
+ */
+export function isFabricatedOrUnscholarlyDefinition(def: string | undefined | null): boolean {
+  if (!def || typeof def !== "string") return true;
+  const d = normalizeArabicText(def).trim();
+  if (d.length < 25) return true;
+  if (isGarbledOrOpaqueText(d)) return true;
+  const lower = d.toLowerCase();
+  const fabricatedMarkers = [
+    "مفهوم يشير في سياق هذا المصدر",
+    "مفهوم وإطار تخصصي يشير إلى",
+    "في سياق هذا المصدر",
+    "يُقصد به في النص",
+    "يقصد به في النص",
+    "يراد بالمفهوم",
+    "مفهوم تحليلي",
+  ];
+  return fabricatedMarkers.some((m) => lower.includes(m));
 }
 
 export function buildContextDefinition(term: string, fullText: string, arabicTerm: string): string {
@@ -1196,18 +1255,10 @@ export function buildContextDefinition(term: string, fullText: string, arabicTer
     return "Ø£Ù†Ø¸Ù…Ø© ÙˆØªÙ‚Ù†ÙŠØ§Øª Ø­Ø§Ø³ÙˆØ¨ÙŠØ© Ù…ØªÙ‚Ø¯Ù…Ø© ØªØ¹ØªÙ…Ø¯ Ø¹Ù„Ù‰ Ø§Ù„Ø®ÙˆØ§Ø±Ø²Ù…ÙŠØ§Øª ÙˆØ§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„Ù…Ø¹Ø§Ù„Ø¬Ø© Ø§Ù„Ù…Ø¹Ù„ÙˆÙ…Ø§Øª ÙˆØªÙˆÙ„ÙŠØ¯ Ø§Ù„Ù…Ø®Ø±Ø¬Ø§Øª Ø§Ù„Ø°ÙƒÙŠØ©.";
   }
 
-  // 3. Extract grounded sentence from source text if available and non-empty
-  if (fullText && fullText.length > 50) {
-    const sentences = fullText.split(/[.\n;Ø›]/).map(s => s.trim()).filter(Boolean);
-    const matchingSentence = sentences.find(s => s.length >= 25 && s.length <= 180 && (s.includes(cleanAr) || s.includes(cleanAr.replace(/^Ø§Ù„/, ""))));
-    if (matchingSentence) {
-      const cleanSentence = spellcheckAndRepairArabicAndEnglishText(matchingSentence.replace(/^[^\u0600-\u06FF]+/, "")).trim();
-      if (cleanSentence && cleanSentence.length >= 20) {
-        return `Ù…ÙÙ‡ÙˆÙ… ÙŠØ´ÙŠØ± ÙÙŠ Ø³ÙŠØ§Ù‚ Ù‡Ø°Ø§ Ø§Ù„Ù…ØµØ¯Ø± Ø¥Ù„Ù‰: "${cleanSentence}"`;
-      }
-    }
-  }
-
-  return `Ù…ÙÙ‡ÙˆÙ… ÙˆØ¥Ø·Ø§Ø± ØªØ®ØµØµÙŠ ÙŠØ´ÙŠØ± Ø¥Ù„Ù‰ (${cleanAr}) ÙÙŠ Ø£Ø¯Ø¨ÙŠØ§Øª Ø§Ù„Ù…Ø¬Ø§Ù„ ÙˆØ§Ù„Ø¯Ø±Ø§Ø³Ø§Øª Ø°Ø§Øª Ø§Ù„ØµÙ„Ø©.`;
+  // No locally invented or context-quoted "definitions" are ever produced. A
+  // concept may only ship when it has a genuine, commonly accepted scholarly
+  // definition (registry match or established keyword domain). Returning an
+  // empty string tells the caller to DROP the concept rather than fabricate one.
+  return "";
 }
 
