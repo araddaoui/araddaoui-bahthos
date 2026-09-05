@@ -206,6 +206,13 @@ function SynthesisEditor({
     setTimeout(() => setIsSaved(false), 3000);
   };
 
+  const handleJumpToBrief = () => {
+    if (!isDalilGenerating && !dalilBriefing && onTriggerDalilBriefing) {
+      onTriggerDalilBriefing();
+    }
+    document.getElementById("dalil-widget-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-[#fafaf8] overflow-y-auto p-4 md:p-6" id="synthesis-editor-view">
       <div className="max-w-4xl mx-auto w-full space-y-6">
@@ -312,9 +319,21 @@ function SynthesisEditor({
 
         {/* Configuration Panel */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">
-          <h2 className="text-xs font-black text-black border-b border-gray-100 pb-2">
-            1. إعداد التقرير التوليفي
-          </h2>
+          <div className="flex items-center justify-between gap-3 border-b border-gray-100 pb-2">
+            <h2 className="text-xs font-black text-black">
+              1. إعداد التقرير التوليفي
+            </h2>
+            <button
+              type="button"
+              onClick={handleJumpToBrief}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#094d4e] hover:bg-[#07393a] text-teal-50 text-[11px] font-extrabold shadow-xs transition-all whitespace-nowrap"
+              id="jump-to-evidence-brief-btn"
+              title="الانتقال إلى خلاصة الرفيق البحثي الموثوق المستندة إلى الأدلة"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>خلاصة / إحاطة مبنية على الأدلة</span>
+            </button>
+          </div>
 
           {errorMsg && (
             <div className="p-3 bg-red-50 text-red-600 rounded-lg text-xs flex items-center gap-2 font-medium">
@@ -323,8 +342,9 @@ function SynthesisEditor({
             </div>
           )}
 
+          <div className="lg:grid lg:grid-cols-5 lg:gap-4 lg:items-start">
           {/* Topic input */}
-          <div>
+          <div className="lg:col-span-2">
             <label className="block text-xs text-black font-black mb-1.5">
               السؤال أو الموضوع الرئيسي:
             </label>
@@ -342,39 +362,38 @@ function SynthesisEditor({
           </div>
 
           {/* Source selection checklist */}
-          <div>
+          <div className="lg:col-span-3">
             <label className="block text-xs text-black font-black mb-2">
               اختر المصادر التي سيعتمد عليها التقرير:
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+            <div className="flex flex-wrap gap-2">
               {sources.map((src) => {
                 const isChecked = selectedSourceIds.includes(src.id);
                 return (
                   <div
                     key={src.id}
                     onClick={() => handleToggleSelect(src.id)}
-                    className={`p-3 rounded-lg border text-xs cursor-pointer flex items-start gap-2.5 transition-all ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] cursor-pointer transition-all max-w-full ${
                       isChecked
-                        ? "bg-teal-100/60 border-[#062d2e] text-[#111111] shadow-2xs"
-                        : "bg-white border-[#e2e2dd] text-gray-600 hover:border-gray-300 font-medium"
+                        ? "bg-teal-100/70 border-[#062d2e] text-[#062d2e] font-black shadow-2xs"
+                        : "bg-white border-[#e2e2dd] text-gray-600 hover:border-gray-300 hover:text-gray-800 font-medium"
                     }`}
                     id={`synthesis-source-check-${src.id}`}
                   >
-                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                    <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors flex-shrink-0 ${
                       isChecked ? "bg-[#062d2e] border-[#062d2e] text-white" : "border-[#e2e2dd]"
                     }`}>
-                      {isChecked && <Check className="w-3.5 h-3.5 stroke-[3.5]" />}
+                      {isChecked && <Check className="w-2.5 h-2.5 stroke-[3.5]" />}
                     </div>
-                    <div className="min-w-0">
-                      <p className={`font-extrabold truncate ${isChecked ? "text-[#062d2e]" : "text-[#111111]"}`}>{src.title}</p>
-                      <p className="text-[10px] text-gray-600 mt-0.5 font-bold">
-                        {src.language === "ar" ? "العربية" : "الإنجليزية"} • {src.wordCount} كلمة
-                      </p>
-                    </div>
+                    <span className={`truncate ${isChecked ? "text-[#062d2e]" : "text-[#111111]"}`}>{src.title}</span>
+                    <span className="text-[10px] text-gray-500 font-bold whitespace-nowrap flex-shrink-0">
+                      {src.language === "ar" ? "العربية" : "الإنجليزية"} • {src.wordCount} كلمة
+                    </span>
                   </div>
                 );
               })}
             </div>
+          </div>
           </div>
 
           {/* Action button */}
