@@ -209,27 +209,106 @@ function SynthesisEditor({
   return (
     <div className="w-full h-full flex flex-col bg-[#fafaf8] overflow-y-auto p-4 md:p-6" id="synthesis-editor-view">
       <div className="max-w-4xl mx-auto w-full space-y-6">
-        {/* Centered Academic Heading and Subtitle */}
-        <div className="text-center pt-2 pb-2 max-w-md mx-auto space-y-1.5">
-          <h1 className="text-2xl font-extrabold text-[#094d4e] tracking-tight">
-            بحث OS
-          </h1>
-          <p className="text-xs md:text-[13px] text-gray-600 font-bold leading-relaxed">
-            ولّد تقريرًا موثقًا يحلل مصادر متعددة، ويستخلص أوجه الاتفاق والاختلاف، ويكشف الفجوات والمعرفة الميدانية، مع إسناد كل استنتاج إلى مصادره.
-          </p>
-        </div>
+        {/* Prominent sticky tool strip — the platform's core menu. Sticky at md+ so
+            it stays reachable even after a report fills the view. */}
+        <div className="md:sticky md:top-0 md:z-30 pt-0.5">
+          <div className="bg-white p-4 rounded-2xl border border-[#094d4e]/20 shadow-sm">
+            <div className="flex items-center justify-between mb-2.5 px-0.5">
+              <label className="block text-[13px] text-[#094d4e] font-extrabold">
+                اختر أداة التحليل المطلوبة:
+              </label>
+              <span className="hidden md:block text-[10px] text-gray-400 font-bold">
+                خمس أدوات تحليل توليفي مركزية
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setToolType("general")}
+                className={`group p-4 rounded-xl border text-[13px] flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                  toolType === "general"
+                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
+                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
+                }`}
+                id="tool-type-general-btn"
+              >
+                <Sparkles className={`w-5 h-5 transition-colors ${toolType === "general" ? "text-[#062d2e]" : "text-gray-400 group-hover:text-gray-600"}`} />
+                <span className={`truncate w-full ${toolType === "general" ? "font-extrabold" : ""}`}>توليف عام ومقارنة</span>
+                <span className="hidden md:block text-[10px] font-medium leading-snug opacity-80">
+                  قارن المصادر واستخلص أوجه الاتفاق والاختلاف
+                </span>
+              </button>
 
-        {/* Keep the editor shell warm, but mount the audio-enabled companion only
-            when this tab is visible so tab switching never duplicates TTS requests. */}
-        {isActive && (
-          <DalilCard
-            dalilBriefing={dalilBriefing}
-            dalilCountdown={dalilCountdown}
-            isDalilGenerating={isDalilGenerating}
-            dalilError={dalilError}
-            onTriggerDalilBriefing={onTriggerDalilBriefing}
-          />
-        )}
+              <button
+                type="button"
+                onClick={() => setToolType("matrix")}
+                className={`group p-4 rounded-xl border text-[13px] flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                  toolType === "matrix"
+                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
+                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
+                }`}
+                id="tool-type-matrix-btn"
+              >
+                <Grid className={`w-5 h-5 transition-colors ${toolType === "matrix" ? "text-emerald-800 font-extrabold" : "text-emerald-500 group-hover:text-emerald-600"}`} />
+                <span className={`truncate w-full ${toolType === "matrix" ? "font-extrabold" : ""}`}>مصفوفة الأدلة</span>
+                <span className="hidden md:block text-[10px] font-medium leading-snug opacity-80">
+                  مصفوفة الأدلة والتعارضات بين الدراسات
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setToolType("gap")}
+                className={`group p-4 rounded-xl border text-[13px] flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                  toolType === "gap"
+                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
+                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
+                }`}
+                id="tool-type-gap-btn"
+              >
+                <FileQuestion className={`w-5 h-5 transition-colors ${toolType === "gap" ? "text-rose-800 font-extrabold" : "text-rose-500 group-hover:text-rose-600"}`} />
+                <span className={`truncate w-full ${toolType === "gap" ? "font-extrabold" : ""}`}>تقرير الفجوات</span>
+                <span className="hidden md:block text-[10px] font-medium leading-snug opacity-80">
+                  كشف الثغرات المعرفية والمنهجية في المصادر
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setToolType("briefing")}
+                className={`group p-4 rounded-xl border text-[13px] flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                  toolType === "briefing"
+                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
+                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
+                }`}
+                id="tool-type-briefing-btn"
+              >
+                <GraduationCap className={`w-5 h-5 transition-colors ${toolType === "briefing" ? "text-indigo-800 font-extrabold" : "text-indigo-500 group-hover:text-indigo-600"}`} />
+                <span className={`truncate w-full ${toolType === "briefing" ? "font-extrabold" : ""}`}>التوصيات والآثار</span>
+                <span className="hidden md:block text-[10px] font-medium leading-snug opacity-80">
+                  الآثار والمضامين والتوصيات العملية
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setToolType("faq")}
+                className={`group p-4 rounded-xl border text-[13px] flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                  toolType === "faq"
+                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
+                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
+                }`}
+                id="tool-type-faq-btn"
+              >
+                <HelpCircle className={`w-5 h-5 transition-colors ${toolType === "faq" ? "text-amber-800 font-extrabold" : "text-amber-500 group-hover:text-amber-600"}`} />
+                <span className={`truncate w-full ${toolType === "faq" ? "font-extrabold" : ""}`}>الأسئلة الشائعة</span>
+                <span className="hidden md:block text-[10px] font-medium leading-snug opacity-80">
+                  أجوبة مركزة عن الأسئلة المتكررة في المصادر
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* Configuration Panel */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">
@@ -260,84 +339,6 @@ function SynthesisEditor({
               className="w-full text-xs px-3 py-2.5 border border-[#e2e2dd] rounded-lg bg-white text-[#1f1f1f] focus:outline-none focus:border-[#094d4e]"
               id="synthesis-topic-input"
             />
-          </div>
-
-          {/* Tool Selector Grid */}
-          <div className="space-y-2">
-            <label className="block text-xs text-[#094d4e] font-extrabold">
-              اختر أداة التحليل المطلوبة:
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
-              <button
-                type="button"
-                onClick={() => setToolType("general")}
-                className={`group p-3 rounded-xl border text-xs flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                  toolType === "general"
-                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
-                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
-                }`}
-                id="tool-type-general-btn"
-              >
-                <Sparkles className={`w-4 h-4 transition-colors ${toolType === "general" ? "text-[#062d2e]" : "text-gray-400 group-hover:text-gray-600"}`} />
-                <span className={`truncate w-full ${toolType === "general" ? "font-extrabold" : ""}`}>توليف عام ومقارنة</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setToolType("matrix")}
-                className={`group p-3 rounded-xl border text-xs flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                  toolType === "matrix"
-                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
-                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
-                }`}
-                id="tool-type-matrix-btn"
-              >
-                <Grid className={`w-4 h-4 transition-colors ${toolType === "matrix" ? "text-emerald-800 font-extrabold" : "text-emerald-500 group-hover:text-emerald-600"}`} />
-                <span className={`truncate w-full ${toolType === "matrix" ? "font-extrabold" : ""}`}>مصفوفة الأدلة</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setToolType("gap")}
-                className={`group p-3 rounded-xl border text-xs flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                  toolType === "gap"
-                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
-                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
-                }`}
-                id="tool-type-gap-btn"
-              >
-                <FileQuestion className={`w-4 h-4 transition-colors ${toolType === "gap" ? "text-rose-800 font-extrabold" : "text-rose-500 group-hover:text-rose-600"}`} />
-                <span className={`truncate w-full ${toolType === "gap" ? "font-extrabold" : ""}`}>تقرير الفجوات</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setToolType("briefing")}
-                className={`group p-3 rounded-xl border text-xs flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                  toolType === "briefing"
-                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
-                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
-                }`}
-                id="tool-type-briefing-btn"
-              >
-                <GraduationCap className={`w-4 h-4 transition-colors ${toolType === "briefing" ? "text-indigo-800 font-extrabold" : "text-indigo-500 group-hover:text-indigo-600"}`} />
-                <span className={`truncate w-full ${toolType === "briefing" ? "font-extrabold" : ""}`}>التوصيات والآثار</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setToolType("faq")}
-                className={`group p-3 rounded-xl border text-xs flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                  toolType === "faq"
-                    ? "bg-teal-100/80 border-[#062d2e] text-[#062d2e] font-black shadow-sm"
-                    : "bg-white border-[#e2e2dd] text-gray-500 font-medium hover:border-gray-400 hover:text-gray-800"
-                }`}
-                id="tool-type-faq-btn"
-              >
-                <HelpCircle className={`w-4 h-4 transition-colors ${toolType === "faq" ? "text-amber-800 font-extrabold" : "text-amber-500 group-hover:text-amber-600"}`} />
-                <span className={`truncate w-full ${toolType === "faq" ? "font-extrabold" : ""}`}>الأسئلة الشائعة</span>
-              </button>
-            </div>
           </div>
 
           {/* Source selection checklist */}
@@ -393,6 +394,18 @@ function SynthesisEditor({
             </button>
           </div>
         </div>
+
+        {/* Keep the editor shell warm, but mount the audio-enabled companion only
+            when this tab is visible so tab switching never duplicates TTS requests. */}
+        {isActive && (
+          <DalilCard
+            dalilBriefing={dalilBriefing}
+            dalilCountdown={dalilCountdown}
+            isDalilGenerating={isDalilGenerating}
+            dalilError={dalilError}
+            onTriggerDalilBriefing={onTriggerDalilBriefing}
+          />
+        )}
 
         {/* Loading / Generating view */}
         {isGenerating && (
