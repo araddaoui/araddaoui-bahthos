@@ -154,10 +154,9 @@ ${sourcesContext}
 
       let lastAiError: any = null;
       try {
-        // Use Gemini 3.1 Pro for the deep comparative synthesis. Falling back
-        // to the Flash model is handled only for transient model errors.
+        // Use Gemini 3.1 Flash Lite for responsive comparative synthesis with automated model waterfall fallback.
         const response = await generateContentWithRetry(ai, {
-          model: "gemini-3.1-pro-preview",
+          model: "gemini-3.1-flash-lite",
           contents: dalilPrompt,
           config: {
             systemInstruction: DALIL_SYSTEM_INSTRUCTION,
@@ -320,7 +319,7 @@ scopeIntro + sourcesContext;
 
     try {
       const response = await generateContentWithRetry(ai, {
-        model: "gemini-3.6-flash",
+        model: "gemini-3.1-flash-lite",
         contents: userPrompt,
         config: {
           systemInstruction,

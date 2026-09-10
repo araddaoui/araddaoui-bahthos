@@ -56,7 +56,7 @@ router.post("/api/chat", async (req, res) => {
     console.log(`Sending chat request to Gemini with ${contents.length} messages and ${validSources.length} sources.`);
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-3.1-flash-lite",
       contents: contents,
       config: {
         systemInstruction: mergedSystemInstruction,

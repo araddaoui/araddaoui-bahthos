@@ -33,7 +33,7 @@ router.post("/api/sweep-glossary", async (req, res) => {
 ${JSON.stringify(terms, null, 2)}`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",

@@ -137,7 +137,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
       }
 
       const response = await generateContentWithRetry(ai, {
-        model: "gemini-3.6-flash",
+        model: "gemini-3.1-flash-lite",
         contents: contentsInput,
         config: {
           responseMimeType: "application/json",

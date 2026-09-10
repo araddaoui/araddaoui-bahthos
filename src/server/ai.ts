@@ -28,16 +28,31 @@ export async function generateContentWithRetry(
   res?: any
 ) {
   let attempt = 1;
-  const maxAttempts = 3;
-  const requestedModel = params.model || "gemini-3-flash-preview";
-  const normalizedRequestedModel = requestedModel === "gemini-1.5-pro" || requestedModel === "gemini-pro"
-    ? "gemini-3.1-pro-preview"
-    : requestedModel === "gemini-1.5-flash" || requestedModel === "gemini-flash"
-    ? "gemini-3-flash-preview"
-    : requestedModel;
-  const modelCandidates = normalizedRequestedModel === "gemini-3.1-pro-preview"
-    ? ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
-    : [normalizedRequestedModel, "gemini-3.1-pro-preview", "gemini-3-flash-preview"];
+  const requestedModel = params.model || "gemini-3.1-flash-lite";
+  const normalizedRequestedModel =
+    requestedModel === "gemini-1.5-pro" ||
+    requestedModel === "gemini-pro" ||
+    requestedModel === "gemini-1.5-flash" ||
+    requestedModel === "gemini-flash" ||
+    requestedModel === "gemini-3.6-flash" ||
+    requestedModel === "gemini-3.8-flash"
+      ? "gemini-3.1-flash-lite"
+      : requestedModel;
+
+  // Ordered fallback sequence prioritizing fast, reliable models with available quotas
+  const fallbackSequence = [
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash-preview",
+  ];
+
+  // Model candidates list starting with the requested model without duplicates
+  const modelCandidates = Array.from(
+    new Set([normalizedRequestedModel, ...fallbackSequence])
+  );
+
+  const maxAttempts = Math.min(modelCandidates.length, 4);
   let modelIndex = 0;
   let currentModel = modelCandidates[modelIndex];
 
@@ -60,6 +75,8 @@ export async function generateContentWithRetry(
         errorStr.includes("400") ||
         errorStr.includes("not found") ||
         errorStr.includes("service unavailable") || 
+        errorStr.includes("unavailable") ||
+        errorStr.includes("high demand") ||
         errorStr.includes("overloaded") || 
         errorStr.includes("deadline exceeded") || 
         errorStr.includes("timeout") ||
@@ -75,14 +92,24 @@ export async function generateContentWithRetry(
 
       if ((isRetryable || isQuota) && attempt < maxAttempts) {
         attempt++;
-        const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1000 : 2000);
-        
+        const prevModel = currentModel;
+
+        // Switch to the next candidate model so we don't repeat an unavailable model
         if (modelIndex < modelCandidates.length - 1) {
           modelIndex += 1;
+        } else {
+          modelIndex = 0;
         }
         currentModel = modelCandidates[modelIndex];
 
-        console.warn(`[Retry System] Attempt ${attempt}/${maxAttempts}: Retrying request using model '${currentModel}' due to ${isQuota ? "429 quota/rate limit" : "error"}. Retrying in ${delay}ms...`);
+        // If switching models, use a short backoff (500ms); if repeating, back off longer
+        const delay = currentModel !== prevModel ? 500 : (isQuota ? 2000 : 1000);
+
+        console.log(
+          `[Model Waterfall] Attempt ${attempt}/${maxAttempts}: Switching to model '${currentModel}' (from '${prevModel}' due to ${
+            isQuota ? "quota/rate-limit" : (status || "transient error")
+          }). Retrying in ${delay}ms...`
+        );
         
         if (res && typeof res.setHeader === "function" && !res.headersSent) {
           try {

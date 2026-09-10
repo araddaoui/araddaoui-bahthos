@@ -1,33 +1,4 @@
-export function deduplicateSources(sources: any[]): any[] {
-  if (!Array.isArray(sources)) return [];
-  const seenKeys = new Set<string>();
-  const unique: any[] = [];
-
-  for (const src of sources) {
-    if (!src) continue;
-    const title = (src?.title || "").trim();
-    const normTitle = title
-      .replace(/^[\s.\-–—:؛"']+|[\s.\-–—:؛"']+$/g, "")
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-
-    const rawContent = (src?.content || src?.summary || src?.extractedText || "").trim();
-    const contentSnippet = rawContent.substring(0, 300).toLowerCase().replace(/\s+/g, " ");
-
-    const titleKey = normTitle.length > 5 ? normTitle : null;
-    const contentKey = contentSnippet.length > 30 ? contentSnippet : null;
-
-    if (titleKey && seenKeys.has(titleKey)) continue;
-    if (contentKey && seenKeys.has(contentKey)) continue;
-
-    if (titleKey) seenKeys.add(titleKey);
-    if (contentKey) seenKeys.add(contentKey);
-
-    unique.push(src);
-  }
-
-  return unique.length > 0 ? unique : sources;
-}
+export { deduplicateSources } from "../utils/serverReportUtils.js";
 
 export function deduplicateReportText(text: string): string {
   if (!text) return "";

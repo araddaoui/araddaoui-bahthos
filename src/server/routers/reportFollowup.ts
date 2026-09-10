@@ -2,7 +2,7 @@ import { Router } from "express";
 import { getAiClient, generateContentWithRetry } from "../ai.js";
 import { normalizeArabicText } from "../../utils/termExtractor.js";
 import { generateReportFollowUpFallback } from "../../utils/synthesisFallback.js";
-import { deduplicateSources, deduplicateReportText } from "../sourceUtils.js";
+import { deduplicateReportText } from "../sourceUtils.js";
 
 const router = Router();
 
@@ -72,7 +72,7 @@ ${historyFormatted ? `[سجل الاستفسارات المباشرة الساب
 قدم إجابة موثقة ودقيقة وشاملة وغير غامضة تجيب عن هذا السؤال بناءً على التقرير والمصادر.`;
 
     const response = await generateContentWithRetry(ai, {
-      model: "gemini-3.6-flash",
+      model: "gemini-3.1-flash-lite",
       contents: userPrompt,
       config: {
         systemInstruction,

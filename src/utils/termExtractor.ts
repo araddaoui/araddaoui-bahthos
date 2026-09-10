@@ -1,4 +1,4 @@
-﻿import { GlossaryTerm } from "../types.js";
+import { GlossaryTerm } from "../types.js";
 
 export function collapseSpacedArabicLetters(text: string): string {
   if (!text) return "";
@@ -1131,7 +1131,7 @@ export function sanitizeAndRepairTermsPipeline(
         definition: cleanDef,
       };
     })
-    .filter((t): t is GlossaryTerm => Boolean(t));
+    .filter((t): t is NonNullable<typeof t> => Boolean(t));
 
   // Guarantee a solid basis of valid scholarly concepts per document.
   if (cleanedTerms.length < minimumTerms && parsedContent.length > 50) {

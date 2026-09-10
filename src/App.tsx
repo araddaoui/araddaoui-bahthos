@@ -34,6 +34,8 @@ import {
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 import AuthView from "./components/AuthView.js";
 
+type RawGlossaryTerm = { term?: string; transliteration?: string; definition?: string; draft_term?: string; verified_term?: string; sourceId?: string };
+
 const GUEST_STORAGE_PREFIX = "bahthos:guest:";
 
 function guestStorageKey(name: string, projectId?: string): string {
@@ -61,7 +63,7 @@ function purgeLegacySharedStorage(): void {
   if (typeof window === "undefined") return;
   try {
     const legacyPrefixes = ["bahthos_", "tawlif_", "al_dalil_"];
-    const keep = new Set(["bahthos_entered_app", "bahthos_firestore_quota_exceeded"]);
+    const keep = new Set(["bahthos_entered_app", "bahthos_firestore_quota_exceeded", "bahthos_deleted_projects"]);
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
@@ -1275,7 +1277,7 @@ export default function App() {
   };
 
   // Add pre-extracted terms directly to the glossary
-  const addGlossaryTermsDirectly = (terms: any[], targetSourceId?: string) => {
+  const addGlossaryTermsDirectly = (terms: RawGlossaryTerm[], targetSourceId?: string) => {
     if (!terms || !Array.isArray(terms) || terms.length === 0) return;
 
     const resolvedSourceId = targetSourceId;
@@ -1532,7 +1534,7 @@ export default function App() {
     language: "ar" | "en" | "fr",
     summary?: string,
     error?: string,
-    terms?: any[]
+    terms?: RawGlossaryTerm[]
   ) => {
     commitSourceDrafts([{ title, content, language, summary, error, terms }], true);
   };
