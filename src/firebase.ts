@@ -196,20 +196,39 @@ export async function deleteUserProject(userId: string, projectId: string): Prom
   lastSavedProjects.delete(projectId);
   if (isFirestoreQuotaExceeded) return;
   try {
-    const subcollections = ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"];
-    for (const sub of subcollections) {
-      const colRef = collection(db, "users", userId, "projects", projectId, sub);
-      const snap = await getDocs(colRef);
-      const docs = snap.docs;
-      for (let i = 0; i < docs.length; i += 400) {
-        const batch = writeBatch(db);
-        const chunk = docs.slice(i, i + 400);
-        chunk.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
-      }
-    }
     const projectDocRef = doc(db, "users", userId, "projects", projectId);
-    await deleteDoc(projectDocRef);
+    // Delete parent project doc first so it immediately disappears from all queries
+    const deleteDocPromise = deleteDoc(projectDocRef).catch((e) => {
+      console.warn("[Firestore] Error deleting project document:", e);
+    });
+
+    // Concurrently clean subcollections
+    const subcollections = ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"];
+    const deleteSubcollectionsPromise = Promise.all(
+      subcollections.map(async (sub) => {
+        try {
+          const colRef = collection(db, "users", userId, "projects", projectId, sub);
+          const snap = await getDocs(colRef);
+          const docs = snap.docs;
+          if (docs.length === 0) return;
+          for (let i = 0; i < docs.length; i += 400) {
+            const batch = writeBatch(db);
+            const chunk = docs.slice(i, i + 400);
+            chunk.forEach((d) => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } catch (e) {
+          console.warn(`[Firestore] Error cleaning subcollection ${sub}:`, e);
+        }
+      })
+    );
+
+    // Safety timeout promise (4000ms) so deletion never stalls the caller
+    const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 4000));
+    await Promise.race([
+      Promise.all([deleteDocPromise, deleteSubcollectionsPromise]),
+      timeoutPromise
+    ]);
   } catch (err) {
     handleFirestoreError(err, "deleteUserProject");
   }
@@ -238,12 +257,15 @@ export function syncCollection<T extends { id?: string; term?: string }>(
   collectionName: string,
   items: T[] | undefined
 ): Promise<void> {
-  if (isFirestoreQuotaExceeded || items === undefined) {
+  if (isFirestoreQuotaExceeded || items === undefined || isProjectDeleted(projectId)) {
     return Promise.resolve();
   }
 
   const queueKey = `${userId}/${projectId}/${collectionName}`;
   return runInSyncQueue(queueKey, async () => {
+    if (isProjectDeleted(projectId)) {
+      return;
+    }
     try {
       const colRef = collection(db, "users", userId, "projects", projectId, collectionName);
       const snap = await getDocs(colRef);
@@ -329,7 +351,7 @@ export async function loadProjectData(
   glossaryTerms: GlossaryTerm[];
   dalilBriefings: DalilBriefing[];
 }> {
-  if (isFirestoreQuotaExceeded) {
+  if (isFirestoreQuotaExceeded || isProjectDeleted(projectId)) {
     return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
   }
   try {
@@ -339,13 +361,23 @@ export async function loadProjectData(
     const glossaryTermsRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
     const dalilBriefingsRef = collection(db, "users", userId, "projects", projectId, "dalilBriefings");
 
-    const [sourcesSnap, messagesSnap, synthesesSnap, glossarySnap, dalilSnap] = await Promise.all([
+    const fetchPromise = Promise.all([
       getDocs(sourcesRef),
       getDocs(messagesRef),
       getDocs(synthesesRef),
       getDocs(glossaryTermsRef),
       getDocs(dalilBriefingsRef)
     ]);
+
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+    const result = await Promise.race([fetchPromise, timeoutPromise]);
+
+    if (!result) {
+      console.warn(`[Firestore] Timeout loading project data for ${projectId}`);
+      return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
+    }
+
+    const [sourcesSnap, messagesSnap, synthesesSnap, glossarySnap, dalilSnap] = result;
 
     const sources: Source[] = [];
     sourcesSnap.forEach((d) => sources.push(d.data() as Source));

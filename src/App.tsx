@@ -63,7 +63,7 @@ function purgeLegacySharedStorage(): void {
   if (typeof window === "undefined") return;
   try {
     const legacyPrefixes = ["bahthos_", "tawlif_", "al_dalil_"];
-    const keep = new Set(["bahthos_entered_app", "bahthos_firestore_quota_exceeded", "bahthos_deleted_projects"]);
+    const keep = new Set(["bahthos_entered_app", "bahthos_use_as_guest", "bahthos_firestore_quota_exceeded", "bahthos_deleted_projects"]);
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
@@ -288,103 +288,134 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
-  const [useAsGuest, setUseAsGuest] = useState<boolean>(false);
+  const [useAsGuest, setUseAsGuest] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("bahthos_use_as_guest") === "true";
+    } catch (e) {
+      return false;
+    }
+  });
   const [isFirebaseLoading, setIsFirebaseLoading] = useState<boolean>(false);
 
   useEffect(() => {
+    let isMounted = true;
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) setIsFirebaseLoading(true);
+      if (!isMounted) return;
+      if (user) {
+        setIsFirebaseLoading(true);
+      }
       setCurrentUser(user);
       setAuthChecking(false);
     });
-    // Fast non-blocking timeout (100ms) to guarantee zero UI latency on refresh
-    const timer = setTimeout(() => {
-      setAuthChecking(false);
-    }, 100);
+
+    // Fallback safety timeout (4000ms) only to ensure UI unblocks in offline/blocked environments
+    const fallbackTimer = setTimeout(() => {
+      if (isMounted) {
+        setAuthChecking(false);
+      }
+    }, 4000);
+
     return () => {
+      isMounted = false;
       unsubscribe();
-      clearTimeout(timer);
+      clearTimeout(fallbackTimer);
     };
   }, []);
 
   useEffect(() => {
-    if (currentUser) {
-      loadedProjectIdRef.current = "__loading_authenticated_project__";
-      setProjects([]);
-      setCurrentProjectId("default");
-      setSources([]);
-      setMessages([]);
-      setSyntheses([]);
-      setGlossaryTerms([]);
-      setDalilBriefing(null);
-      setIsFirebaseLoading(true);
+    if (!currentUser) {
+      setIsFirebaseLoading(false);
+      return;
     }
-  }, [currentUser?.uid]);
 
-  useEffect(() => {
-    if (!currentUser) return;
+    let isCancelled = false;
+    loadedProjectIdRef.current = "__loading_authenticated_project__";
+    setIsFirebaseLoading(true);
 
     const syncAndLoadFirebaseData = async () => {
-      setIsFirebaseLoading(true);
       if (isQuotaExceeded()) {
-        setIsFirebaseLoading(false);
+        if (!isCancelled) setIsFirebaseLoading(false);
         return;
       }
+
+      // Safety timeout promise (7 seconds) so the app never hangs indefinitely on stalled connections
+      const timeoutPromise = new Promise<{ isTimeout: true }>((resolve) =>
+        setTimeout(() => resolve({ isTimeout: true }), 7000)
+      );
+
       try {
-        let cloudProjects = await loadUserProjects(currentUser.uid);
-        
-        if (!isQuotaExceeded() && cloudProjects.length === 0) {
-          const defaultProject: Project = {
-            id: "default",
-            name: "المشروع التجريبي الأول",
-            dateCreated: new Date().toISOString().split("T")[0],
-            temperature: 0.2,
-          };
-          await saveUserProject(currentUser.uid, defaultProject);
-          cloudProjects = [defaultProject];
-        }
+        const loadOperation = async () => {
+          let cloudProjects = await loadUserProjects(currentUser.uid);
+          
+          if (!isQuotaExceeded() && cloudProjects.length === 0) {
+            const freshId = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+            const defaultProject: Project = {
+              id: freshId,
+              name: "المشروع التجريبي الأول",
+              dateCreated: new Date().toISOString().split("T")[0],
+              temperature: 0.2,
+            };
+            try {
+              await saveUserProject(currentUser.uid, defaultProject);
+            } catch (e) {
+              console.error(e);
+            }
+            cloudProjects = [defaultProject];
+          }
 
-        if (cloudProjects.length > 0) {
-          setProjects(cloudProjects);
-        }
+          if (isCancelled) return;
 
-        let activeId = currentProjectId;
-        if (cloudProjects.length > 0 && !cloudProjects.some(p => p.id === activeId)) {
-          activeId = cloudProjects[0]?.id || "default";
-        }
+          if (cloudProjects.length > 0) {
+            setProjects(cloudProjects);
+          }
 
-        const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
-          isQuotaExceeded() 
-            ? { sources: [], messages: [], syntheses: [], glossaryTerms: [] } 
-            : await loadProjectData(currentUser.uid, activeId);
+          let activeId = currentProjectId;
+          if (cloudProjects.length > 0 && !cloudProjects.some(p => p.id === activeId)) {
+            activeId = cloudProjects[0]?.id || "default";
+          }
 
-        const activeProjObj = cloudProjects.find(p => p.id === activeId);
-        const cloudTemp = activeProjObj?.temperature ?? 0.2;
+          const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
+            isQuotaExceeded() 
+              ? { sources: [], messages: [], syntheses: [], glossaryTerms: [] } 
+              : await loadProjectData(currentUser.uid, activeId);
 
-        // Authenticated users read only from their own Firestore subtree.
-        // Guest localStorage is deliberately never used as an account fallback.
-        const effectiveSources = cloudSources || [];
-        const effectiveGlossary = effectiveSources.length > 0 ? cloudGlossary : [];
-        const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
+          if (isCancelled) return;
 
-        loadedProjectIdRef.current = activeId;
-        setSources((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSources) ? prev : effectiveSources));
-        setMessages((prev) => (JSON.stringify(prev) === JSON.stringify(cloudMessages) ? prev : cloudMessages));
-        setSyntheses((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSyntheses) ? prev : effectiveSyntheses));
-        const isolatedGlossary = cleanAndMigrateGlossary(effectiveGlossary, effectiveSources);
-        setGlossaryTerms((prev) => (JSON.stringify(prev) === JSON.stringify(isolatedGlossary) ? prev : isolatedGlossary));
-        setTemperature((prev) => (prev === cloudTemp ? prev : cloudTemp));
-        setCurrentProjectId((prev) => (prev === activeId ? prev : activeId));
+          const activeProjObj = cloudProjects.find(p => p.id === activeId);
+          const cloudTemp = activeProjObj?.temperature ?? 0.2;
 
+          // Authenticated users read only from their own Firestore subtree.
+          // Guest localStorage is deliberately never used as an account fallback.
+          const effectiveSources = cloudSources || [];
+          const effectiveGlossary = effectiveSources.length > 0 ? cloudGlossary : [];
+          const effectiveSyntheses = effectiveSources.length > 0 ? cloudSyntheses : [];
+
+          loadedProjectIdRef.current = activeId;
+          setSources((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSources) ? prev : effectiveSources));
+          setMessages((prev) => (JSON.stringify(prev) === JSON.stringify(cloudMessages) ? prev : cloudMessages));
+          setSyntheses((prev) => (JSON.stringify(prev) === JSON.stringify(effectiveSyntheses) ? prev : effectiveSyntheses));
+          const isolatedGlossary = cleanAndMigrateGlossary(effectiveGlossary, effectiveSources);
+          setGlossaryTerms((prev) => (JSON.stringify(prev) === JSON.stringify(isolatedGlossary) ? prev : isolatedGlossary));
+          setTemperature((prev) => (prev === cloudTemp ? prev : cloudTemp));
+          setCurrentProjectId((prev) => (prev === activeId ? prev : activeId));
+        };
+
+        await Promise.race([loadOperation(), timeoutPromise]);
       } catch (err) {
         console.error("Failed to load Firebase data:", err);
       } finally {
-        setIsFirebaseLoading(false);
+        if (!isCancelled) {
+          setIsFirebaseLoading(false);
+        }
       }
     };
 
     syncAndLoadFirebaseData();
-  }, [currentUser]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser?.uid]);
 
   const [currentPath, setCurrentPath] = useState<string>(() => {
     try {
@@ -480,6 +511,7 @@ export default function App() {
   const [sources, setSources] = useState<Source[]>(() => {
     try {
       const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      if (isProjectDeleted(activeId)) return [];
       const saved = localStorage.getItem(guestStorageKey("sources", activeId));
       let rawSources: Source[] = [];
       if (saved) {
@@ -534,6 +566,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
       const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      if (isProjectDeleted(activeId)) return [];
       const saved = localStorage.getItem(guestStorageKey("messages", activeId));
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -553,6 +586,7 @@ export default function App() {
   const [syntheses, setSyntheses] = useState<Synthesis[]>(() => {
     try {
       const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      if (isProjectDeleted(activeId)) return [];
       const savedSources = localStorage.getItem(guestStorageKey("sources", activeId));
       const parsedSources = savedSources ? JSON.parse(savedSources) : [];
       if (!Array.isArray(parsedSources) || parsedSources.length === 0) {
@@ -585,6 +619,7 @@ export default function App() {
   const [dalilBriefing, setDalilBriefing] = useState<DalilBriefing | null>(() => {
     try {
       const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      if (isProjectDeleted(activeId)) return null;
       const saved = localStorage.getItem(guestStorageKey("dalil", activeId));
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -642,6 +677,7 @@ export default function App() {
   const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>(() => {
     try {
       const activeId = localStorage.getItem(guestStorageKey("current_project_id")) || "default";
+      if (isProjectDeleted(activeId)) return [];
       const savedSources = localStorage.getItem(guestStorageKey("sources", activeId));
       const parsedSources = savedSources ? JSON.parse(savedSources) : [];
       if (!Array.isArray(parsedSources) || parsedSources.length === 0) {
@@ -891,24 +927,29 @@ export default function App() {
       dalilAttemptedRef.current = true;
       latestSourcesRef.current = [];
       latestGlossaryTermsRef.current = [];
+      setSources([]);
+      setMessages([]);
+      setSyntheses([]);
+      setGlossaryTerms([]);
     }
 
     // 2. Filter project out of state immediately
     const updatedProjects = projects.filter((p) => p.id !== projectId);
 
-    // 3. Persist updated projects list to localStorage right away
+    // 3. Persist updated projects list to both guest and fallback localStorage right away
     try {
+      localStorage.setItem(guestStorageKey("projects"), JSON.stringify(updatedProjects));
       localStorage.setItem("bahthos_projects", JSON.stringify(updatedProjects));
     } catch (e) {
       console.error(e);
     }
 
-    // 4. Remove all localStorage keys belonging to this deleted project
+    // 4. Remove all localStorage keys belonging to this deleted project (both guest-scoped and legacy)
     try {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.includes(projectId) || key.endsWith(`_${projectId}`))) {
+        if (key && (key.includes(projectId) || key.endsWith(`_${projectId}`) || key.endsWith(`:${projectId}`))) {
           keysToRemove.push(key);
         }
       }
@@ -917,7 +958,7 @@ export default function App() {
       console.error(e);
     }
 
-    // 5. Delete from Firestore in the background (non-blocking) if user is logged in
+    // 5. Delete from Firestore if user is logged in (asynchronous and non-blocking)
     if (currentUser && !isQuotaExceeded()) {
       deleteUserProject(currentUser.uid, projectId).catch((err) => {
         console.error("Failed to delete project from Firestore:", err);
@@ -926,8 +967,9 @@ export default function App() {
 
     // 6. Handle UI and state transition cleanly
     if (updatedProjects.length === 0) {
+      const newProjId = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const newProj: Project = {
-        id: "proj-" + Date.now(),
+        id: newProjId,
         name: "المشروع التجريبي الأول",
         dateCreated: new Date().toISOString().split("T")[0],
         temperature: 0.2
@@ -948,17 +990,23 @@ export default function App() {
       setSelectedSourceId(null);
 
       try {
+        localStorage.setItem(guestStorageKey("projects"), JSON.stringify([newProj]));
+        localStorage.setItem(guestStorageKey("current_project_id"), newProj.id);
         localStorage.setItem("bahthos_projects", JSON.stringify([newProj]));
         localStorage.setItem("bahthos_current_project_id", newProj.id);
       } catch (e) {}
 
       if (currentUser && !isQuotaExceeded()) {
-        await saveUserProject(currentUser.uid, newProj);
-        await saveProjectData(currentUser.uid, newProj.id, {
+        saveUserProject(currentUser.uid, newProj).catch((e) => {
+          console.error("Failed to persist initial replacement project to Firestore:", e);
+        });
+        saveProjectData(currentUser.uid, newProj.id, {
           sources: [],
           messages: [],
           syntheses: [],
           glossaryTerms: []
+        }).catch((e) => {
+          console.error("Failed to persist initial replacement project data to Firestore:", e);
         });
       }
     } else {
@@ -971,46 +1019,40 @@ export default function App() {
         loadedProjectIdRef.current = nextActiveProject.id;
 
         try {
+          localStorage.setItem(guestStorageKey("current_project_id"), nextActiveProject.id);
           localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
         } catch (e) {}
 
+        const savedSources = localStorage.getItem(guestStorageKey("sources", nextActiveProject.id));
+        const savedMessages = localStorage.getItem(guestStorageKey("messages", nextActiveProject.id));
+        const savedSyntheses = localStorage.getItem(guestStorageKey("syntheses", nextActiveProject.id));
+        const savedGlossary = localStorage.getItem(guestStorageKey("glossary", nextActiveProject.id));
+        const savedTemp = localStorage.getItem(guestStorageKey("temperature", nextActiveProject.id));
+
+        const nextSources = savedSources ? JSON.parse(savedSources) : [];
+        const nextMessages = savedMessages ? JSON.parse(savedMessages) : [];
+        const nextSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
+        const nextGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
+
+        setSources(nextSources);
+        setMessages(nextMessages);
+        setSyntheses(nextSyntheses);
+        setGlossaryTerms(cleanAndMigrateGlossary(nextGlossary, nextSources));
+        setTemperature(savedTemp ? parseFloat(savedTemp) : (nextActiveProject.temperature ?? 0.2));
+        setSelectedSourceId(null);
+        setActiveMainView("chat");
+
         if (currentUser && !isQuotaExceeded()) {
-          setIsFirebaseLoading(true);
-          try {
-            const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
-              await loadProjectData(currentUser.uid, nextActiveProject.id);
-
-            setSources(cloudSources);
-            setMessages(cloudMessages);
-            setSyntheses(cloudSyntheses);
-            setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary, cloudSources));
-            setTemperature(nextActiveProject.temperature ?? 0.2);
-            setSelectedSourceId(null);
-            setActiveMainView("chat");
-          } catch (e) {
+          loadProjectData(currentUser.uid, nextActiveProject.id).then(({ sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary }) => {
+            if (loadedProjectIdRef.current === nextActiveProject.id) {
+              if (cloudSources && cloudSources.length > 0) setSources(cloudSources);
+              if (cloudMessages && cloudMessages.length > 0) setMessages(cloudMessages);
+              if (cloudSyntheses && cloudSyntheses.length > 0) setSyntheses(cloudSyntheses);
+              if (cloudGlossary && cloudGlossary.length > 0) setGlossaryTerms(cleanAndMigrateGlossary(cloudGlossary, cloudSources));
+            }
+          }).catch((e) => {
             console.error("Failed to load next project from Firestore:", e);
-          } finally {
-            setIsFirebaseLoading(false);
-          }
-        } else {
-          const savedSources = localStorage.getItem(guestStorageKey("sources", nextActiveProject.id));
-          const savedMessages = localStorage.getItem(guestStorageKey("messages", nextActiveProject.id));
-          const savedSyntheses = localStorage.getItem(guestStorageKey("syntheses", nextActiveProject.id));
-          const savedGlossary = localStorage.getItem(guestStorageKey("glossary", nextActiveProject.id));
-          const savedTemp = localStorage.getItem(guestStorageKey("temperature", nextActiveProject.id));
-
-          const nextSources = savedSources ? JSON.parse(savedSources) : [];
-          const nextMessages = savedMessages ? JSON.parse(savedMessages) : [];
-          const nextSyntheses = savedSyntheses ? JSON.parse(savedSyntheses) : [];
-          const nextGlossary = savedGlossary ? JSON.parse(savedGlossary) : [];
-
-          setSources(nextSources);
-          setMessages(nextMessages);
-          setSyntheses(nextSyntheses);
-          setGlossaryTerms(cleanAndMigrateGlossary(nextGlossary, nextSources));
-          setTemperature(savedTemp ? parseFloat(savedTemp) : 0.2);
-          setSelectedSourceId(null);
-          setActiveMainView("chat");
+          });
         }
       } else {
         // Deleted non-active project: keep loadedProjectIdRef intact for current project
@@ -1214,6 +1256,11 @@ export default function App() {
     try {
       await signOut(auth);
       setUseAsGuest(false);
+      try {
+        localStorage.removeItem("bahthos_use_as_guest");
+        localStorage.removeItem("bahthos_entered_app");
+      } catch (e) {}
+      setShowLandingPage(true);
       // Clear state and revert to defaults
       setProjects([
         {
@@ -1774,6 +1821,7 @@ export default function App() {
           setUseAsGuest(true);
           try {
             localStorage.setItem("bahthos_entered_app", "true");
+            localStorage.setItem("bahthos_use_as_guest", "true");
           } catch (e) {}
         }}
         onEnterAsUser={() => {
@@ -1787,6 +1835,7 @@ export default function App() {
           setShowLandingPage(false);
           try {
             localStorage.setItem("bahthos_entered_app", "true");
+            localStorage.setItem("bahthos_use_as_guest", "true");
           } catch (e) {}
         }}
         navigateTo={navigateTo}
