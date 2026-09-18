@@ -1,0 +1,33 @@
+Student Wellbeing and Learning Modality Survey
+Regional Higher Education Research Consortium, 2023
+
+Overview:
+This survey collected self-reported data from 1,200 undergraduate students
+across six universities regarding their subjective experience of remote
+versus in-person learning during the 2022-2023 academic year. Unlike
+grade-based studies, this survey focused on wellbeing, motivation, and
+perceived learning quality rather than measured academic outcomes.
+
+Key findings:
+62% of respondents reported feeling more anxious about their academic
+performance under remote learning, citing uncertainty about whether they
+were "keeping up" without direct instructor feedback. However, 71% also
+reported preferring the flexibility of remote learning for personal
+scheduling reasons, particularly students who were also employed.
+
+Notably, students did not report a clear consensus on whether remote
+learning improved or worsened their actual understanding of course
+material — responses were nearly evenly split, with a slight lean toward
+"no significant difference" (38%) over either "better" (31%) or "worse"
+(29%).
+
+Limitations:
+This is self-reported perception data, not a measure of academic
+performance, and should not be used to draw conclusions about grades or
+test scores. The consortium notes this survey was designed to complement,
+not replace, outcome-based studies on the same population.
+
+Recommendation:
+The consortium suggests that future research separate the question of
+"does remote learning work" from "how do students feel about remote
+learning," as this data suggests the two are not strongly correlated.

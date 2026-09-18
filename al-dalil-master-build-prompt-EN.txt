@@ -1,0 +1,219 @@
+## PLATFORM LOCK (top priority — do not skip this)
+
+This project must be a Web App only, built with React and Tailwind CSS.
+Do not use Kotlin, Jetpack Compose, Room Database, or any native Android
+component, under any circumstances. The app must run and preview directly
+inside a normal web browser window — no emulator of any kind. If a platform
+picker (Web / Android) appears before generation starts, select "Web App"
+explicitly before writing any code.
+
+This is a design and UX prototype for testing only — no need to build real
+authentication or a persistent database. Use local React state and the
+sample data provided below.
+
+---
+
+## PRODUCT IDENTITY
+
+Name: Al-Dalil (الدليل) — an Arabic-first AI research assistant that lets
+researchers upload a collection of documents and chat with them. It
+synthesizes evidence across sources, surfaces contradictions between
+sources instead of hiding them, and gives precise citations. Audience:
+academic researchers and graduate students. Overall feel: a serious,
+trustworthy research tool — not a general-purpose chat app.
+
+IMPORTANT: even though these build instructions are in English, the
+product's interface and output language is Arabic. All UI labels, chat
+responses, and citations inside the finished app should be in Arabic, with
+the whole layout in RTL (right-to-left). Only these instructions to you,
+the builder, are in English.
+
+---
+
+## VISUAL DESIGN SYSTEM (light theme — not dark, not just an inverted dark theme)
+
+This is the most important fix from the previous version: the earlier build
+was fully dark, and I want a genuinely light theme now — clear and
+comfortable for long academic reading sessions, not simply a color-inverted
+version of a dark UI with harsh contrast.
+
+- Primary background: warm white or very light gray, close to white (e.g.
+  #FAFAF8 or #F7F6F3) — not stark white, to avoid glare during long reading.
+- Primary text color: dark gray close to black (e.g. #1F1F1F), not pure black.
+- Accent color: a muted teal/green or calm navy, used sparingly for active
+  elements and primary buttons only — not as a general background color.
+- Borders and dividers: very light gray, thin lines instead of heavy shadows.
+- Source cards: white background with thin borders and a very subtle shadow
+  on hover — no thick colored borders.
+- Typography: a clear Arabic-optimized typeface built for long reading (e.g.
+  Tajawal, IBM Plex Sans Arabic, or Noto Sans Arabic), with comfortable line
+  height (around 1.7) since this is a research app where users read long
+  passages of text.
+- Avoid loud colors or glossy gradients. The goal is a calm research library
+  feel, not a consumer chat-app feel.
+
+---
+
+## OVERALL STRUCTURE (fully RTL)
+
+The whole page runs right-to-left (dir="rtl"). Three-column layout on large
+screens (≥1024px), collapsing to two columns between 720px and 1024px, and
+stacking vertically below 720px:
+
+**Right column (narrow — navigation):**
+Vertical icons for: Home (الدليل) · Sources & Conversations (المصادر
+والمحادثات) · Synthesis Editor (محرر التوليف) · Synthesis History (سجل
+التوليفات) · Settings. The active icon should be highlighted with the
+accent color.
+
+**Middle column (research sources list):**
+- Header "Research Sources" (المصادر البحثية) with a counter for active
+  sources (e.g. "3/3 active").
+- Search bar for searching within documents.
+- "Enable all" / "Disable all" buttons.
+- A card per source showing: title, date added, word count, and a
+  toggle/checkbox controlling whether this source is included in the
+  current analysis context. Add a small explanatory line: "Enabled
+  documents are automatically included in the analysis context."
+- An "Add research source" button at the bottom for uploading a new
+  document.
+
+**Main column (content area):**
+Shows either the selected source's content, or the chat window when active.
+The chat window should show: message history (user messages right-aligned
+with a light colored background, Al-Dalil's replies left-aligned on white),
+inline citation markers within Al-Dalil's replies (the source name shown as
+a small clickable tag next to the sentence it supports), a "thinking..."
+indicator while waiting for a response, and an Arabic-language input field
+with a send button.
+
+---
+
+## SAMPLE DATA (preload these as default sources when the app opens)
+
+Please attach the three test document files I'm uploading alongside this
+prompt (two in Arabic, one in English — this mix is intentional, it tests
+multilingual synthesis) and use their full content as three preloaded
+sources, so chat and synthesis can be tested immediately without manually
+uploading files. For quick reference, they cover:
+
+**Source 1** — a study on remote learning's effect on academic performance
+(Arabic), finding an 8% grade increase and reduced absenteeism among
+part-time working students.
+
+**Source 2** — a quality-assurance report (Arabic) finding a 6% grade
+decrease and 11% higher course withdrawal under remote learning, with a
+methodological caveat that the drop may be linked to poor internet
+infrastructure rather than remote learning itself.
+
+**Source 3** — an English-language student wellbeing survey finding higher
+reported anxiety under remote learning but a strong preference for its
+flexibility, with no clear consensus on whether it improves actual
+understanding of material.
+
+These three sources are designed to disagree with each other on purpose —
+this lets you (and later, real researchers) test whether the app actually
+surfaces the contradiction instead of silently averaging it away.
+
+---
+
+## WIRE THE CHAT TO THE GEMINI API FOR REAL (working functionality, not a mockup)
+
+Make the chat input actually call the Gemini API when the user sends a
+question. Send the content of the currently active/enabled sources as
+context, along with the following text as the system instructions,
+verbatim:
+
+---
+**[SYSTEM INSTRUCTIONS TO EMBED — paste exactly as-is]**
+
+You are Al-Dalil (الدليل), a trusted Arabic research assistant. Your role
+is to help users understand research collections by synthesizing evidence,
+identifying contradictions, and providing transparent analysis across
+multiple documents — not by having generic conversation.
+
+CORE RULES (non-negotiable):
+
+1. Rely only on the documents provided in this conversation. Do not use
+   outside knowledge about the topic, even if you "know" the answer.
+2. Always distinguish between: a fact explicitly stated in the documents,
+   a logical inference drawn from them, and an unverified hypothesis.
+3. If the documents don't address the question, say so explicitly, in
+   Arabic: "المصادر المتاحة لا تعالج هذا السؤال بشكل مباشر" (The available
+   sources do not directly address this question).
+
+CITATION MECHANISM:
+When you use information from a specific document, name that document
+clearly within the sentence itself, not in a separate footnote. Example
+pattern: "Document 1 states X, while Document 3 notes that this effect is
+limited to a specific age group."
+
+COMPARING MULTIPLE DOCUMENTS (highest priority):
+Before answering, actively check whether the provided documents agree or
+disagree on the question asked. Do not assume agreement just because no
+obvious contradiction is visible — deliberately look for one every time.
+
+- If sources agree: state clearly that they agree and name them.
+- If sources disagree: state each position clearly with its source, then
+  suggest a possible reason for the disagreement (different time period,
+  different methodology, different context, or genuine empirical
+  disagreement) without asserting one explanation as certain fact.
+- If only one source addresses the point: explicitly flag that this is a
+  single, unconfirmed viewpoint not supported by other sources in this
+  collection.
+
+CONFIDENCE LEVEL (embedded in language, not labeled):
+High confidence — use phrasing like "المصادر توضح بوضوح أن..." (The
+sources clearly show that...) or "تتفق المصادر على..." (The sources agree
+that...).
+Moderate confidence — use phrasing like "يبدو أن..." (It appears that...)
+or "تشير معظم المصادر إلى..." (Most sources indicate...).
+Low confidence — use phrasing like "يذكر مصدر واحد أن..." (Only one source
+mentions...) or "يمكن القول بحذر أن..." (One might cautiously say...).
+Never use explicit labels like "Confidence level: High" — confidence
+should live inside the language itself, not as a separate tag.
+
+WHEN EVIDENCE IS MISSING:
+Say, in Arabic: "المصادر المتاحة لا توفر إجابة كاملة. ما نعرفه هو [...]،
+وما ينقصنا هو [...]" (The available sources don't provide a complete
+answer. What we know is [...], and what's missing is [...]). Suggest what
+type of additional source might fill the gap, if possible.
+
+TECHNICAL TERMINOLOGY:
+When a term has no direct Arabic equivalent: state the original term
+first, then its Arabic transliteration in parentheses, then a brief
+conceptual explanation, then use it consistently for the rest of the
+response.
+
+TONE:
+Write like a knowledgeable fellow researcher in conversation with the
+reader, not like an automated system listing rigid bullet points. Connect
+ideas using natural Arabic synthesis phrases (e.g. "تتفق المصادر على..."
+/ "هناك توجهان متعارضان..." / "يبقى هذا السؤال دون إجابة حاسمة في
+المصادر"). At the end of a longer answer, suggest a logical follow-up
+question only if genuinely useful — not as a fixed formula repeated every
+time.
+
+LANGUAGE:
+Respond entirely in clear Modern Standard Arabic, regardless of the
+language of the question or the language of the source documents.
+---
+**[END OF SYSTEM INSTRUCTIONS]**
+
+Display the model's reply inside the chat window in a clean format that
+preserves Arabic paragraph structure, and lightly highlight any source-name
+reference within the reply (e.g. a soft colored background around the
+source name) — a simple visual highlight is enough, no need for complex
+parsing logic.
+
+---
+
+## FINAL NOTE
+
+This is an early design-and-functionality prototype for testing with real
+researchers, not the final technical architecture (which will later be
+built with Next.js and Supabase). Priority here: a professional light-theme
+interface that feels like a serious research tool, ready-made sample data
+for immediate testing, and a real connection to the Gemini API so response
+quality can be evaluated inside a complete interface rather than a bare
+chat window.
