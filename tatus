@@ -1,0 +1,30 @@
+[33mcommit bf8f419bbb1a03fad41b85cdb46f469633267b1b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: araddaoui <araddaoui@gmail.com>
+Date:   Fri Sep 18 11:07:21 2026 -0600
+
+    feat: setup express backend and api routing
+    
+    Initialize Express server with Firebase authentication middleware and modular routers for core BahthOS features. Add environment configuration and data blueprints.
+
+ .env.example                       |   14 [32m+[m
+ api/index.ts                       |   55 [32m+[m
+ assets/.aistudio/.gitignore        |    1 [32m+[m
+ bun.lock                           | 1138 [32m+++++++++[m
+ firebase-blueprint.json            |  123 [32m+[m
+ package-lock.json                  | 4716 [32m++++++++++++++++++++++++++++++++++++[m
+ package.json                       |   45 [32m+[m
+ server.ts                          |   72 [32m+[m
+ src/App.tsx                        | 2033 [32m++++++++++++++++[m
+ src/components/AuthView.tsx        |  414 [32m++++[m
+ src/components/ChatWindow.tsx      |  569 [32m+++++[m
+ src/components/DalilCard.tsx       |  694 [32m++++++[m
+ src/components/LandingPage.tsx     |  851 [32m+++++++[m
+ src/components/ReportFollowUp.tsx  |  252 [32m++[m
+ src/components/SettingsView.tsx    |  480 [32m++++[m
+ src/components/SourcesList.tsx     | 1023 [32m++++++++[m
+ src/components/SynthesisEditor.tsx |  593 [32m+++++[m
+ src/firebase.ts                    |  438 [32m++++[m
+ src/server/middleware/auth.ts      |  133 [32m+[m
+ src/server/routers/billing.ts      |  514 [32m++++[m
+ src/utils/billing.ts               |  125 [32m+[m
+ 21 files changed, 14283 insertions(+)
