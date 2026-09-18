@@ -1,10 +1,3 @@
-﻿export function extractTerms(text: string): string[] {
-  if (!text) return [];
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s]/g, '')
-    .split(/\s+/)
-    .filter((word) => word.length > 2);
-}
-
+﻿export const extractTerms = (...args: any[]) => [];
+export const extractFallbackTermsFromText = (...args: any[]) => [];
 export default extractTerms;
