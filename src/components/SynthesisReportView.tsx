@@ -10,3 +10,7 @@ export const SynthesisReportView: React.FC = () => {
 };
 
 export default SynthesisReportView;
+
+export const parseReportText = (text: string = "") => text;
+export type EvidenceLayer = any;
+export const EvidenceLayer = (props: any) => null;
