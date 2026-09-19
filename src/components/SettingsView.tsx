@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { 
   Settings, 
   Sliders, 
@@ -11,21 +11,8 @@ import {
   Info,
   Trash2,
   LogOut,
-  User,
-  CreditCard,
-  Sparkles,
-  ExternalLink,
-  Loader2,
-  Zap,
-  AlertCircle,
-  Crown
+  User
 } from "lucide-react";
-import { 
-  fetchBillingStatus, 
-  redirectToCheckout, 
-  redirectToCustomerPortal, 
-  BillingStatus 
-} from "../utils/billing.js";
 
 interface SettingsViewProps {
   temperature: number;
@@ -45,55 +32,6 @@ export default function SettingsView({
   onSignOut
 }: SettingsViewProps) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
-  const [billingLoading, setBillingLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [billingError, setBillingError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    async function loadStatus() {
-      try {
-        setBillingLoading(true);
-        const status = await fetchBillingStatus();
-        if (isMounted) {
-          setBillingStatus(status);
-        }
-      } catch (err: any) {
-        if (isMounted) {
-          setBillingError("تعذر تحميل حالة الاشتراك الحالية.");
-        }
-      } finally {
-        if (isMounted) {
-          setBillingLoading(false);
-        }
-      }
-    }
-    loadStatus();
-    return () => {
-      isMounted = false;
-    };
-  }, [currentUser]);
-
-  const handleManageSubscription = async () => {
-    setBillingError(null);
-    setActionLoading(true);
-    const res = await redirectToCustomerPortal();
-    if (res.error) {
-      setBillingError(res.error);
-      setActionLoading(false);
-    }
-  };
-
-  const handleUpgradeToPro = async () => {
-    setBillingError(null);
-    setActionLoading(true);
-    const res = await redirectToCheckout();
-    if (res.error) {
-      setBillingError(res.error);
-      setActionLoading(false);
-    }
-  };
 
   const handleReset = () => {
     setShowResetConfirm(true);
@@ -141,151 +79,6 @@ export default function SettingsView({
             </div>
           </div>
         )}
-
-        {/* Subscription & Billing */}
-        <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4" id="settings-billing-card">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-            <h2 className="text-xs font-bold text-gray-800 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-[#0d6264]" />
-              <span>الاشتراك وإدارة الفواتير (Subscription & Billing)</span>
-            </h2>
-            {billingStatus?.tier === "pro" && (
-              <span className="px-2.5 py-0.5 bg-teal-50 text-teal-800 rounded-full text-[11px] font-bold border border-teal-200 flex items-center gap-1">
-                <Crown className="w-3 h-3 text-amber-500" />
-                <span>باحث OS Pro</span>
-              </span>
-            )}
-          </div>
-
-          {billingError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-700 text-xs font-bold text-right" id="settings-billing-error">
-              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-              <span>{billingError}</span>
-            </div>
-          )}
-
-          {billingLoading ? (
-            <div className="p-6 flex items-center justify-center gap-2 text-gray-400 text-xs font-medium">
-              <Loader2 className="w-4 h-4 animate-spin text-[#0d6264]" />
-              <span>جاري التحقق من سجلات الاشتراك...</span>
-            </div>
-          ) : billingStatus?.tier === "pro" ? (
-            <div className="space-y-4">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-teal-50/30 p-4 rounded-xl border border-teal-100/60">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-700">الخطة النشطة:</span>
-                    <span className="text-xs font-bold text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded-md">
-                      الخطة الاحترافية (Pro Plan) - وصول غير مقيد
-                    </span>
-                  </div>
-                  {billingStatus.currentPeriodEnd ? (
-                    <p className="text-[11px] text-gray-500 font-medium">
-                      تاريخ التجديد القادم:{" "}
-                      <span className="font-semibold text-gray-700">
-                        {new Date(billingStatus.currentPeriodEnd).toLocaleDateString("ar-SA", {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        })}
-                      </span>
-                    </p>
-                  ) : (
-                    <p className="text-[11px] text-gray-500 font-medium">الاشتراك سارٍ ونشط بشكل دائم.</p>
-                  )}
-                </div>
-
-                <button
-                  onClick={handleManageSubscription}
-                  disabled={actionLoading}
-                  className="px-4 py-2 bg-teal-800 hover:bg-teal-900 disabled:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 self-start md:self-auto cursor-pointer shadow-xs"
-                  id="settings-manage-subscription-btn"
-                >
-                  {actionLoading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>جاري التحويل...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>إدارة الاشتراك والفواتير (Stripe Portal)</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-gray-600 bg-gray-50 p-3 rounded-xl border border-gray-100">
-                <div className="flex items-center gap-1.5 text-teal-800 font-medium">
-                  <Check className="w-3.5 h-3.5 text-teal-600" />
-                  <span>رفع واستيعاب غير مقيد للوثائق والمراجع</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-teal-800 font-medium">
-                  <Check className="w-3.5 h-3.5 text-teal-600" />
-                  <span>المزامنة السحابية المشفرة متعددة الأجهزة</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-teal-800 font-medium">
-                  <Check className="w-3.5 h-3.5 text-teal-600" />
-                  <span>القراءة الصوتية الذكية للتقارير (TTS)</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-teal-800 font-medium">
-                  <Check className="w-3.5 h-3.5 text-teal-600" />
-                  <span>تنقية متقدمة لمعجم المصطلحات الأكاديمية</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-700">الخطة النشطة:</span>
-                    <span className="text-xs font-bold text-gray-600 bg-gray-200/70 px-2 py-0.5 rounded-md">
-                      الخطة الأساسية (Free Plan)
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 font-medium">
-                    محدودة بـ 5 وثائق لكل مشروع وتخزين محلي على المتصفح.
-                  </p>
-                </div>
-
-                {currentUser ? (
-                  <button
-                    onClick={handleUpgradeToPro}
-                    disabled={actionLoading}
-                    className="px-4 py-2 bg-teal-800 hover:bg-teal-900 disabled:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 self-start md:self-auto cursor-pointer shadow-xs"
-                    id="settings-upgrade-pro-btn"
-                  >
-                    {actionLoading ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>جاري فتح بوابة الدفع...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-3.5 h-3.5 text-amber-300" />
-                        <span>الترقية إلى Pro (19$/شهر)</span>
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    onClick={onShowLandingPage}
-                    className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 self-start md:self-auto cursor-pointer shadow-xs"
-                    id="settings-guest-signup-btn"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-amber-300" />
-                    <span>سجل حساب باحث للترقية إلى Pro</span>
-                  </button>
-                )}
-              </div>
-
-              <p className="text-[11px] text-gray-400 leading-relaxed">
-                تمنحك باقة Pro وصولاً كاملاً إلى مصفوفات الأدلة الشاملة، تنقية التعريبات، القراءة الصوتية، ومزامنة السحابة المشفرة عبر Firebase.
-              </p>
-            </div>
-          )}
-        </div>
 
         {/* AI Parameters */}
         <div className="bg-white p-5 rounded-2xl border border-[#e2e2dd] shadow-2xs space-y-4">

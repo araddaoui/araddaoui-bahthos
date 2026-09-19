@@ -15,7 +15,6 @@ import {
   FileText
 } from "lucide-react";
 import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import DalilCard from "./DalilCard.js";
 import { parseDocumentFile } from "../utils/documentParser.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
@@ -268,13 +267,9 @@ function SourcesList({
         setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بليغ باللغة العربية..."), 800);
       }
 
-      const authHeaders = await getAuthHeaders();
       const response = await fetch("/api/analyze-document", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, base64, mimeType, fileName }),
       });
 
@@ -308,19 +303,29 @@ function SourcesList({
         throw new Error("تلقى التطبيق استجابة غير صالحة من خادم التحليل.");
       }
       
-      const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, data.originalText || content));
-      const detectedLang = detectSourceLanguage(data.originalText || content, data.title, data.language);
+      // The server can rescue a scanned PDF / broken Word file via base64 re-parse
+      // or Gemini multimodal; prefer its extractedText when it is meaningful.
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
+      const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20)
+        ? data.extractedText
+        : (data.originalText || content);
+      if (/^\[مستند (PDF|Word):/.test(resolvedText)) {
+        const err = new Error(`تعذر استخراج نص قابل للتحليل من المستند (${fileName || cleanTitle}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
+        if (commit) onAddSource(cleanTitle, "", "ar", "", err.message, []);
+        throw err;
+      }
+      const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText));
+      const detectedLang = detectSourceLanguage(resolvedText, data.title, data.language);
       // If the server returned no concepts (quota exhausted, missing API key, model error, or
       // the AI simply found none), fall back to LOCAL extraction so the user is never left empty.
       let terms = Array.isArray(data.terms) ? data.terms : [];
       if (!Array.isArray(data.terms) || data.terms.length === 0) {
         console.warn("Server returned no terms; using local fallback extractor.");
-        terms = extractFallbackTermsFromText(content || data.originalText || "", undefined, cleanTitle);
+        terms = extractFallbackTermsFromText(resolvedText, undefined, cleanTitle);
       }
       const draft: SourceDraft = {
         title: cleanTitle,
-        content: data.originalText || content,
+        content: resolvedText,
         language: detectedLang,
         summary: finalArabicSummary,
         terms,
@@ -334,12 +339,22 @@ function SourcesList({
       }
     } catch (err: any) {
       console.warn("Server analysis unavailable or failed, using client-side fallback:", err);
-      
+
       const rawTitle = fileName || `مستند مضاف ${sources.length + 1}`;
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(rawTitle);
-      const textContent = (content && content.trim()) 
-        ? content 
-        : `محتوى المستند المرفق (${cleanTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
+      // If there is genuinely no readable text (e.g. scanned PDF beyond the base64
+      // rescue cap, or a corrupt file), surface it as a per-file upload failure
+      // instead of silently adding an empty source.
+      const textContent = (content && content.trim().length >= 20)
+        ? content
+        : (content && content.trim())
+          ? `${content.trim()}\n${fileName || "المستند"} — ${rawTitle}`
+          : "";
+      if (!textContent || textContent.trim().length < 20) {
+        const err = new Error(`تعذر استخراج نص قابل للتحليل من المستند (${fileName || cleanTitle}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
+        if (commit) onAddSource(cleanTitle, "", "ar", "", err.message, []);
+        throw err;
+      }
       const autoSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, textContent));
       const detectedLang = detectSourceLanguage(textContent, cleanTitle);
       
@@ -706,24 +721,29 @@ function SourcesList({
                     </div>
                     <div className="max-h-36 overflow-y-auto space-y-1 text-right">
                       {uploadQueue.map((item) => (
-                        <div key={item.id} className="flex items-center gap-1.5 rounded-md bg-[#fafaf8] border border-gray-100 px-2 py-1">
-                          {item.status === "completed" ? (
-                            <FileCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                          ) : item.status === "processing" ? (
-                            <Loader2 className="w-3.5 h-3.5 text-[#094d4e] animate-spin flex-shrink-0" />
-                          ) : item.status === "failed" ? (
-                            <AlertCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
-                          ) : (
-                            <FileText className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                        <div key={item.id} className="flex flex-col rounded-md bg-[#fafaf8] border border-gray-100 px-2 py-1">
+                          <div className="flex items-center gap-1.5">
+                            {item.status === "completed" ? (
+                              <FileCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                            ) : item.status === "processing" ? (
+                              <Loader2 className="w-3.5 h-3.5 text-[#094d4e] animate-spin flex-shrink-0" />
+                            ) : item.status === "failed" ? (
+                              <AlertCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+                            ) : (
+                              <FileText className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                            )}
+                            <span className="truncate text-[10px] text-gray-600 flex-1" title={item.fileName}>{item.fileName}</span>
+                            <span className={`text-[9px] font-bold flex-shrink-0 ${
+                              item.status === "completed" ? "text-emerald-600" :
+                              item.status === "failed" ? "text-red-600" :
+                              item.status === "processing" ? "text-[#094d4e]" : "text-gray-400"
+                            }`}>
+                              {item.status === "completed" ? "تم" : item.status === "failed" ? "فشل" : item.status === "processing" ? "جاري" : "انتظار"}
+                            </span>
+                          </div>
+                          {item.status === "failed" && item.error && (
+                            <span className="text-[9px] leading-snug text-red-600 mt-0.5">{item.error}</span>
                           )}
-                          <span className="truncate text-[10px] text-gray-600 flex-1" title={item.fileName}>{item.fileName}</span>
-                          <span className={`text-[9px] font-bold flex-shrink-0 ${
-                            item.status === "completed" ? "text-emerald-600" :
-                            item.status === "failed" ? "text-red-600" :
-                            item.status === "processing" ? "text-[#094d4e]" : "text-gray-400"
-                          }`}>
-                            {item.status === "completed" ? "تم" : item.status === "failed" ? "فشل" : item.status === "processing" ? "جاري" : "انتظار"}
-                          </span>
                         </div>
                       ))}
                     </div>
