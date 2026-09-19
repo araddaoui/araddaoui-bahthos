@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Source } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import { MessageSquare, Send, Sparkles, Loader2, HelpCircle, ShieldCheck, CornerDownLeft, AlertCircle } from "lucide-react";
 import { generateReportFollowUpFallback } from "../utils/synthesisFallback.js";
 import { parseMarkdownToReact } from "../utils/reportFormatter.js";
@@ -66,13 +65,9 @@ export default function ReportFollowUp({
     }));
 
     try {
-      const authHeaders = await getAuthHeaders();
       const response = await fetch("/api/report-followup", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: qText,
           reportContext,

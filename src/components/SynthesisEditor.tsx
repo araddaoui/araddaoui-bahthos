@@ -17,7 +17,6 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { Source, Synthesis, DalilBriefing } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView.js";
 import { copyReportToClipboard, exportToWordDocument, deduplicateSources } from "../utils/reportFormatter.js";
 import { generateClientSynthesisFallback } from "../utils/synthesisFallback.js";
@@ -128,13 +127,9 @@ function SynthesisEditor({
     try {
       let data: any = null;
       try {
-        const authHeaders = await getAuthHeaders();
         const response = await fetch("/api/synthesize", {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sources: activeSourcesData,
             topic: topic,

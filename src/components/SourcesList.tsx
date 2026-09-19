@@ -15,7 +15,6 @@ import {
   FileText
 } from "lucide-react";
 import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import DalilCard from "./DalilCard.js";
 import { parseDocumentFile } from "../utils/documentParser.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
@@ -268,13 +267,9 @@ function SourcesList({
         setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بليغ باللغة العربية..."), 800);
       }
 
-      const authHeaders = await getAuthHeaders();
       const response = await fetch("/api/analyze-document", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, base64, mimeType, fileName }),
       });
 

@@ -14,7 +14,6 @@ import {
   Paperclip
 } from "lucide-react";
 import { Message, Source, DalilBriefing } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import DalilCard from "./DalilCard.js";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView.js";
 import ReportFollowUp from "./ReportFollowUp.js";
@@ -131,13 +130,9 @@ function ChatWindow({
       };
 
       try {
-        const authHeaders = await getAuthHeaders();
         const response = await fetch("/api/analyze-document", {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(reqBody),
         });
 
