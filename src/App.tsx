@@ -296,6 +296,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [useAsGuest, setUseAsGuest] = useState<boolean>(false);
+  // Records an explicit user request to view the landing page (Settings/Sidebar
+  // "شاهد الصفحة التعريفية"), independent of BYPASS_AUTH's initial-entry skip.
+  const [viewingLanding, setViewingLanding] = useState<boolean>(false);
   const [isFirebaseLoading, setIsFirebaseLoading] = useState<boolean>(false);
 
   const isLiveFirebaseUser = !!currentUser && !(BYPASS_AUTH && currentUser.uid === BYPASS_USER.uid);
@@ -1743,6 +1746,7 @@ export default function App() {
       <TermsOfService
         navigateTo={navigateTo}
         onEnterApp={() => {
+          setViewingLanding(false);
           setShowLandingPage(false);
           navigateTo("/");
           try {
@@ -1777,10 +1781,11 @@ export default function App() {
     );
   }
 
-  if ((showLandingPage && !BYPASS_AUTH) || (!currentUser && !useAsGuest)) {
+  if (viewingLanding || (showLandingPage && !BYPASS_AUTH) || (!currentUser && !useAsGuest)) {
     return (
       <LandingPage
         onEnterApp={() => {
+          setViewingLanding(false);
           setShowLandingPage(false);
           setUseAsGuest(true);
           try {
@@ -1788,12 +1793,14 @@ export default function App() {
           } catch (e) {}
         }}
         onEnterAsUser={() => {
+          setViewingLanding(false);
           setShowLandingPage(false);
           try {
             localStorage.setItem("bahthos_entered_app", "true");
           } catch (e) {}
         }}
         onContinueAsGuest={() => {
+          setViewingLanding(false);
           setUseAsGuest(true);
           setShowLandingPage(false);
           try {
@@ -1819,7 +1826,7 @@ export default function App() {
         onSwitchProject={handleSwitchProject}
         onCreateProject={handleCreateProject}
         onDeleteProject={handleDeleteProject}
-        onShowLandingPage={() => setShowLandingPage(true)}
+        onShowLandingPage={() => { setViewingLanding(true); setShowLandingPage(true); }}
         onNavigateIntent={preloadWorkspaceTab}
       />
 
@@ -1945,6 +1952,7 @@ export default function App() {
                 currentUser={currentUser}
                 onSignOut={handleSignOut}
                 onShowLandingPage={() => {
+                  setViewingLanding(true);
                   setShowLandingPage(true);
                   try {
                     localStorage.removeItem("bahthos_entered_app");
