@@ -83,6 +83,7 @@ function SynthesisEditor({
   const [isCopied, setIsCopied] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [serverNotice, setServerNotice] = useState("");
   const [isFallbackMode, setIsFallbackMode] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
 
@@ -99,22 +100,52 @@ function SynthesisEditor({
       return;
     }
     setErrorMsg("");
+    setServerNotice("");
     setIsGenerating(true);
     setGeneratedText("");
     setIsSaved(false);
     setIsFallbackMode(false);
     setViewMode("preview");
 
-    const rawActiveSources = sources
-      .filter((s) => selectedSourceIds.includes(s.id))
-      .map((s) => ({
-        id: s.id,
-        title: s.title,
-        language: s.language || "ar",
-        wordCount: s.wordCount || 0,
-        summary: s.summary || "",
-        content: (s.content || s.summary || "").substring(0, 15000),
-      }));
+    const selectedSources = sources.filter((s) => selectedSourceIds.includes(s.id));
+    const skippedPlaceholderTitles: string[] = [];
+    const rawActiveSources = selectedSources
+      .map((s) => {
+        const rawText = String(s.content || "").trim();
+        // Placeholder-only means the parser failed to extract real text (scanned
+        // PDF / corrupt file); a synthesis cannot be grounded on that marker.
+        if (/^\[مستند (PDF|Word):/.test(rawText) || rawText.length === 0) {
+          skippedPlaceholderTitles.push(s.title || "وثيقة غير معنونة");
+          return null;
+        }
+        const payloadText = rawText.length >= 20
+          ? rawText
+          : String(s.summary || "").trim();
+        return {
+          id: s.id,
+          title: s.title,
+          language: s.language || "ar",
+          wordCount: s.wordCount || 0,
+          summary: s.summary || "",
+          content: payloadText.substring(0, 80000),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    if (rawActiveSources.length === 0) {
+      setErrorMsg(
+        skippedPlaceholderTitles.length > 0
+          ? "لا تحتوي المصادر المحددة على نص قابل للقراءة ولا يصح توليف تقرير من دون محتوى فعلي. أعد رفع المستندات بنسخة نصية أو اختر مصادر تتضمن نصاً مستخرجاً."
+          : "يرجى اختيار مصدر واحد على الأقل للتوليف."
+      );
+      setIsGenerating(false);
+      return;
+    }
+    if (skippedPlaceholderTitles.length > 0) {
+      setServerNotice(
+        `تخطّى النظام ${skippedPlaceholderTitles.length} مستنداً بلا نص قابل للقراءة: ${skippedPlaceholderTitles.join("، ")}`
+      );
+    }
 
     const activeSourcesData = deduplicateSources(rawActiveSources);
 
@@ -126,6 +157,8 @@ function SynthesisEditor({
 
     try {
       let data: any = null;
+      let serverErrorCode: string | null = null;
+      let serverErrorMessage: string | null = null;
       try {
         const response = await fetch("/api/synthesize", {
           method: "POST",
@@ -141,6 +174,8 @@ function SynthesisEditor({
           data = await response.json().catch(() => null);
         } else {
           const errBody = await response.json().catch(() => null);
+          serverErrorCode = errBody?.code || null;
+          serverErrorMessage = errBody?.error || null;
           console.warn("Server synthesize returned non-ok status:", response.status, errBody);
         }
       } catch (fetchErr) {
@@ -155,11 +190,19 @@ function SynthesisEditor({
         }
         setReportTitle(autoTitle);
       } else {
-        // PERMANENT FIX: If AI API or server is down/unreachable/quota-exceeded, generate complete synthesis locally!
+        // If the AI backend is genuinely unreachable/quota/key-missing, still
+        // generate a text-grounded report locally AND tell the user why.
         console.log("Generating full synthesis report locally via client-side evidence fallback.");
         const fallbackText = generateClientSynthesisFallback(activeSourcesData, topic, toolType);
         setGeneratedText(fallbackText);
         setIsFallbackMode(true);
+        setServerNotice((existing) => {
+          const outageNote = serverErrorCode
+            ? `تعذر الوصول إلى خدمة الذكاء الاصطناعي (${serverErrorMessage || "انقطاع مؤقت"}).`
+            : "تعذر الوصول إلى خدمة التوليف الآن؛";
+          const base = existing ? existing + " " : "";
+          return base + outageNote + " عُرض أدناه تقرير توليف مبني مباشرة على نصوص المصادر المتاحة.";
+        });
         setReportTitle(`توليف الأدلة: ${topic || "مستندات"}`);
       }
     } catch (error: any) {
@@ -451,6 +494,13 @@ function SynthesisEditor({
                     تم تحليل وتقاطع البيانات والاقتباسات من جميع الوثائق المرفقة النشطة وصياغة التقرير مع إسناد الأدلة.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {serverNotice && (
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-start gap-2.5 font-medium leading-relaxed mb-2" id="server-notice-banner">
+                <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 flex-shrink-0" />
+                <span>{serverNotice}</span>
               </div>
             )}
 

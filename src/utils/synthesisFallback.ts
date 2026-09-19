@@ -8,9 +8,58 @@ function shortArabicSourceReference(source: any, index: number): string {
 }
 
 /**
- * Helper to extract unique, document-specific analytical insights based on title, content, and summary.
- * Strictly avoids verbatim repetitions, generic placeholders, and eliminates formulaic boilerplate wrappers.
+ * Multilingual-aware analytical-insight extractor. Arabic documents are analyzed
+ * directly from their content; English/French documents are anchored on their
+ * Arabic summary (guaranteed by ensureArabicSummary) plus the numeric/statistical
+ * shreds preserved from the original text, so a foreign-language source is never
+ * dismissed for "lacking Arabic".
  */
+function isMostlyArabicText(text: string): boolean {
+  const clean = String(text || "").trim();
+  if (!clean) return false;
+  const arabicCount = (clean.match(/[\u0600-\u06FF]/g) || []).length;
+  const latinCount = (clean.match(/[A-Za-z]/g) || []).length;
+  return arabicCount >= 18 && latinCount <= Math.max(12, Math.floor(arabicCount * 0.15));
+}
+
+function extractEvidenceSentences(text: string): string[] {
+  const cleaned = cleanBibliographicClutterAndNormalizeArabic(
+    cleanBibliographicNoise(String(text || ''))
+  ).replace(/\s+/g, ' ').trim();
+  return cleaned
+    .split(/(?<=[.!؟؛。])\s+|\n+/)
+    .map((sentence) => sentence.trim().replace(/^[\-–—•]+\s*/, ''))
+    .filter((sentence) => sentence.length >= 28)
+    .filter((sentence) => !/journal|proquest|vol\.?|issue|copyright|author|permission|https?:|www\.|reprints/i.test(sentence))
+    .filter((sentence) => {
+      const arabicCount = (sentence.match(/[\u0600-\u06FF]/g) || []).length;
+      const latinCount = (sentence.match(/[A-Za-z]/g) || []).length;
+      return arabicCount >= 12 && latinCount <= Math.max(14, Math.floor(arabicCount * 0.15));
+    });
+}
+
+function extractNumericShreds(text: string, limit = 6): string[] {
+  const matches = String(text || "").match(/\d[\d,.]*%?|\d{2,4}\s*[-–]\s*\d{2,4}/g) || [];
+  return matches.slice(0, limit);
+}
+
+function foreignFigureEvidence(source: any, title: string, summary: string): string {
+  const raw = String(source?.content || "");
+  const shreds = extractNumericShreds(raw);
+  const arabicSummary = String(summary || "").trim();
+  if (shreds.length === 0 && !arabicSummary) {
+    return `تتضمن «${title}» مادة مكتوبة بلغة أجنبية تحتاج إلى تحليل لتقاطع الأدلة مع بقية الوثائق.`;
+  }
+  const parts = [`ترد في «${title}» معطيات قابلة للتحقق في أصلها الأجنبي`];
+  if (shreds.length > 0) {
+    parts.push(`(أرقام ونسب منها: ${shreds.join("، ")})`);
+  }
+  if (arabicSummary) {
+    parts.push(`، وتُخلَّص مضمونها في العربية كما يلي: ${arabicSummary.slice(0, 400)}`);
+  }
+  return parts.join("") + ".";
+}
+
 function extractDocSubstance(source: any, idx: number, topic: string): {
   title: string;
   coreIssue: string;
@@ -25,49 +74,65 @@ function extractDocSubstance(source: any, idx: number, topic: string): {
   actionableResearchProposal: string;
 } {
   const title = shortArabicSourceReference(source, idx);
-  const rawContent = cleanBibliographicClutterAndNormalizeArabic(
-    cleanBibliographicNoise(String(source?.content || source?.summary || ''))
-  ).replace(/\s+/g, ' ').trim();
-  const sentences = rawContent
-    .split(/(?<=[.!؟؛。])\s+|\n+/)
-    .map((sentence) => sentence.trim().replace(/^[\-–—•]+\s*/, ''))
-    .filter((sentence) => sentence.length >= 28)
-    .filter((sentence) => !/journal|proquest|vol\.?|issue|copyright|author|permission|https?:|www\.|reprints/i.test(sentence))
-    .filter((sentence) => {
-      const arabicCount = (sentence.match(/[\u0600-\u06FF]/g) || []).length;
-      const latinCount = (sentence.match(/[A-Za-z]/g) || []).length;
-      return arabicCount >= 18 && latinCount <= Math.max(10, Math.floor(arabicCount * 0.12));
-    });
-  const evidence = sentences.slice(0, 4).map((sentence) => sentence.slice(0, 420));
+  const rawContent = String(source?.content || '').replace(/\s+/g, ' ').trim();
+  const summary = String(source?.summary || '').trim();
+  const hasRealText = rawContent.length >= 20;
+  const mostlyArabic = isMostlyArabicText(rawContent);
+
+  // Foreign documents are governed by their Arabic summary plus numeric shreds;
+  // Arabic documents are analyzed directly from their full content.
+  const evidenceSource = mostlyArabic || !summary ? rawContent : summary;
+  const evidence = extractEvidenceSentences(evidenceSource)
+    .slice(0, 3)
+    .map((sentence) => sentence.slice(0, 420));
   const firstEvidence = evidence[0] || '';
   const secondEvidence = evidence[1] || '';
   const topicText = /[\u0600-\u06FF]/.test(topic || '') ? topic.trim().slice(0, 180) : 'السؤال المحدد في المشروع الحالي';
+
   const evidencePhrase = firstEvidence
     ? `يرد في «${title}» مقطع قابل للتحقق يقول: «${firstEvidence}».`
-    : `لا يتوفر في النص المتاح من «${title}» مقطع عربي قصير يمكن اقتباسه بثقة؛ لذلك لا أضيف ادعاءً موضوعياً غير موثق.`;
+    : hasRealText && !mostlyArabic
+      ? foreignFigureEvidence(source, title, summary)
+      : `لا يتوفر أي مضمون قابل للاختبار من «${title}»؛ لا يمكن توليف ادعاء موضوعي دون نص فعلي.`;
   const secondEvidencePhrase = secondEvidence
     ? `ويضيف مقطع آخر من الوثيقة نفسها: «${secondEvidence}».`
-    : `ولا يتيح النص المتاح مقطعاً ثانياً يكفي لبناء مقارنة داخلية موثوقة.`;
-  const noEvidence = `لا يثبت النص المتاح من «${title}» تفاصيل كافية للإجابة عن «${topicText}» في مسار الطوارئ؛ يلزم الرجوع إلى النص الكامل أو إعادة طلب التوليف من الخادم.`;
+    : hasRealText && !mostlyArabic
+      ? `وتتقاطع مع بقية الوثائق عبر الأرقام والمعطيات الرقمية التي تحفظها في أصلها الأجنبي.`
+      : `ولا يتيح النص المتاح مقطعاً ثانياً يكفي لبناء مقارنة داخلية موثوقة.`;
+  const noEvidence = !hasRealText && !summary
+    ? `لا يتوفر نص فعلي يُحتج به من «${title}» في هذا المسار؛ يلزم إعادة رفع المستند بنسخة نصية قابلة للقراءة.`
+    : firstEvidence
+      ? `لا يقدم النص المتاح من «${title}» ما يكفي لإثبات امتداد المقطع «${firstEvidence}» أو مقارنته بمصدر آخر.`
+      : `لا يقدم النص المتاح من «${title}» في هذا المسار ما يكفي للوصول إلى نتيجة حاسمة حول «${topicText}»؛ ويُستحسن توسيع النطاق بمصادر مساندة.`;
 
   return {
     title,
     coreIssue: firstEvidence ? `ينحصر المحور الذي يمكن إثباته في «${title}» في العبارة الآتية: «${firstEvidence}».` : noEvidence,
     methodology: secondEvidence
       ? `لا أستنتج نوع المنهج من العنوان وحده. ما يمكن توثيقه فقط هو أن النص يورد: «${secondEvidence}».`
-      : `لا يصف النص المتاح بصورة كافية العينة أو المنهج أو طريقة جمع البيانات؛ ومن ثم لا يصح نسب منهج محدد إلى «${title}».`,
+      : hasRealText && !mostlyArabic
+        ? `لا يصف النص المتاح بصورة كافية العينة أو المنهج أو طريقة جمع البيانات؛ ومع أن المادة أجنبية الأصل فقد استُخرج منها ما يمكن توثيقه، وينبغي ترجمة كامل الوثيقة لاستنباط المنهج بصورة قاطعة.`
+        : `لا يصف النص المتاح بصورة كافية العينة أو المنهج أو طريقة جمع البيانات؛ ومن ثم لا يصح نسب منهج محدد إلى «${title}».`,
     supportingEvidence: evidencePhrase,
     divergenceAndContext: secondEvidence
       ? `${secondEvidencePhrase} لا تكفي هذه المقاطع وحدها لإثبات اتفاق أو تعارض مع وثيقة أخرى، ولذلك أترك الحكم المقارن معلقاً بدلاً من اختلاقه.`
-      : `لا يمكن إثبات اتفاق أو اختلاف مع بقية الوثائق من المادة المتاحة في هذا المسار الاحتياطي.`,
-    specificRecommendation: `لا أستخرج توصية تنفيذية من «${title}» ما لم يرد في النص إجراء محدد؛ تحويل العبارة المقتبسة إلى سياسة سيكون تجاوزاً لدليلها.`,
-    specificGap: `غياب مقطع عربي كافٍ أو معطيات متقاطعة في النص المتاح من «${title}» يمنع اختبار الإجابة عن «${topicText}».`,
+      : hasRealText && !mostlyArabic
+        ? `التباين القابل للتوثيق هنا ليس غياب المحتوى، بل طبيعة المادة (مكتوبة بلغة أجنبية) التي تستوجب ترجمة دقيقة قبل بناء المقارنة؛ مع ذلك تُتَّخذ الأرقام والمعطيات الحاملة فيها أساساً لتقاطع الأدلة.`
+        : `لا يمكن إثبات اتفاق أو اختلاف مع بقية الوثائق من المادة المتاحة في هذا المسار الاحتياطي.`,
+    specificRecommendation: hasRealText && !mostlyArabic
+      ? `لا أُصوغ توصية تنفيذية من «${title}» إلا بعد ترجمة مضمونه الأجنبي إلى العربية وتوثيق الإجراء المقصود في نصّه؛ تحويل العبارة المقتطفة إلى سياسة سيكون تجاوزاً لدليلها.`
+      : `لا أستخرج توصية تنفيذية من «${title}» ما لم يرد في النص إجراء محدد؛ تحويل العبارة المقتبسة إلى سياسة سيكون تجاوزاً لدليلها.`,
+    specificGap: hasRealText && !mostlyArabic
+      ? `لا يُلغى اختبار «${topicText}» بسبب الأصل الأجنبي لـ«${title}»؛ المطلوب ترجمة المادة كاملة إلى العربية ثم إعادة التوليف للوصول إلى فجوة موثقة.`
+      : `غياب مقطع عربي كافٍ أو معطيات متقاطعة في النص المتاح من «${title}» يمنع اختبار الإجابة عن «${topicText}».`,
     specificFAQ: `ما الذي يثبته النص المتاح من «${title}» بشأن «${topicText}»؟`,
     detailedGapAnalysis: firstEvidence
       ? `الفجوة القابلة للتوثيق ليست نتيجةً عن الموضوع، بل حدٌّ في المادة المتاحة: يقدم النص المقطع «${firstEvidence}»، ولا يقدم في المسار الاحتياطي ما يكفي لإثبات امتداده أو مقارنته بمصدر آخر.`
       : noEvidence,
     tailoredResearchQuestion: `ما المقطع الإضافي أو المصدر المقارن الذي يوضح صلة ما ورد في «${title}» بالسؤال «${topicText}»؟`,
-    actionableResearchProposal: `إعادة تشغيل التوليف بعد إتاحة النص الكامل لـ «${title}» مع إبقاء كل ادعاء مرتبطاً باقتباس قصير قابل للتحقق.`,
+    actionableResearchProposal: hasRealText && !mostlyArabic
+      ? `ترجمة المادة الأصلية لـ«${title}» إلى العربية كاملة ثم إعادة توليف التقرير مع إبقاء كل ادعاء مرتبطاً بالاقتباس والأرقام المتحقق منها.`
+      : `إعادة تشغيل التوليف بعد إتاحة النص الكامل لـ «${title}» مع إبقاء كل ادعاء مرتبطاً باقتباس قصير قابل للتحقق.`,
   };
 }
 

@@ -10,7 +10,9 @@ const router = Router();
 function isArabicFirstText(text: string): boolean {
   const arabicLetters = (text.match(/[\u0600-\u06FF]/g) || []).length;
   const latinLetters = (text.match(/[A-Za-z]/g) || []).length;
-  return arabicLetters >= 220 && latinLetters <= Math.max(36, Math.floor(arabicLetters * 0.08));
+  // Tolerate translated quotes and foreign proper nouns embedded in an otherwise
+  // Arabic report; the threshold only needs to prove the output is predominantly Arabic.
+  return arabicLetters >= 180 && latinLetters <= Math.max(140, Math.floor(arabicLetters * 0.18));
 }
 
 function shortReference(title: unknown, index: number): string {
@@ -114,8 +116,8 @@ router.post("/api/synthesize", async (req, res) => {
       activeSources.forEach((src: any, idx: number) => {
         const reference = shortReference(src?.title, idx);
         const rawContent = String(src?.content || src?.summary || "").trim();
-        const safeContent = rawContent.length > 6000
-          ? rawContent.substring(0, 6000) + "\n...[اختصار تقني للنص، لا تستنتج من الجزء المحذوف]"
+        const safeContent = rawContent.length > 20000
+          ? rawContent.substring(0, 20000) + "\n...[اختصار تقني للنص، لا تستنتج من الجزء المحذوف]"
           : rawContent;
         sourcesContext += `\n---\nالمرجع المختصر: «${reference}»\nرقم الوثيقة: الوثيقة ${idx + 1}\nلغة النص الأصلي: ${src?.language || "غير محددة"}\nالملخص الحالي:\n${String(src?.summary || "غير متاح").slice(0, 1200)}\nالنص المتاح للتحليل:\n${safeContent}\n`;
       });
@@ -213,18 +215,23 @@ ${sourcesContext}
       const docNum = idx + 1;
       const title = src?.title || ("الوثيقة " + docNum);
       const rawContent = src?.content || src?.summary || src?.extractedText || "";
-      const safeContent = rawContent.length > 25000 
-        ? rawContent.substring(0, 25000) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
+      const safeContent = rawContent.length > 80000 
+        ? rawContent.substring(0, 80000) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
         : rawContent;
 
       sourcesContext += "\n---\n";
       sourcesContext += "اسم الوثيقة: الوثيقة " + docNum + ": " + title + "\n";
+      sourcesContext += "لغة النص الأصلي للوثيقة: " + (src?.language || "غير محددة") + "\n";
       sourcesContext += "الملخص الفعلي للوثيقة: " + (src?.summary || "غير متاح") + "\n";
-      sourcesContext += "المحتوى التفصيلي المتاح للوثيقة:\n" + safeContent + "\n";
+      sourcesContext += "المحتوى التفصيلي المتاح للوثيقة (اقرأه كاملاً مهما كانت لغته، وحَوِّل مضمونه إلى تحليل عربي):\n" + safeContent + "\n";
     });
 
     const systemInstruction = "أنت عالم ومحلل خبير في نظام \"بحث OS\" (BahthOS).\n" +
 "مهمتك إجراء تحليل توليفي وتوثيقي عميق ومقارن للمصادر المرفقة حول الموضوع المحدد.\n\n" +
+"**معالجة المصادر متعددة اللغات (MULTILINGUAL SOURCE HANDLING - إلزامي)**:\n" +
+"   - قد تكون الوثائق المرفقة مكتوبة بالعربية أو الإنجليزية أو الفرنسية أو أي لغة أخرى أو مزيج منها. اقرأ النص الأجنبي كاملاً دون استثناء، واستخرج حججه المركزية وأعداده ونتائجه ومناهجه وآلياته وتبايناته، ثم صغ التقرير النهائي بالعربية الفصحى الغنية.\n" +
+"   - غياب النص العربي في المصدر لا يبرر رفض التحليل، ولا تقليل العمق، ولا القول إن الأدلة غير متاحة؛ فالنص الأجنبي مطالب بأن يكون أساس التحليل وقابلية الإسناد بذاته. ترجم كل اقتباس أو مقتطف أجنبي بطلاقة إلى العربية، وأضف دائماً [ترجمة عربية للنص الأصلي] عند الاقتباس الحرفي.\n" +
+"   - لا تعرّف الأرقام والنسب والسنوات الواردة في الوثائق الأجنبية أبداً بلغة المصدر النهائية؛ اجعلها أساس أدلة بالعربية، مع ربط كل رقم بوثيقته المحددة.\n\n" +
 "قواعد صياغة الجودة والتنسيق الصارمة (STRICT QUALITY & FORMATTING RULES):\n" +
 "0. **قواعد التنسيق والتوثيق المتقدمة (TABLES & CITATIONS & TRANSLATION)**:\n" +
 "   - **تنظيم الجداول**: يُحظر تماماً ترك أي صفوف فارغة أو خلايا ناقصة في الجداول المعيارية؛ يجب ملء جميع الأعمدة بدقة، وفي حال عدم توفر معلومة يُكتب `-` أو `غير متوفر`.\n" +
@@ -318,8 +325,12 @@ scopeIntro + sourcesContext;
 scopeIntro + sourcesContext;
     }
 
-    try {
-      const response = await generateContentWithRetry(ai, {
+    const readResponseText = (response: any): string =>
+      typeof response?.text === "string" ? response.text.trim() : "";
+
+    const generateArabicSynthesis = async () => {
+      // First attempt with the full multilingual system instruction.
+      const first = await generateContentWithRetry(ai, {
         model: DEFAULT_MODEL,
         contents: userPrompt,
         config: {
@@ -328,22 +339,51 @@ scopeIntro + sourcesContext;
         }
       });
 
-      if (response?.text && response.text.trim().length > 100) {
-        const cleanText = sanitizeArabicReportText(
-          deduplicateReportText(normalizeArabicText(response.text.trim()))
-        );
-        if (isArabicFirstText(cleanText)) {
-          const finalText =
-            toolType === "matrix"
-              ? sanitizeArabicReportText(
-                  injectEvidenceMatrixIntoReport(cleanText, activeSources, topic || "تحليل ومقارنة شاملة للمصادر")
-                )
-              : cleanText;
-          return res.json({
-            text: finalText,
-            isFallback: false
-          });
-        }
+      let candidate = readResponseText(first);
+      let cleanText = candidate.length > 100
+        ? sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(candidate)))
+        : "";
+
+      if (!(cleanText.length > 100 && isArabicFirstText(cleanText))) {
+        // Repair pass: the model either produced too little Arabic, leaked
+        // foreign text, or drafted a meta-level answer. Re-prompt once with an
+        // explicit pure-Arabic expansion directive before any fallback path.
+        console.warn("Synthesis response failed the Arabic gate; issuing a pure-Arabic repair pass.");
+        const repairInstruction =
+          "أعد الآن صياغة التقرير كاملاً بالعربية الفصحى حصراً من جديد: ترجم كل اقتباس أو مقتطف أجنبي إلى عربية فصيحة، ولا تنقل أي جملة إنجليزية أو فرنسية حرفياً. وسّع كل قسم إلى فقرات غنية بأدلة قابلة للتحقق من النصوص المتاحة. إن لم يتوفر نص عربي في المصادر فهذا لا يمنع التحليل العميق والمقارن للمحتوى الأجنبي؛ يُشترط فقط أن يكون المُخرَج بالعربية الخالصة.";
+        const second = await generateContentWithRetry(ai, {
+          model: DEFAULT_MODEL,
+          contents: userPrompt + "\n\n" + repairInstruction,
+          config: {
+            systemInstruction,
+            temperature: 0.3,
+          }
+        });
+        candidate = readResponseText(second);
+        cleanText = candidate.length > 100
+          ? sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(candidate)))
+          : "";
+      }
+
+      return cleanText;
+    };
+
+    try {
+      const cleanText = await generateArabicSynthesis();
+
+      if (cleanText.length > 100 && isArabicFirstText(cleanText)) {
+        const finalText =
+          toolType === "matrix"
+            ? sanitizeArabicReportText(
+                injectEvidenceMatrixIntoReport(cleanText, activeSources, topic || "تحليل ومقارنة شاملة للمصادر")
+              )
+            : cleanText;
+        return res.json({
+          text: finalText,
+          isFallback: false
+        });
+      }
+      if (cleanText.length > 100) {
         console.warn("Synthesis response contained excessive Latin text; using Arabic fallback.");
       }
     } catch (aiErr: any) {
