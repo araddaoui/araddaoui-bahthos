@@ -274,6 +274,15 @@ export function sanitizeDalilBriefing(briefing: DalilBriefing | null, sourcesCou
   return briefing;
 }
 
+const BYPASS_AUTH = true;
+
+const BYPASS_USER = {
+  uid: "dev-test-user",
+  email: "tester@bahthos.local",
+  displayName: "Dev Tester",
+  isGuest: true,
+} as unknown as FirebaseUser;
+
 export default function App() {
   const [showLandingPage, setShowLandingPage] = useState<boolean>(() => {
     try {
@@ -289,10 +298,14 @@ export default function App() {
   const [useAsGuest, setUseAsGuest] = useState<boolean>(false);
   const [isFirebaseLoading, setIsFirebaseLoading] = useState<boolean>(false);
 
+  const isLiveFirebaseUser = !!currentUser && !(BYPASS_AUTH && currentUser.uid === BYPASS_USER.uid);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) setIsFirebaseLoading(true);
-      setCurrentUser(user);
+      const isBypassMock = BYPASS_AUTH && !user;
+      const effectiveUser = isBypassMock ? BYPASS_USER : user;
+      if (effectiveUser && !isBypassMock) setIsFirebaseLoading(true);
+      setCurrentUser(effectiveUser);
       setAuthChecking(false);
     });
     // Fast non-blocking timeout (100ms) to guarantee zero UI latency on refresh
@@ -306,7 +319,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (currentUser) {
+    if (isLiveFirebaseUser) {
       loadedProjectIdRef.current = "__loading_authenticated_project__";
       setProjects([]);
       setCurrentProjectId("default");
@@ -320,7 +333,7 @@ export default function App() {
   }, [currentUser?.uid]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!isLiveFirebaseUser) return;
 
     const syncAndLoadFirebaseData = async () => {
       setIsFirebaseLoading(true);
@@ -456,7 +469,7 @@ export default function App() {
 
   // Save projects on change
   useEffect(() => {
-    if (currentUser) return;
+    if (isLiveFirebaseUser) return;
     try {
       localStorage.setItem(guestStorageKey("projects"), JSON.stringify(projects));
     } catch (e) {
@@ -466,7 +479,7 @@ export default function App() {
 
   // Save active project ID on change
   useEffect(() => {
-    if (currentUser) return;
+    if (isLiveFirebaseUser) return;
     try {
       localStorage.setItem(guestStorageKey("current_project_id"), currentProjectId);
     } catch (e) {
@@ -757,7 +770,7 @@ export default function App() {
     setSyntheses([]);
     setGlossaryTerms([]);
 
-    if (currentUser && !isQuotaExceeded()) {
+    if (isLiveFirebaseUser && !isQuotaExceeded()) {
       setIsFirebaseLoading(true);
       try {
         // 1. Save current state of the old project to Firestore first if old project still exists in projects
@@ -865,7 +878,7 @@ export default function App() {
       temperature: 0.2
     };
 
-    if (currentUser && !isQuotaExceeded()) {
+    if (isLiveFirebaseUser && !isQuotaExceeded()) {
       try {
         await saveUserProject(currentUser.uid, newProj);
       } catch (err) {
@@ -916,7 +929,7 @@ export default function App() {
     }
 
     // 5. Delete from Firestore in the background (non-blocking) if user is logged in
-    if (currentUser && !isQuotaExceeded()) {
+    if (isLiveFirebaseUser && !isQuotaExceeded()) {
       deleteUserProject(currentUser.uid, projectId).catch((err) => {
         console.error("Failed to delete project from Firestore:", err);
       });
@@ -950,7 +963,7 @@ export default function App() {
         localStorage.setItem("bahthos_current_project_id", newProj.id);
       } catch (e) {}
 
-      if (currentUser && !isQuotaExceeded()) {
+      if (isLiveFirebaseUser && !isQuotaExceeded()) {
         await saveUserProject(currentUser.uid, newProj);
         await saveProjectData(currentUser.uid, newProj.id, {
           sources: [],
@@ -972,7 +985,7 @@ export default function App() {
           localStorage.setItem("bahthos_current_project_id", nextActiveProject.id);
         } catch (e) {}
 
-        if (currentUser && !isQuotaExceeded()) {
+        if (isLiveFirebaseUser && !isQuotaExceeded()) {
           setIsFirebaseLoading(true);
           try {
             const { sources: cloudSources, messages: cloudMessages, syntheses: cloudSyntheses, glossaryTerms: cloudGlossary } = 
@@ -1019,7 +1032,7 @@ export default function App() {
 
   // Save sources to localStorage on change
   useEffect(() => {
-    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
+    if (isLiveFirebaseUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
       localStorage.setItem(guestStorageKey("sources", currentProjectId), JSON.stringify(sources));
     } catch (e) {
@@ -1029,7 +1042,7 @@ export default function App() {
 
   // Save messages to localStorage on change
   useEffect(() => {
-    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
+    if (isLiveFirebaseUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
       localStorage.setItem(guestStorageKey("messages", currentProjectId), JSON.stringify(messages));
     } catch (e) {
@@ -1039,7 +1052,7 @@ export default function App() {
 
   // Save syntheses to localStorage on change
   useEffect(() => {
-    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
+    if (isLiveFirebaseUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
       localStorage.setItem(guestStorageKey("syntheses", currentProjectId), JSON.stringify(syntheses));
     } catch (e) {
@@ -1049,7 +1062,7 @@ export default function App() {
 
   // Save temperature to localStorage on change
   useEffect(() => {
-    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
+    if (isLiveFirebaseUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
       localStorage.setItem(guestStorageKey("temperature", currentProjectId), temperature.toString());
     } catch (e) {
@@ -1059,7 +1072,7 @@ export default function App() {
 
   // Save glossary to localStorage on change
   useEffect(() => {
-    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
+    if (isLiveFirebaseUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
       localStorage.setItem(guestStorageKey("glossary", currentProjectId), JSON.stringify(glossaryTerms));
     } catch (e) {
@@ -1069,7 +1082,7 @@ export default function App() {
 
   // Save dalilBriefing to localStorage on change
   useEffect(() => {
-    if (currentUser || currentProjectId !== loadedProjectIdRef.current) return;
+    if (isLiveFirebaseUser || currentProjectId !== loadedProjectIdRef.current) return;
     try {
       if (dalilBriefing && briefingMatchesSourceIds(dalilBriefing, sources)) {
         localStorage.setItem(guestStorageKey("dalil", currentProjectId), JSON.stringify(dalilBriefing));
@@ -1083,7 +1096,7 @@ export default function App() {
 
   // Save sources and glossary terms immediately (critical data)
   useEffect(() => {
-    if (!currentUser || isFirebaseLoading || isQuotaExceeded()) return;
+    if (!isLiveFirebaseUser || isFirebaseLoading || isQuotaExceeded()) return;
     if (currentProjectId !== loadedProjectIdRef.current) return;
     if (isProjectDeleted(currentProjectId)) return;
 
@@ -1098,7 +1111,7 @@ export default function App() {
 
   // Save messages (larger payload) with debounce
   useEffect(() => {
-    if (!currentUser || isFirebaseLoading || isQuotaExceeded()) return;
+    if (!isLiveFirebaseUser || isFirebaseLoading || isQuotaExceeded()) return;
     if (currentProjectId !== loadedProjectIdRef.current) return;
     if (isProjectDeleted(currentProjectId)) return;
 
@@ -1121,7 +1134,7 @@ export default function App() {
 
   const handleResetWorkspace = async () => {
     clearDeletedProjectsRegistry();
-    if (currentUser && !isQuotaExceeded()) {
+    if (isLiveFirebaseUser && !isQuotaExceeded()) {
       setIsFirebaseLoading(true);
       try {
         for (const proj of projects) {
@@ -1564,7 +1577,7 @@ export default function App() {
       setGlossaryTerms(nextTerms);
     }
 
-    if (currentUser && currentProjectId && !isQuotaExceeded()) {
+    if (isLiveFirebaseUser && currentProjectId && !isQuotaExceeded()) {
       saveProjectData(currentUser.uid, currentProjectId, {
         sources: nextSources,
         glossaryTerms: nextSources.length === 0 ? [] : nextTerms,
@@ -1583,7 +1596,7 @@ export default function App() {
     setSelectedSourceId(null);
     setActiveMainView("chat");
 
-    if (currentUser && currentProjectId && !isQuotaExceeded()) {
+    if (isLiveFirebaseUser && currentProjectId && !isQuotaExceeded()) {
       saveProjectData(currentUser.uid, currentProjectId, {
         sources: [],
         glossaryTerms: [],
@@ -1764,7 +1777,7 @@ export default function App() {
     );
   }
 
-  if (showLandingPage || (!currentUser && !useAsGuest)) {
+  if ((showLandingPage && !BYPASS_AUTH) || (!currentUser && !useAsGuest)) {
     return (
       <LandingPage
         onEnterApp={() => {
