@@ -521,7 +521,7 @@ export default function App() {
       }
       return rawSources.map(s => ({
         ...s,
-        summary: ensureArabicSummary(s.summary, s.content, s.title)
+        summary: ensureArabicSummary(s.summary, s.title, s.content)
       }));
     } catch (e) {
       console.error(e);

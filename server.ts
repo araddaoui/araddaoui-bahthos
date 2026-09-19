@@ -40,6 +40,19 @@ app.use(glossaryRouter);
 app.use(glossarySweepRouter);
 app.use(billingRouter);
 
+// Parity with api/index.ts: fallback for unknown /api routes.
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: `Unknown API route: ${req.originalUrl || req.url}` });
+});
+
+// Central error handler so any thrown exception is returned as readable JSON
+// instead of an empty 500 that is impossible to debug.
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("API error:", err);
+  const status = err?.status || err?.statusCode || 500;
+  res.status(status).json({ error: err?.message || "Internal server error." });
+});
+
 // Serve frontend with Vite in development, or statically in production.
 async function setupViteOrStatic() {
   if (process.env.NODE_ENV !== "production") {
