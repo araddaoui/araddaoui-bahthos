@@ -61,7 +61,7 @@ export interface GlossaryTerm {
   sourceId?: string; // tracks which source triggered it (optional)
 }
 
-export type ActiveTab = "home" | "sources" | "editor" | "history" | "settings";
+export type ActiveTab = "home" | "sources" | "editor" | "history" | "settings" | "admin";
 
 export interface Project {
   id: string;

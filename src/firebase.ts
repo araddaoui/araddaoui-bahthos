@@ -19,6 +19,7 @@ import {
   disableNetwork
 } from "firebase/firestore";
 import { Project, Source, Synthesis, GlossaryTerm, Message, DalilBriefing } from "./types.js";
+import { UserPlanProfile } from "./utils/plans.js";
 
 // Firebase configuration from firebase-applet-config
 const firebaseConfig = {
@@ -368,5 +369,31 @@ export async function loadProjectData(
   } catch (err) {
     handleFirestoreError(err, "loadProjectData");
     return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
+  }
+}
+
+// Load the current user's subscription/profile document from Firestore.
+export async function loadUserProfile(userId: string): Promise<UserPlanProfile | null> {
+  if (isFirestoreQuotaExceeded) return null;
+  try {
+    const profileRef = doc(db, "users", userId);
+    const snapshot = await getDoc(profileRef);
+    if (!snapshot.exists()) return null;
+    return snapshot.data() as UserPlanProfile;
+  } catch (err) {
+    handleFirestoreError(err, "loadUserProfile");
+    return null;
+  }
+}
+
+// Persist the current user's subscription/profile document (their own doc only;
+// owner-scoped by the Firestore rules).
+export async function saveUserProfile(profile: UserPlanProfile): Promise<void> {
+  if (isFirestoreQuotaExceeded || !profile?.uid) return;
+  try {
+    const profileRef = doc(db, "users", profile.uid);
+    await setDoc(profileRef, sanitizeForFirestore(profile), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, "saveUserProfile");
   }
 }

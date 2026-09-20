@@ -18,9 +18,10 @@ interface SynthesisHistoryProps {
   syntheses: Synthesis[];
   sources?: Source[];
   onDeleteSynthesis: (id: string) => void;
+  onOpenSynthesisEditor?: () => void;
 }
 
-export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynthesis }: SynthesisHistoryProps) {
+export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynthesis, onOpenSynthesisEditor }: SynthesisHistoryProps) {
   const [selectedSynId, setSelectedSynId] = useState<string | null>(
     syntheses.length > 0 ? syntheses[0].id : null
   );
@@ -48,15 +49,18 @@ export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynt
             <History className="w-4.5 h-4.5 text-[#0d6264]" />
             <span>سجل التقارير والتوليفات</span>
           </h2>
-          <p className="text-[10px] text-gray-500 mt-0.5">
+          <p className="text-[10px] text-slate-700 mt-0.5">
             التقارير البحثية التي قمت بتوليدها وحفظها في جلسة العمل الحالية.
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {syntheses.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-xs font-semibold">
-              لا توجد توليفات محفوظة حتى الآن.
+            <div className="bg-slate-50 border border-emerald-100/60 p-4 rounded-xl text-center space-y-1.5" id="history-empty-notice">
+              <p className="text-xs font-bold text-slate-700">لا توجد توليفات محفوظة حتى الآن</p>
+              <p className="text-[10px] text-slate-700 leading-relaxed font-medium">
+                عند توليد تقرير من محرّر التوليف، سيُحفظ هنا تلقائياً ليُقرأ ويُنسخ أو يُصدَّر لاحقاً.
+              </p>
             </div>
           ) : (
             syntheses.map((syn) => {
@@ -76,7 +80,7 @@ export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynt
                     {syn.title}
                   </h3>
                   
-                  <div className="flex items-center gap-2 mt-1.5 text-[9px] text-gray-400 font-medium">
+                  <div className="flex items-center gap-2 mt-1.5 text-[9px] text-slate-700 font-medium">
                     <Calendar className="w-3 h-3" />
                     <span>{syn.dateCreated}</span>
                     <span>•</span>
@@ -118,7 +122,7 @@ export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynt
                 <h1 className="text-base font-bold text-[#1f1f1f] mt-1">
                   {activeSyn.title}
                 </h1>
-                <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
+                <p className="text-[10px] text-slate-700 mt-0.5 font-medium">
                   تم التوليد في {activeSyn.dateCreated} بمقارنة {activeSyn.sourceIds.length} مصادر بحثية
                 </p>
               </div>
@@ -161,13 +165,62 @@ export default function SynthesisHistory({ syntheses, sources = [], onDeleteSynt
             </div>
           </div>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 max-w-sm mx-auto space-y-4">
-            <History className="w-12 h-12 text-gray-300" />
-            <div>
-              <h3 className="text-xs font-bold text-gray-700">لم يتم اختيار أي تقرير</h3>
-              <p className="text-[11px] text-gray-400 mt-1">
-                الرجاء اختيار أحد التقارير المحفوظة من القائمة الجانبية لقراءته أو نسخه.
-              </p>
+          <div className="flex-1 overflow-y-auto flex items-center justify-center" id="synthesis-history-empty-hero">
+            <div className="w-full max-w-lg mx-auto bg-white border border-emerald-200/50 rounded-2xl shadow-sm p-7 md:p-9 text-center space-y-5">
+              {/* Mint badge */}
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-[11px] font-bold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>التقارير التوليفية</span>
+              </span>
+
+              {/* Illustrated report preview skeleton */}
+              <div className="bg-[#ecfdf5] border border-emerald-200/50 rounded-xl p-5 text-right space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-emerald-900 rounded-lg flex items-center justify-center text-white">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="h-2 w-32 bg-emerald-200/80 rounded-full animate-pulse" />
+                      <div className="h-1.5 w-20 bg-emerald-200/60 rounded-full animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="px-2 py-1 bg-emerald-900 text-white rounded-full text-[9px] font-bold">
+                    خارطة أدلة
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="h-2 w-full bg-emerald-200/50 rounded-full animate-pulse" style={{ animationDelay: "80ms" }} />
+                  <div className="h-2 w-5/6 bg-emerald-200/50 rounded-full animate-pulse" style={{ animationDelay: "160ms" }} />
+                  <div className="h-2 w-2/3 bg-emerald-200/50 rounded-full animate-pulse" style={{ animationDelay: "240ms" }} />
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="px-2 py-0.5 bg-white border border-emerald-200/70 rounded-md text-[9px] font-bold text-emerald-900">
+                    توثيق مباشر
+                  </span>
+                  <span className="px-2 py-0.5 bg-white border border-emerald-200/70 rounded-md text-[9px] font-bold text-emerald-900">
+                    مقارنة مصادر
+                  </span>
+                </div>
+              </div>
+
+              {/* Heading + copy */}
+              <div className="space-y-2">
+                <h3 className="text-base font-extrabold text-slate-900">سجل التوليفات والتقارير فارغ حالياً</h3>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  ابدأ توليفة بحثية جديدة من محرّر التوليف: يسحب النظام أدلة وثائقك، ويقارن بينها، ثم يكتب تقريراً موثقاً يُحفظ هنا تلقائياً.
+                </p>
+              </div>
+
+              {/* Primary CTA */}
+              <button
+                onClick={() => onOpenSynthesisEditor?.()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-900 hover:bg-emerald-950 text-white text-xs font-bold rounded-xl transition-all shadow-xs"
+                id="history-empty-open-editor-btn"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>ابدأ توليفة بحثية جديدة</span>
+              </button>
             </div>
           </div>
         )}

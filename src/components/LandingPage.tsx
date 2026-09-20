@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import AuthView from "./AuthView.js";
-import { X, LogOut, LayoutGrid, Key, UserPlus } from "lucide-react";
+import { X, LogOut, LayoutGrid, Key, UserPlus, Menu, ArrowLeft, BookOpen, CircleCheck, Link2, Landmark, ShieldCheck, Scale, Quote, Combine, SpellCheck, Compass, Globe } from "lucide-react";
 
 interface LandingPageProps {
   onEnterApp: () => void;
@@ -24,7 +24,7 @@ export default function LandingPage({
   const [authInitialIsSignUp, setAuthInitialIsSignUp] = useState(false);
 
   return (
-    <div className="bg-slate-50 text-slate-800 font-sans min-h-screen selection:bg-teal-500 selection:text-white" style={{ fontFamily: "'Noto Sans Arabic', 'Inter', system-ui, sans-serif" }}>
+    <div className="bg-slate-50 text-slate-800 font-sans min-h-screen selection:bg-teal-500 selection:text-white" style={{ fontFamily: "'Tajawal', ui-sans-serif, system-ui, sans-serif" }}>
       {/* Navbar */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-screen-xl mx-auto">
@@ -32,7 +32,7 @@ export default function LandingPage({
             {/* Logo */}
             <div className="flex items-center gap-x-3">
               <div className="w-11 h-11 bg-teal-800 flex items-center justify-center rounded-2xl shadow-inner">
-                <i className="fas fa-book text-white text-2xl"></i>
+                <BookOpen className="w-6 h-6 text-white" />
               </div>
               <div>
                 <span className="font-bold text-2xl tracking-tight text-teal-900 block leading-tight">بحث OS</span>
@@ -101,7 +101,7 @@ export default function LandingPage({
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 id="landing-mobile-menu-btn"
                 className="md:hidden w-10 h-10 flex items-center justify-center text-teal-800 cursor-pointer">
-                <i className="fas fa-bars text-xl"></i>
+                <Menu className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -151,7 +151,7 @@ export default function LandingPage({
                   id="landing-hero-cta"
                   className="w-full sm:w-auto px-8 py-3.5 bg-white text-teal-900 hover:bg-teal-50 transition-all font-bold text-lg rounded-3xl flex items-center justify-center gap-x-3 shadow-xl cursor-pointer">
                   <span>{currentUser ? "دخول مساحة العمل" : "ابدأ رحلتك مجاناً"}</span>
-                  <i className="fas fa-arrow-left"></i>
+                  <ArrowLeft className="w-4 h-4" />
                 </button>
                 
                 <button 
@@ -181,7 +181,7 @@ export default function LandingPage({
                 <div className="bg-white rounded-2xl overflow-hidden shadow-inner text-slate-800 text-right">
                   <div className="px-4 py-3 bg-teal-800 text-white flex items-center justify-between">
                     <div className="flex items-center gap-x-2">
-                      <i className="fas fa-book text-lg"></i>
+                      <BookOpen className="w-4.5 h-4.5" />
                       <span className="font-semibold text-sm">مساعد بحث OS والتحليل المتكامل</span>
                     </div>
                     <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></div>
@@ -201,11 +201,11 @@ export default function LandingPage({
                     
                     <div className="flex items-center justify-between text-xs">
                       <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-2xl font-semibold flex items-center gap-x-1">
-                        <i className="fas fa-check-circle text-xs"></i> 
+                        <CircleCheck className="w-3.5 h-3.5" /> 
                         <span className="font-bold text-[10px]">10 مصادر مدمجة</span>
                       </div>
                       <div className="text-teal-700 text-xs flex items-center gap-x-1">
-                        <i className="fas fa-link"></i> 
+                        <Link2 className="w-3 h-3" /> 
                         <span className="text-[11px]">توثيق دقيق</span>
                       </div>
                     </div>
@@ -229,7 +229,7 @@ export default function LandingPage({
       <div className="max-w-screen-xl mx-auto px-6 py-6 border-b border-slate-200">
         <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-center">
           <div className="flex items-center gap-x-2">
-            <div className="text-teal-700"><i className="fas fa-university text-lg"></i></div>
+            <div className="text-teal-700"><Landmark className="w-5 h-5" /></div>
             <span className="text-sm font-semibold text-slate-600">شركات، جامعات، ومؤسسات بحثية</span>
           </div>
           <div className="hidden md:block w-px h-4 bg-slate-300"></div>
@@ -250,7 +250,7 @@ export default function LandingPage({
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between" id="landing-feature-1">
             <div>
               <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-                <i className="fas fa-file-shield text-2xl"></i>
+                <ShieldCheck className="w-6 h-6" />
               </div>
               <h3 className="font-bold text-xl text-slate-900 mb-3">الالتزام الحصري بوثائقك</h3>
               <p className="text-slate-600 leading-relaxed text-sm">
@@ -264,10 +264,10 @@ export default function LandingPage({
           
           {/* Feature 2 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-2">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-balance-scale text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">التمييز بين الحقيقة والاستنتاج</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Scale className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">التمييز بين الحقيقة والاستنتاج</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يفرق محرك بحث OS بوضوح تام بين ما ورد صراحة في المصادر ("الحقائق المصرحة") وبين الاستدلالات أو الفرضيات الضمنية التي يطرحها الباحثون.
             </p>
@@ -275,10 +275,10 @@ export default function LandingPage({
           
           {/* Feature 3 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-3">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-quote-right text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">الاستشهاد المباشر والموثق</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Quote className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">الاستشهاد المباشر والموثق</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يربط كل استنتاج أو فكرة بالوثيقة التي استقى منها المعلومة بشكل دقيق، مع ذكره لاسم الوثيقة داخل سياق الجملة لتيسير المراجعة.
             </p>
@@ -286,10 +286,10 @@ export default function LandingPage({
           
           {/* Feature 4 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-4">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-object-group text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">مقارنة وتوليف مصادر متعددة</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Combine className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">مقارنة وتوليف مصادر متعددة</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يقوم بتشريح منهجي لمجموعة المصادر التي ترفعها، ليكشف تلقائياً عن نقاط التوافق والاتفاق الفكري، ونقاط الاختلاف والتعارض الإحصائي بينها.
             </p>
@@ -297,10 +297,10 @@ export default function LandingPage({
           
           {/* Feature 5 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-5">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-spell-check text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">تنقية اللفظ والتعريب الركيك</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <SpellCheck className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">تنقية اللفظ والتعريب الركيك</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يكتشف تلقائياً المصطلحات والتعريبات الصوتية الركيكة (مثل "البلندد ليرنينغ") ويستبدلها فوراً بمصطلحات عربية فصيحة ومعتمدة علمياً.
             </p>
@@ -308,10 +308,10 @@ export default function LandingPage({
           
           {/* Feature 6 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-6">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-compass text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">اقتراح أسئلة مكملة ذكية</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Compass className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">اقتراح أسئلة مكملة ذكية</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               لا يقف عند حد الإجابة، بل يقود خطتك البحثية إلى الأمام عبر اقتراح أسئلة تكميلية عميقة تكشف الفجوات البحثية والآفاق غير المستكشفة.
             </p>
@@ -330,7 +330,7 @@ export default function LandingPage({
           <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-8">
             <div className="text-right max-w-3xl">
               <div className="inline-flex items-center gap-x-2 px-3 py-1 bg-teal-500/20 text-teal-300 rounded-full text-xs font-semibold mb-4 border border-teal-500/30">
-                <i className="fas fa-globe text-xs"></i>
+                <Globe className="w-3 h-3" />
                 <span>دعم المصادر متعددة اللغات</span>
               </div>
               <h3 className="text-2xl font-bold mb-3">تحليل مصادر بلغات مختلفة وصياغة عربية فصحى</h3>
@@ -417,21 +417,21 @@ export default function LandingPage({
             
             <div className="mt-8 space-y-4">
               <div className="flex items-start gap-x-3">
-                <div className="mt-1 text-emerald-600"><i className="fas fa-check-circle text-lg"></i></div>
+                <div className="mt-1 text-emerald-600"><CircleCheck className="w-4.5 h-4.5" /></div>
                 <div>
                   <div className="font-semibold text-slate-900">مصداقية وأمان كامل</div>
                   <div className="text-sm text-slate-500">لا اجتهاد ولا اختلاق لنصوص خارجية غريبة.</div>
                 </div>
               </div>
               <div className="flex items-start gap-x-3">
-                <div className="mt-1 text-emerald-600"><i className="fas fa-check-circle text-lg"></i></div>
+                <div className="mt-1 text-emerald-600"><CircleCheck className="w-4.5 h-4.5" /></div>
                 <div>
                   <div className="font-semibold text-slate-900">عربية فصحى راقية</div>
                   <div className="text-sm text-slate-500">صياغة بأسلوب النثر العلمي المحكم والمعبر.</div>
                 </div>
               </div>
               <div className="flex items-start gap-x-3">
-                <div className="mt-1 text-emerald-600"><i className="fas fa-check-circle text-lg"></i></div>
+                <div className="mt-1 text-emerald-600"><CircleCheck className="w-4.5 h-4.5" /></div>
                 <div>
                   <div className="font-semibold text-slate-900">هندسة متخصصة لكافة أنواع البحث</div>
                   <div className="text-sm text-slate-500">مبني خصيصاً لأبحاث السوق، التحليل التقني، مراجعة الأدبيات، وتقارير السياسات.</div>
@@ -564,7 +564,7 @@ export default function LandingPage({
             id="landing-footer-cta"
             className="px-8 py-3.5 bg-teal-800 hover:bg-teal-900 transition-all text-white font-bold text-base rounded-3xl inline-flex items-center gap-x-3 shadow-md cursor-pointer">
             <span>{currentUser ? "ادخل إلى مساحة العمل" : "ادخل إلى منصة الباحث مجاناً"}</span>
-            <i className="fas fa-arrow-left"></i>
+            <ArrowLeft className="w-4 h-4" />
           </button>
         </div>
         <div className="flex justify-between items-center text-[11px]">

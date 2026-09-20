@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { 
   Plus, 
   Search, 
@@ -32,6 +32,7 @@ interface UploadQueueItem {
 interface SourcesListProps {
   sources: Source[];
   activeTab?: string;
+  pendingUpload?: { files: File[]; id: number } | null;
   onToggleSource: (id: string) => void;
   onEnableAll: () => void;
   onDisableAll: () => void;
@@ -50,11 +51,15 @@ interface SourcesListProps {
   dalilCountdown?: number | null;
   isDalilGenerating?: boolean;
   onTriggerDalilBriefing?: () => void;
+  tier?: string;
+  sourceCount?: number;
+  onRequireUpgrade?: () => void;
 }
 
 function SourcesList({
   sources,
   activeTab = "sources",
+  pendingUpload = null,
   onToggleSource,
   onEnableAll,
   onDisableAll,
@@ -73,6 +78,9 @@ function SourcesList({
   dalilCountdown = null,
   isDalilGenerating = false,
   onTriggerDalilBriefing,
+  tier = "free",
+  sourceCount = 0,
+  onRequireUpgrade,
 }: SourcesListProps) {
   const [activeSubTab, setActiveSubTab] = useState<"sources" | "glossary">("sources");
   const [searchQuery, setSearchQuery] = useState("");
@@ -97,6 +105,7 @@ function SourcesList({
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [uploadProgress, setUploadProgress] = useState({ completed: 0, total: 0 });
+  const processedUploadIdRef = useRef<number | null>(null);
 
   const activeCount = useMemo(
     () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
@@ -238,6 +247,15 @@ function SourcesList({
       setErrorMsg(`اكتملت معالجة ${completed} من ${files.length} مستندات. يمكنك إعادة محاولة الملفات الفاشلة بشكل منفصل.`);
     }
   };
+
+  // Files handed over from the Sources Explorer empty-state hero (drop zone /
+  // picker) are forwarded into the existing upload queue exactly once.
+  useEffect(() => {
+    if (!pendingUpload || pendingUpload.files.length === 0) return;
+    if (processedUploadIdRef.current === pendingUpload.id) return;
+    processedUploadIdRef.current = pendingUpload.id;
+    void processFiles(pendingUpload.files);
+  }, [pendingUpload]);
 
   const runAutomaticAnalysis = async (
     content: string,
@@ -397,6 +415,28 @@ function SourcesList({
         <p className="text-[11px] text-gray-600 leading-relaxed font-semibold">
           الوثائق المفعّلة يتم تضمينها تلقائياً في سياق التحليل والمقارنة بواسطة الذكاء الاصطناعي.
         </p>
+        {tier === "free" && (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-bold text-slate-600">الخطة المجانية</span>
+              <button
+                onClick={onRequireUpgrade}
+                className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline underline-offset-2"
+              >
+                ترقية للحصول على استخدام غير محدود
+              </button>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${sourceCount >= 5 ? "bg-amber-400" : "bg-teal-500"}`}
+                style={{ width: `${Math.min(100, (sourceCount / 5) * 100)}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5 font-semibold">
+              {sourceCount} / 5 مصادر مستخدمة{sourceCount >= 5 ? " — بلغت الحد الأقصى للخطة المجانية" : ""}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Sub-Tabs Switcher */}
@@ -1030,6 +1070,7 @@ function areSourcesListPropsEqual(prev: SourcesListProps, next: SourcesListProps
   // menu click should not force every source card to render again.
   return (
     prev.sources === next.sources &&
+    prev.pendingUpload === next.pendingUpload &&
     prev.selectedSourceId === next.selectedSourceId &&
     prev.glossaryTerms === next.glossaryTerms &&
     prev.isSweeping === next.isSweeping &&

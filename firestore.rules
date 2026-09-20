@@ -5,14 +5,29 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
     // Every user profile and every project subcollection is private to the
-    // authenticated Firebase user whose UID is present in the path.
+    // authenticated Firebase user whose UID is present in the path. Admins may
+    // read/write any user profile (used by the AdminDashboard for manual plan
+    // overrides of pending TND subscriptions).
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
 
       match /{document=**} {
         allow read, write: if isOwner(userId);
       }
+    }
+
+    // TND payment proofs: the submitting user can create and read their own;
+    // admins manage all proof statuses (approve/reject for activation).
+    match /payment_proofs/{proofId} {
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == resource.data.uid);
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      allow update, delete: if isAdmin();
     }
 
     // No public test or diagnostic documents. Keep the database deny-by-default

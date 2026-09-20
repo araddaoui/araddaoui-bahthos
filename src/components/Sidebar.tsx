@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { 
+import {
   BookOpen, 
   MessageSquare, 
   Sparkles, 
@@ -13,7 +13,10 @@ import {
   Trash2,
   FolderGit2,
   AlertCircle,
-  Home
+  Home,
+  LogOut,
+  CircleUser,
+  ShieldCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { ActiveTab, Project } from "../types.js";
@@ -29,6 +32,9 @@ interface SidebarProps {
   onDeleteProject: (id: string) => void;
   onShowLandingPage?: () => void;
   onNavigateIntent?: (tab: ActiveTab) => void;
+  currentUser?: any;
+  onSignOut?: () => void;
+  isAdmin?: boolean;
 }
 
 export default function Sidebar({ 
@@ -42,6 +48,9 @@ export default function Sidebar({
   onDeleteProject,
   onShowLandingPage,
   onNavigateIntent,
+  currentUser,
+  onSignOut,
+  isAdmin,
 }: SidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -81,6 +90,16 @@ export default function Sidebar({
       icon: Settings,
       badge: null,
     },
+    ...(isAdmin
+      ? [
+          {
+            id: "admin" as ActiveTab,
+            label: "لوحة الإدارة",
+            icon: ShieldCheck,
+            badge: null,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -326,6 +345,18 @@ export default function Sidebar({
           <div className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></div>
           <span>المصادر متصلة بالكامل</span>
         </div>
+        {currentUser && onSignOut && (
+          <button
+            type="button"
+            onClick={onSignOut}
+            id="sidebar-signout-btn"
+            className="w-full flex items-center justify-center md:justify-start gap-2.5 px-3 py-2 text-xs font-bold text-red-600 bg-white hover:bg-red-50 rounded-xl transition-all border border-red-100 hover:border-red-200 shadow-2xs"
+            title="تسجيل الخروج الآمن"
+          >
+            <LogOut className="w-4 h-4 text-red-600" />
+            <span className="hidden md:inline">تسجيل الخروج الآمن</span>
+          </button>
+        )}
         <div className="text-[10px] text-gray-500 font-mono hidden md:block">
           bahthOS v1.0.0
         </div>

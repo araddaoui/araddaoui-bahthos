@@ -6,6 +6,7 @@ import synthesisRouter from "../src/server/routers/synthesis.js";
 import reportFollowupRouter from "../src/server/routers/reportFollowup.js";
 import glossaryRouter from "../src/server/routers/glossary.js";
 import glossarySweepRouter from "../src/server/routers/glossarySweep.js";
+import billingRouter from "../src/server/routers/billing.js";
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use(synthesisRouter);
 app.use(reportFollowupRouter);
 app.use(glossaryRouter);
 app.use(glossarySweepRouter);
+app.use(billingRouter);
 
 // Fallback for unknown /api routes.
 app.use("/api", (req, res) => {

@@ -9,6 +9,7 @@ import synthesisRouter from "./src/server/routers/synthesis";
 import reportFollowupRouter from "./src/server/routers/reportFollowup";
 import glossaryRouter from "./src/server/routers/glossary";
 import glossarySweepRouter from "./src/server/routers/glossarySweep";
+import billingRouter from "./src/server/routers/billing";
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use(synthesisRouter);
 app.use(reportFollowupRouter);
 app.use(glossaryRouter);
 app.use(glossarySweepRouter);
+app.use(billingRouter);
 
 // Parity with api/index.ts: fallback for unknown /api routes.
 app.use("/api", (req, res) => {

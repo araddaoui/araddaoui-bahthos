@@ -3,10 +3,11 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
   signInWithPopup,
+  sendPasswordResetEmail,
   GoogleAuthProvider
 } from "firebase/auth";
 import { auth } from "../firebase.js";
-import { BookOpen, AlertCircle, Loader2, ArrowRight } from "lucide-react";
+import { BookOpen, AlertCircle, CircleCheck, Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
 
 interface AuthViewProps {
   onSuccess: () => void;
@@ -18,7 +19,9 @@ export default function AuthView({ onSuccess, onSkip, initialIsSignUp = false }:
   const [isSignUp, setIsSignUp] = useState(initialIsSignUp);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const translateError = (errCode: string, errMessage?: string): string => {
@@ -42,6 +45,50 @@ export default function AuthView({ onSuccess, onSkip, initialIsSignUp = false }:
       default:
         return `حدث خطأ غير متوقع: (${errCode || "خطأ غير معروف"}). يرجى التأكد من تفعيل خيار البريد الإلكتروني وكلمة المرور في لوحة Firebase وإضافة نطاق موقعك الحالي (Vercel) للنطاقات المعتمدة (Authorized Domains). التفاصيل: ${errMessage || ""}`;
     }
+  };
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setResetSent(false);
+    const targetEmail = email.trim();
+    if (!targetEmail) {
+      setError("يرجى إدخال بريدك الإلكتروني أولاً في الحقل أعلاه لتلقي رابط إعادة التعيين.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, targetEmail);
+      setResetSent(true);
+      setPassword("");
+    } catch (err: any) {
+      console.error("Password reset error:", err);
+      if (err?.code === "auth/user-not-found" || err?.code === "auth/invalid-credential") {
+        setError("إذا كان الحساب موجوداً، فقد تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.");
+      } else {
+        setError(translateError(err?.code || "", err?.message || ""));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getPasswordStrength = (value: string) => {
+    if (!value) return { score: 0, label: "", color: "" };
+    let score = 0;
+    if (value.length >= 6) score++;
+    if (value.length >= 8) score++;
+    if (/\d/.test(value)) score++;
+    if (/[^A-Za-z0-9]/.test(value)) score++;
+    if (/[A-Z]/.test(value)) score++;
+    const levels = [
+      { score: 1, label: "ضعيفة جداً", color: "bg-red-500" },
+      { score: 2, label: "ضعيفة", color: "bg-orange-400" },
+      { score: 3, label: "متوسطة", color: "bg-amber-400" },
+      { score: 4, label: "قوية", color: "bg-teal-500" },
+      { score: 5, label: "قوية جداً", color: "bg-emerald-600" },
+    ];
+    const level = levels[Math.max(Math.min(score, levels.length) - 1, 0)];
+    return { score, label: level.label, color: level.color };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -111,6 +158,14 @@ export default function AuthView({ onSuccess, onSkip, initialIsSignUp = false }:
           </div>
         )}
 
+        {/* Password reset success notification */}
+        {resetSent && (
+          <div className="bg-teal-50 text-teal-800 text-xs font-semibold p-4 rounded-xl border border-teal-100 flex items-center gap-2.5 animate-fadeIn" id="auth-reset-success-banner">
+            <CircleCheck className="w-4 h-4 flex-shrink-0 text-teal-600" />
+            <span>تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.</span>
+          </div>
+        )}
+
         {/* Main Auth Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">
@@ -128,16 +183,69 @@ export default function AuthView({ onSuccess, onSkip, initialIsSignUp = false }:
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-gray-500 block">كلمة المرور</label>
-            <input
-              type="password"
-              required
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 bg-[#fbfbfa] border border-[#e2e2dd] rounded-xl text-sm focus:outline-hidden focus:border-[#094d4e] focus:bg-white transition-all text-right"
-              id="auth-password-input"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 pl-11 bg-[#fbfbfa] border border-[#e2e2dd] rounded-xl text-sm focus:outline-hidden focus:border-[#094d4e] focus:bg-white transition-all text-right"
+                id="auth-password-input"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#094d4e] transition-colors cursor-pointer p-1"
+                id="auth-toggle-password-btn"
+                title={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+              >
+                {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+              </button>
+            </div>
+            {isSignUp && showPassword && password.length === 0 && (
+              <p className="text-[10px] text-gray-400 font-medium">يمكنك الآن رؤية كلمة المرور أثناء الكتابة.</p>
+            )}
           </div>
+
+          {/* Password strength indicator (sign-up only) */}
+          {isSignUp && password && (() => {
+            const strength = getPasswordStrength(password);
+            return (
+              <div className="space-y-1.5" id="auth-strength-meter">
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((segment) => (
+                    <div
+                      key={segment}
+                      className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                        strength.score >= segment ? strength.color : "bg-[#eae9e2]"
+                      }`}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-gray-500">قوة كلمة المرور: <span className={strength.color === "bg-red-500" || strength.color === "bg-orange-400" ? "text-red-600" : strength.color === "bg-amber-400" ? "text-amber-600" : "text-teal-700"}>{strength.label}</span></span>
+                  <span className="text-[10px] text-gray-400 font-medium">6 أحرف على الأقل مع أرقام ورموز يُفضّل</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Forgot password link (sign-in only) */}
+          {!isSignUp && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={loading}
+                className="text-[11px] font-semibold text-[#094d4e] hover:underline cursor-pointer disabled:opacity-50"
+                id="auth-forgot-password-btn"
+              >
+                نسيت كلمة المرور؟
+              </button>
+            </div>
+          )}
 
           <button
             type="submit"
@@ -197,6 +305,7 @@ export default function AuthView({ onSuccess, onSkip, initialIsSignUp = false }:
             onClick={() => {
               setIsSignUp(!isSignUp);
               setError(null);
+              setResetSent(false);
             }}
             className="text-xs font-semibold text-[#094d4e] hover:underline cursor-pointer"
             id="auth-toggle-mode-button"

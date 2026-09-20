@@ -8,17 +8,20 @@ const loadSourceViewer = () => import("./components/SourceViewer.js");
 const loadSynthesisEditor = () => import("./components/SynthesisEditor.js");
 const loadSynthesisHistory = () => import("./components/SynthesisHistory.js");
 const loadSettingsView = () => import("./components/SettingsView.js");
+const loadAdminDashboard = () => import("./components/AdminDashboard.js");
 
 const SourceViewer = lazy(loadSourceViewer);
 const synthesisEditorModule = loadSynthesisEditor();
 const SynthesisEditor = lazy(() => synthesisEditorModule);
 const SynthesisHistory = lazy(loadSynthesisHistory);
 const SettingsView = lazy(loadSettingsView);
+const AdminDashboard = lazy(loadAdminDashboard);
+import UpgradeModal from "./components/UpgradeModal.js";
 import LandingPage from "./components/LandingPage.js";
 import TermsOfService from "./components/TermsOfService.js";
 import PrivacyPolicy from "./components/PrivacyPolicy.js";
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./utils/termExtractor.js";
-import { BookOpen, Sparkles, MessageSquare, AlertCircle, Loader2 } from "lucide-react";
+import { UploadCloud, BrainCircuit, Languages, Zap, FileText, Sparkles, Loader2 } from "lucide-react";
 import { 
   auth, 
   loadUserProjects, 
@@ -29,10 +32,12 @@ import {
   markProjectAsDeleted,
   isProjectDeleted,
   clearDeletedProjectsRegistry,
-  isQuotaExceeded
+  isQuotaExceeded,
+  loadUserProfile,
+  saveUserProfile
 } from "./firebase.js";
+import { UserPlanProfile, SubscriptionTier, resolveEffectiveTier, isUnlimitedTier, isAdminUser, addMonthsToNow, FREE_PROJECT_LIMIT, FREE_SOURCE_LIMIT, GUEST_PLAN_STORAGE_KEY } from "./utils/plans.js";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
-import AuthView from "./components/AuthView.js";
 
 const GUEST_STORAGE_PREFIX = "bahthos:guest:";
 
@@ -274,7 +279,9 @@ export function sanitizeDalilBriefing(briefing: DalilBriefing | null, sourcesCou
   return briefing;
 }
 
-const BYPASS_AUTH = true;
+// Bypass auth only in controlled dev environments (VITE_BYPASS_AUTH="true").
+// Defaults to false so the real Firebase sign-in flow is active in production.
+const BYPASS_AUTH = import.meta.env.VITE_BYPASS_AUTH === "true";
 
 const BYPASS_USER = {
   uid: "dev-test-user",
@@ -300,6 +307,15 @@ export default function App() {
   // "شاهد الصفحة التعريفية"), independent of BYPASS_AUTH's initial-entry skip.
   const [viewingLanding, setViewingLanding] = useState<boolean>(false);
   const [isFirebaseLoading, setIsFirebaseLoading] = useState<boolean>(false);
+
+  // Freemium plan/profile state (Firestore for accounts, localStorage for guests)
+  const [planProfile, setPlanProfile] = useState<UserPlanProfile | null>(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [isPlanProfileLoading, setIsPlanProfileLoading] = useState(true);
+
+  const effectiveTier = resolveEffectiveTier(planProfile);
+  const isFree = effectiveTier === "free";
+  const isAdmin = isAdminUser(planProfile, currentUser?.email);
 
   const isLiveFirebaseUser = !!currentUser && !(BYPASS_AUTH && currentUser.uid === BYPASS_USER.uid);
 
@@ -334,6 +350,105 @@ export default function App() {
       setIsFirebaseLoading(true);
     }
   }, [currentUser?.uid]);
+
+  // Refresh a Stripe Pro user's expiry from Stripe so renewals/cancellations
+  // stay accurate without webhooks (server is read-only; the client persists
+  // its own profile doc).
+  const refreshStripeStatus = async (profile: UserPlanProfile): Promise<UserPlanProfile> => {
+    const customerId = (profile as any).stripeCustomerId as string | undefined;
+    if (!customerId) return profile;
+    try {
+      const res = await fetch("/api/billing/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer: customerId }),
+      });
+      if (!res.ok) return profile;
+      const data = await res.json();
+      if (data?.active === true && data.currentPeriodEnd) {
+        const refreshed = { ...profile, expiresAt: data.currentPeriodEnd as number, planType: (data.planType as any) || profile.planType };
+        setPlanProfile(refreshed);
+        if (isLiveFirebaseUser) saveUserProfile(refreshed).catch(() => {});
+        return refreshed;
+      }
+    } catch (e) {
+      console.error("Failed to refresh Stripe status:", e);
+    }
+    return profile;
+  };
+
+  // Load the user's plan profile (Firestore for accounts, localStorage for
+  // guests / dev-bypass mock users).
+  useEffect(() => {
+    const loadProfile = async () => {
+      setIsPlanProfileLoading(true);
+      if (isLiveFirebaseUser && currentUser) {
+        let profile = await loadUserProfile(currentUser.uid);
+        if (!profile) {
+          profile = {
+            uid: currentUser.uid,
+            email: currentUser.email || "",
+            tier: "free",
+            planType: "none",
+            expiresAt: null,
+          };
+          saveUserProfile(profile).catch(() => {});
+        }
+        if (profile.tier === "pro_stripe") {
+          await refreshStripeStatus(profile);
+        }
+        setPlanProfile(profile);
+      } else {
+        let profile: UserPlanProfile | null = null;
+        try {
+          const raw = localStorage.getItem(GUEST_PLAN_STORAGE_KEY);
+          if (raw) profile = JSON.parse(raw) as UserPlanProfile;
+        } catch (e) {}
+        if (!profile) {
+          profile = {
+            uid: "guest",
+            email: currentUser?.email || "زائر",
+            tier: "free",
+            planType: "none",
+            expiresAt: null,
+          };
+        }
+        setPlanProfile({ ...profile, uid: "guest" });
+      }
+      setIsPlanProfileLoading(false);
+    };
+    void loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.uid, isLiveFirebaseUser]);
+
+  const persistPlan = (next: UserPlanProfile) => {
+    setPlanProfile(next);
+    if (isLiveFirebaseUser) {
+      saveUserProfile(next).catch(console.error);
+    } else {
+      try {
+        localStorage.setItem(GUEST_PLAN_STORAGE_KEY, JSON.stringify({ ...next, uid: "guest" }));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  // When the user returns from the Stripe hosted checkout, open the upgrade
+  // modal so it can verify the session and persist the activated plan.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (sessionId) {
+      setUpgradeModalOpen(true);
+      if (showLandingPage) setShowLandingPage(false);
+      try {
+        localStorage.setItem("bahthos_entered_app", "1");
+        localStorage.setItem("tawlif_entered_app", "1");
+      } catch (e) {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!isLiveFirebaseUser) return;
@@ -562,6 +677,8 @@ export default function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [activeMainView, setActiveMainView] = useState<"chat" | "source">("chat");
+  const [pendingUpload, setPendingUpload] = useState<{ files: File[]; id: number } | null>(null);
+  const [sourcesDragActive, setSourcesDragActive] = useState(false);
 
   // Lazily load syntheses for the current project
   const [syntheses, setSyntheses] = useState<Synthesis[]>(() => {
@@ -873,6 +990,12 @@ export default function App() {
   const handleCreateProject = async (name: string) => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
+
+    // Freemium gate: free tier is capped at FREE_PROJECT_LIMIT projects.
+    if (isFree && projects.length >= FREE_PROJECT_LIMIT) {
+      setUpgradeModalOpen(true);
+      return;
+    }
 
     const newProj: Project = {
       id: "proj-" + Date.now(),
@@ -1502,6 +1625,14 @@ export default function App() {
   const commitSourceDrafts = (drafts: SourceDraft[], runMissingTermExtraction = true) => {
     if (!drafts || drafts.length === 0) return;
 
+    // Freemium gate: free tier is capped at FREE_SOURCE_LIMIT sources per
+    // project. Blocks list uploads, paste, and single-source adds at one choke
+    // point. latestSourcesRef keeps the count accurate across rapid batches.
+    if (isFree && (latestSourcesRef.current.length + drafts.length) > FREE_SOURCE_LIMIT) {
+      setUpgradeModalOpen(true);
+      return;
+    }
+
     const newSources = drafts.map((draft, index) => createSourceFromDraft(draft, index));
     const successfulSources = newSources.filter((source) => !source.error);
     const nextSourcesCandidate = [...latestSourcesRef.current, ...newSources];
@@ -1613,6 +1744,45 @@ export default function App() {
   const handleSelectSource = (id: string) => {
     setSelectedSourceId(id);
     setActiveMainView("source");
+  };
+
+  // Sources Explorer empty-state hero drag & drop / picker -> existing upload queue
+  const handleHeroDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setSourcesDragActive(true);
+    } else if (e.type === "dragleave") {
+      setSourcesDragActive(false);
+    }
+  };
+
+  const handleHeroDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSourcesDragActive(false);
+    const files = Array.from(e.dataTransfer.files || []) as File[];
+    if (files.length > 0) {
+      // Freemium pre-check: free tier capped at FREE_SOURCE_LIMIT sources.
+      if (isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
+        setUpgradeModalOpen(true);
+        return;
+      }
+      setPendingUpload({ files, id: Date.now() });
+    }
+  };
+
+  const handleHeroFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) as File[] : [];
+    if (files.length > 0) {
+      // Freemium pre-check: free tier capped at FREE_SOURCE_LIMIT sources.
+      if (isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
+        setUpgradeModalOpen(true);
+        return;
+      }
+      setPendingUpload({ files, id: Date.now() });
+    }
+    e.target.value = "";
   };
 
   // Chat with a single source (disables all other sources temporarily)
@@ -1731,6 +1901,7 @@ export default function App() {
     if (tab === "editor") void loadSynthesisEditor();
     else if (tab === "history") void loadSynthesisHistory();
     else if (tab === "settings") void loadSettingsView();
+    else if (tab === "admin") void loadAdminDashboard();
     else if (tab === "home") void loadSourceViewer();
   };
 
@@ -1828,6 +1999,9 @@ export default function App() {
         onDeleteProject={handleDeleteProject}
         onShowLandingPage={() => { setViewingLanding(true); setShowLandingPage(true); }}
         onNavigateIntent={preloadWorkspaceTab}
+        currentUser={currentUser}
+        onSignOut={handleSignOut}
+        isAdmin={isAdmin}
       />
 
       {/* Main Grid Wrapper for responsive layout:
@@ -1849,6 +2023,7 @@ export default function App() {
           <SourcesList
             sources={sources}
             activeTab={activeTab}
+            pendingUpload={pendingUpload}
             onToggleSource={handleToggleSource}
             onEnableAll={handleEnableAll}
             onDisableAll={handleDisableAll}
@@ -1867,6 +2042,9 @@ export default function App() {
             dalilCountdown={dalilCountdown}
             isDalilGenerating={isDalilGenerating}
             onTriggerDalilBriefing={handleTriggerDalilBriefing}
+            tier={effectiveTier}
+            sourceCount={latestSourcesRef.current.length}
+            onRequireUpgrade={() => setUpgradeModalOpen(true)}
           />
         </div>
 
@@ -1920,13 +2098,103 @@ export default function App() {
                   onChatWithSingleSource={handleChatWithSingleSource}
                 />
               ) : (
-                <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 text-gray-400 max-w-md mx-auto space-y-4">
-                  <BookOpen className="w-16 h-16 text-gray-200" />
-                  <div className="space-y-1.5">
-                    <h2 className="text-base font-bold text-[#1f1f1f]">استكشاف المستندات البحثية</h2>
-                    <p className="text-xs text-gray-500 leading-relaxed">
-                      الرجاء الضغط على أحد المستندات في القائمة لقراءة محتواه بالكامل، أو إضافة وثيقة جديدة في الأسفل.
-                    </p>
+                <div className="flex-1 overflow-y-auto flex items-center justify-center p-6 md:p-10" id="sources-explorer-empty-hero">
+                  <div className="w-full max-w-2xl mx-auto space-y-6">
+                    {/* Hero header */}
+                    <div className="text-center">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-[11px] font-bold">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>مستكشف المصادر والمستندات</span>
+                      </span>
+                      <h2 className="text-lg md:text-xl font-extrabold text-slate-900 mt-3 leading-tight">
+                        اكتشف وثائقك البحثية استعداداً للتحليل والتوليف
+                      </h2>
+                      <p className="text-xs text-slate-700 leading-relaxed font-medium mt-2 max-w-lg mx-auto">
+                        ارفع أول وثيقة لتستخرج المفاهيم تلقائياً، وتُفهرس محتواها فوراً، ثم ابدأ المقارنة والتوليف في مساحة العمل.
+                      </p>
+                    </div>
+
+                    {/* Drag & drop upload box */}
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,.docx,.doc,.txt,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                      className="hidden"
+                      id="sources-explorer-empty-file-input"
+                      onChange={handleHeroFilePick}
+                    />
+                    <label
+                      htmlFor="sources-explorer-empty-file-input"
+                      onDragEnter={handleHeroDrag}
+                      onDragOver={handleHeroDrag}
+                      onDragLeave={handleHeroDrag}
+                      onDrop={handleHeroDrop}
+                      className={`block border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
+                        sourcesDragActive
+                          ? "border-emerald-500 bg-emerald-50 shadow-md scale-[1.01]"
+                          : "border-emerald-200/50 bg-[#ecfdf5] hover:border-emerald-300 hover:bg-emerald-50/70"
+                      }`}
+                      id="sources-explorer-drop-zone"
+                    >
+                      <div className="mx-auto w-14 h-14 bg-emerald-900 rounded-2xl flex items-center justify-center text-white shadow-sm">
+                        <UploadCloud className="w-7 h-7" />
+                      </div>
+                      <p className="text-sm font-extrabold text-slate-900 mt-4">اسحب ملفاتك هنا أو تصفح جهازك</p>
+                      <p className="text-xs text-slate-700 font-medium mt-1.5 leading-relaxed">
+                        يمكنك اختيار عدة مستندات دفعة واحدة؛ الخادم يحلل كل ملف ويستخرج ملخصه ومصطلحاته.
+                      </p>
+
+                      <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+                        <span className="px-2.5 py-1 bg-white border border-emerald-200/60 rounded-lg text-[10px] font-bold text-emerald-900 flex items-center gap-1">
+                          <FileText className="w-3 h-3" />
+                          <span>PDF</span>
+                        </span>
+                        <span className="px-2.5 py-1 bg-white border border-emerald-200/60 rounded-lg text-[10px] font-bold text-emerald-900 flex items-center gap-1">
+                          <FileText className="w-3 h-3" />
+                          <span>DOCX</span>
+                        </span>
+                        <span className="px-2.5 py-1 bg-white border border-emerald-200/60 rounded-lg text-[10px] font-bold text-emerald-900 flex items-center gap-1">
+                          <FileText className="w-3 h-3" />
+                          <span>TXT</span>
+                        </span>
+                      </div>
+
+                      <span className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-900 hover:bg-emerald-950 text-white text-xs font-bold rounded-xl transition-all shadow-xs mt-5">
+                        <UploadCloud className="w-4 h-4" />
+                        <span>اختر وثيقة لبدء الاستكشاف</span>
+                      </span>
+                    </label>
+
+                    {/* Feature row */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="bg-white border border-emerald-200/50 rounded-2xl p-4 text-center flex flex-col items-center gap-2">
+                        <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-700">
+                          <BrainCircuit className="w-5 h-5" />
+                        </div>
+                        <h3 className="text-xs font-bold text-slate-900">استخراج المفاهيم</h3>
+                        <p className="text-[10px] text-slate-700 leading-relaxed font-medium">
+                          تُلتقط المصطلحات والمفاهيم الرئيسية من كل وثيقة وتُدقق تلقائياً.
+                        </p>
+                      </div>
+                      <div className="bg-white border border-emerald-200/50 rounded-2xl p-4 text-center flex flex-col items-center gap-2">
+                        <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-700">
+                          <Languages className="w-5 h-5" />
+                        </div>
+                        <h3 className="text-xs font-bold text-slate-900">تحليل عابر للغات</h3>
+                        <p className="text-[10px] text-slate-700 leading-relaxed font-medium">
+                          تُقرأ الوثائق العربية والإنجليزية والفرنسية وتُصاغ بالعربية الفصحى.
+                        </p>
+                      </div>
+                      <div className="bg-white border border-emerald-200/50 rounded-2xl p-4 text-center flex flex-col items-center gap-2">
+                        <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-700">
+                          <Zap className="w-5 h-5" />
+                        </div>
+                        <h3 className="text-xs font-bold text-slate-900">فهرسة فورية</h3>
+                        <p className="text-[10px] text-slate-700 leading-relaxed font-medium">
+                          تُبنى فهارس الأرقام والمصطلحات قبل بدء أي تحليل أو مقارنة توليفية.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1939,6 +2207,7 @@ export default function App() {
                 syntheses={syntheses}
                 sources={sources}
                 onDeleteSynthesis={handleDeleteSynthesis}
+                onOpenSynthesisEditor={() => setActiveTab("editor")}
               />
             </Suspense>
           </div>
@@ -1959,6 +2228,26 @@ export default function App() {
                     localStorage.removeItem("tawlif_entered_app");
                   } catch (e) {}
                 }}
+                planProfile={planProfile}
+                effectiveTier={effectiveTier}
+                projectsUsed={projects.length}
+                sourcesUsed={latestSourcesRef.current.length}
+                projectLimit={FREE_PROJECT_LIMIT}
+                sourceLimit={FREE_SOURCE_LIMIT}
+                isAdmin={isAdmin}
+                isPlanProfileLoading={isPlanProfileLoading}
+                onOpenUpgrade={() => setUpgradeModalOpen(true)}
+                onShowAdmin={() => setActiveTab("admin")}
+              />
+            </Suspense>
+          </div>
+
+          <div className={`absolute inset-0 ${activeTab === "admin" ? "" : "hidden"}`} aria-hidden={activeTab !== "admin"}>
+            <Suspense fallback={<WorkspaceViewFallback />}>
+              <AdminDashboard
+                currentUser={currentUser}
+                isPlanProfileLoading={isPlanProfileLoading}
+                onOpenSettings={() => setActiveTab("settings")}
               />
             </Suspense>
           </div>
@@ -1985,6 +2274,16 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <UpgradeModal
+        open={upgradeModalOpen}
+        onClose={() => setUpgradeModalOpen(false)}
+        profile={planProfile}
+        effectiveTier={effectiveTier}
+        uid={currentUser?.uid || "guest"}
+        email={currentUser?.email || planProfile?.email || "زائر"}
+        onPlanChanged={persistPlan}
+      />
     </div>
   );
 }
