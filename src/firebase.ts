@@ -1,154 +1,399 @@
-﻿import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import {
-	collection,
-	deleteDoc,
-	doc,
-	getDocs,
-	getFirestore,
-	setDoc
+import { initializeApp, setLogLevel } from "firebase/app";
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  User as FirebaseUser 
+} from "firebase/auth";
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc, 
+  setDoc, 
+  deleteDoc, 
+  writeBatch,
+  disableNetwork
 } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { Project, Source, Synthesis, GlossaryTerm, Message, DalilBriefing } from "./types.js";
+import { UserPlanProfile } from "./utils/plans.js";
 
+// Firebase configuration from firebase-applet-config
 const firebaseConfig = {
-	apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-	authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-	projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-	storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-	messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-	appId: import.meta.env.VITE_FIREBASE_APP_ID
+  apiKey: "AIzaSyCU03vn4pn8E0DV7gyL6InQ3sFxG9x-uAU",
+  authDomain: "gen-lang-client-0535812922.firebaseapp.com",
+  projectId: "gen-lang-client-0535812922",
+  storageBucket: "gen-lang-client-0535812922.firebasestorage.app",
+  messagingSenderId: "733534710623",
+  appId: "1:733534710623:web:5face9eab5188e1bdea4ea"
 };
 
-const firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const DATABASE_ID = "ai-studio-bahthosos-387d5c26-c1cd-4070-97da-dc8503fc3a7f";
 
-export const auth = getAuth(firebaseApp);
-export const db = getFirestore(firebaseApp);
-export const storage = getStorage(firebaseApp);
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+try {
+  setLogLevel("silent");
+} catch (e) {}
+const auth = getAuth(app);
+const db = getFirestore(app, DATABASE_ID);
 
-const deletedProjectsKey = "bahthos_deleted_projects";
-const deletedProjects = new Set<string>();
-let quotaExceeded = false;
+// Global flag to track if Firestore daily quota has been exceeded, avoiding retry loops
+let isFirestoreQuotaExceeded = false;
 
-function isQuotaError(error: unknown): boolean {
-	const code = typeof error === "object" && error !== null && "code" in error
-		? String((error as { code?: unknown }).code)
-		: "";
-	return code.includes("resource-exhausted") || code.includes("quota");
+try {
+  const quotaTS = localStorage.getItem("bahthos_firestore_quota_exceeded");
+  if (quotaTS) {
+    const ts = parseInt(quotaTS, 10);
+    // If quota was exceeded within last 24 hours, keep network disabled
+    if (Date.now() - ts < 24 * 60 * 60 * 1000) {
+      isFirestoreQuotaExceeded = true;
+      disableNetwork(db).catch(() => {});
+    }
+  }
+} catch (e) {}
+
+export function isQuotaExceeded(): boolean {
+  return isFirestoreQuotaExceeded;
 }
 
-function handleFirestoreError(error: unknown): never {
-	if (isQuotaError(error)) quotaExceeded = true;
-	throw error;
+function handleFirestoreError(error: any, actionName: string) {
+  const msg = error?.message || String(error || "");
+  if (
+    error?.code === "resource-exhausted" || 
+    msg.includes("resource-exhausted") || 
+    msg.includes("Quota limit exceeded") ||
+    msg.includes("quota")
+  ) {
+    if (!isFirestoreQuotaExceeded) {
+      isFirestoreQuotaExceeded = true;
+      try {
+        localStorage.setItem("bahthos_firestore_quota_exceeded", Date.now().toString());
+      } catch (e) {}
+      console.warn(`[Firestore] Daily quota limit reached during ${actionName}. Disabling network connection to prevent background retries.`);
+      disableNetwork(db).catch(() => {});
+    }
+  } else {
+    console.error(`[Firestore] Error during ${actionName}:`, error);
+  }
 }
 
-function projectCollection(userId: string, projectId: string, name: string) {
-	return collection(db, "users", userId, "projects", projectId, name);
-}
+export { app, auth, db };
 
-export async function loadUserProjects(userId: string): Promise<any[]> {
-	if (quotaExceeded) return [];
-	try {
-		const snapshot = await getDocs(collection(db, "users", userId, "projects"));
-		return snapshot.docs.map((project) => ({ id: project.id, ...project.data() }));
-	} catch (error) {
-		return handleFirestoreError(error);
-	}
-}
+// Tracking set for deleted project IDs to prevent race conditions and re-persisting deleted projects
+const deletedProjectIds = new Set<string>();
 
-export async function saveUserProject(userId: string, project: any): Promise<void> {
-	if (quotaExceeded || isProjectDeleted(project.id)) return;
-	try {
-		await setDoc(doc(db, "users", userId, "projects", project.id), project, { merge: true });
-	} catch (error) {
-		handleFirestoreError(error);
-	}
-}
-
-export async function deleteUserProject(userId: string, projectId: string): Promise<void> {
-	if (quotaExceeded) return;
-	try {
-		for (const name of ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"]) {
-			const snapshot = await getDocs(projectCollection(userId, projectId, name));
-			await Promise.all(snapshot.docs.map((item) => deleteDoc(item.ref)));
-		}
-		await deleteDoc(doc(db, "users", userId, "projects", projectId));
-		markProjectAsDeleted(projectId);
-	} catch (error) {
-		handleFirestoreError(error);
-	}
-}
-
-export async function loadProjectData(userId: string, projectId: string): Promise<Record<string, any[]>> {
-	if (quotaExceeded || isProjectDeleted(projectId)) {
-		return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
-	}
-
-	try {
-		const names = ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"];
-		const entries = await Promise.all(names.map(async (name) => {
-			const snapshot = await getDocs(projectCollection(userId, projectId, name));
-			return [name, snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))] as const;
-		}));
-		return Object.fromEntries(entries);
-	} catch (error) {
-		return handleFirestoreError(error);
-	}
-}
-
-export async function saveProjectData(userId: string, projectId: string, data: Record<string, any>): Promise<void> {
-	if (quotaExceeded || isProjectDeleted(projectId)) return;
-	try {
-		await Promise.all(Object.entries(data).map(async ([name, values]) => {
-			if (!Array.isArray(values)) return;
-			await Promise.all(values.map((value) => {
-				const id = value?.id || `${name}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-				return setDoc(doc(projectCollection(userId, projectId, name), id), value, { merge: true });
-			}));
-		}));
-	} catch (error) {
-		handleFirestoreError(error);
-	}
+try {
+  const saved = localStorage.getItem("bahthos_deleted_projects");
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((id) => deletedProjectIds.add(id));
+    }
+  }
+} catch (e) {
+  console.error("Failed to load deleted project IDs from localStorage", e);
 }
 
 export function markProjectAsDeleted(projectId: string): void {
-	deletedProjects.add(projectId);
-	if (typeof window !== "undefined") {
-		localStorage.setItem(deletedProjectsKey, JSON.stringify(Array.from(deletedProjects)));
-	}
+  if (!projectId) return;
+  deletedProjectIds.add(projectId);
+  try {
+    localStorage.setItem("bahthos_deleted_projects", JSON.stringify(Array.from(deletedProjectIds)));
+  } catch (e) {
+    console.error("Failed to save deleted project IDs to localStorage", e);
+  }
 }
 
 export function isProjectDeleted(projectId: string): boolean {
-	if (deletedProjects.size === 0 && typeof window !== "undefined") {
-		try {
-			const saved = JSON.parse(localStorage.getItem(deletedProjectsKey) || "[]");
-			if (Array.isArray(saved)) saved.forEach((id) => deletedProjects.add(String(id)));
-		} catch {
-			// Ignore malformed local state and use the in-memory registry.
-		}
-	}
-	return deletedProjects.has(projectId);
+  if (!projectId) return false;
+  return deletedProjectIds.has(projectId);
 }
 
 export function clearDeletedProjectsRegistry(): void {
-	deletedProjects.clear();
-	if (typeof window !== "undefined") localStorage.removeItem(deletedProjectsKey);
+  deletedProjectIds.clear();
+  try {
+    localStorage.removeItem("bahthos_deleted_projects");
+  } catch (e) {}
 }
 
-export function isQuotaExceeded(): boolean {
-	return quotaExceeded;
+// Helper to load all user projects from Firestore
+export async function loadUserProjects(userId: string): Promise<Project[]> {
+  if (isFirestoreQuotaExceeded) return [];
+  try {
+    const projectsRef = collection(db, "users", userId, "projects");
+    const snapshot = await getDocs(projectsRef);
+    const projects: Project[] = [];
+    snapshot.forEach((doc) => {
+      if (!isProjectDeleted(doc.id)) {
+        projects.push({
+          id: doc.id,
+          ...doc.data()
+        } as Project);
+      }
+    });
+    return projects;
+  } catch (err) {
+    handleFirestoreError(err, "loadUserProjects");
+    return [];
+  }
 }
 
-export async function getIdToken(): Promise<string> {
-	return auth.currentUser ? auth.currentUser.getIdToken() : "";
+// Helper to recursively remove undefined properties from objects so Firestore setDoc won't throw invalid data error
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (typeof data !== "object") {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      cleaned[key] = sanitizeForFirestore(value);
+    }
+  }
+  return cleaned as T;
 }
 
-export function getCurrentUser() {
-	return auth.currentUser;
+// Helper to save/update a single project to Firestore
+const lastSavedProjects = new Map<string, string>();
+
+export async function saveUserProject(userId: string, project: Project): Promise<void> {
+  if (isFirestoreQuotaExceeded || isProjectDeleted(project.id)) {
+    return;
+  }
+  const dataToSave = sanitizeForFirestore({
+    id: project.id,
+    name: project.name,
+    dateCreated: project.dateCreated,
+    temperature: project.temperature ?? 0.2
+  });
+  const serialized = JSON.stringify(dataToSave);
+  if (lastSavedProjects.get(project.id) === serialized) {
+    return;
+  }
+
+  try {
+    const projectDocRef = doc(db, "users", userId, "projects", project.id);
+    await setDoc(projectDocRef, dataToSave, { merge: true });
+    lastSavedProjects.set(project.id, serialized);
+  } catch (err) {
+    handleFirestoreError(err, "saveUserProject");
+  }
 }
 
-export async function getAuthHeaders(): Promise<Record<string, string>> {
-	const token = await getIdToken();
-	return token ? { Authorization: `Bearer ${token}` } : {};
+// Helper to delete a project from Firestore
+export async function deleteUserProject(userId: string, projectId: string): Promise<void> {
+  markProjectAsDeleted(projectId);
+  lastSavedProjects.delete(projectId);
+  if (isFirestoreQuotaExceeded) return;
+  try {
+    const subcollections = ["sources", "messages", "syntheses", "glossaryTerms", "dalilBriefings"];
+    for (const sub of subcollections) {
+      const colRef = collection(db, "users", userId, "projects", projectId, sub);
+      const snap = await getDocs(colRef);
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = writeBatch(db);
+        const chunk = docs.slice(i, i + 400);
+        chunk.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }
+    const projectDocRef = doc(db, "users", userId, "projects", projectId);
+    await deleteDoc(projectDocRef);
+  } catch (err) {
+    handleFirestoreError(err, "deleteUserProject");
+  }
 }
 
-export default auth;
+// Serialize syncCollection per (userId, projectId, collectionName). The function
+// is a full-reconcile (delete remote docs absent from the passed array, then
+// upsert the array). If two calls overlap, the older one can read its snapshot
+// AFTER the newer one has committed, and then delete documents the newer call
+// just wrote — losing data that nothing will ever re-sync. The queue guarantees
+// only one reconcile runs per collection at a time, in trigger order, so the
+// final write always reflects the latest state.
+const syncQueues = new Map<string, Promise<void>>();
+
+function runInSyncQueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const previous = syncQueues.get(key) ?? Promise.resolve();
+  const run = previous.then(fn, fn);
+  syncQueues.set(key, run.then(() => undefined, () => undefined));
+  return run;
+}
+
+// Reusable helper to diff and sync a collection in Firestore
+export function syncCollection<T extends { id?: string; term?: string }>(
+  userId: string,
+  projectId: string,
+  collectionName: string,
+  items: T[] | undefined
+): Promise<void> {
+  if (isFirestoreQuotaExceeded || items === undefined) {
+    return Promise.resolve();
+  }
+
+  const queueKey = `${userId}/${projectId}/${collectionName}`;
+  return runInSyncQueue(queueKey, async () => {
+    try {
+      const colRef = collection(db, "users", userId, "projects", projectId, collectionName);
+      const snap = await getDocs(colRef);
+      const getItemId = (item: T): string => item.id || item.term || "";
+      const newIds = new Set(items.map((item) => getItemId(item)));
+
+      const existingMap = new Map<string, any>();
+      snap.forEach((d) => {
+        existingMap.set(d.id, d.data());
+      });
+
+      const batch = writeBatch(db);
+      let opCount = 0;
+
+      // Sync remote collection by deleting items not in the new set and upserting changed/new items.
+      snap.forEach((d) => {
+        if (!newIds.has(d.id)) {
+          batch.delete(d.ref);
+          opCount++;
+        }
+      });
+
+      for (const item of items) {
+        const docId = getItemId(item);
+        if (!docId) continue;
+
+        const sanitized = sanitizeForFirestore(item);
+        const existingData = existingMap.get(docId);
+
+        // Diff check: only write if document is new or changed
+        if (!existingData || JSON.stringify(existingData) !== JSON.stringify(sanitized)) {
+          const docRef = doc(db, "users", userId, "projects", projectId, collectionName, docId);
+          batch.set(docRef, sanitized, { merge: true });
+          opCount++;
+        }
+      }
+
+      if (opCount > 0) {
+        await batch.commit();
+      }
+    } catch (err) {
+      handleFirestoreError(err, `syncCollection(${collectionName})`);
+    }
+  });
+}
+
+// Helper to save all documents of a project to Firestore
+export async function saveProjectData(
+  userId: string,
+  projectId: string,
+  data: {
+    sources?: Source[];
+    messages?: Message[];
+    syntheses?: Synthesis[];
+    glossaryTerms?: GlossaryTerm[];
+    dalilBriefings?: DalilBriefing[];
+  }
+): Promise<void> {
+  if (isFirestoreQuotaExceeded || isProjectDeleted(projectId)) {
+    return;
+  }
+  const { sources, messages, syntheses, glossaryTerms, dalilBriefings } = data;
+
+  try {
+    await syncCollection(userId, projectId, "sources", sources);
+    await syncCollection(userId, projectId, "messages", messages);
+    await syncCollection(userId, projectId, "syntheses", syntheses);
+    await syncCollection(userId, projectId, "glossaryTerms", glossaryTerms);
+    await syncCollection(userId, projectId, "dalilBriefings", dalilBriefings);
+  } catch (err) {
+    handleFirestoreError(err, "saveProjectData");
+  }
+}
+
+// Helper to load project state from Firestore
+export async function loadProjectData(
+  userId: string,
+  projectId: string
+): Promise<{
+  sources: Source[];
+  messages: Message[];
+  syntheses: Synthesis[];
+  glossaryTerms: GlossaryTerm[];
+  dalilBriefings: DalilBriefing[];
+}> {
+  if (isFirestoreQuotaExceeded) {
+    return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
+  }
+  try {
+    const sourcesRef = collection(db, "users", userId, "projects", projectId, "sources");
+    const messagesRef = collection(db, "users", userId, "projects", projectId, "messages");
+    const synthesesRef = collection(db, "users", userId, "projects", projectId, "syntheses");
+    const glossaryTermsRef = collection(db, "users", userId, "projects", projectId, "glossaryTerms");
+    const dalilBriefingsRef = collection(db, "users", userId, "projects", projectId, "dalilBriefings");
+
+    const [sourcesSnap, messagesSnap, synthesesSnap, glossarySnap, dalilSnap] = await Promise.all([
+      getDocs(sourcesRef),
+      getDocs(messagesRef),
+      getDocs(synthesesRef),
+      getDocs(glossaryTermsRef),
+      getDocs(dalilBriefingsRef)
+    ]);
+
+    const sources: Source[] = [];
+    sourcesSnap.forEach((d) => sources.push(d.data() as Source));
+
+    const messages: Message[] = [];
+    messagesSnap.forEach((d) => messages.push(d.data() as Message));
+    // Sort messages by timestamp if present, otherwise by ID or order
+    messages.sort((a, b) => new Date(a.timestamp || "").getTime() - new Date(b.timestamp || "").getTime());
+
+    const syntheses: Synthesis[] = [];
+    synthesesSnap.forEach((d) => syntheses.push(d.data() as Synthesis));
+
+    const glossaryTerms: GlossaryTerm[] = [];
+    glossarySnap.forEach((d) => glossaryTerms.push(d.data() as GlossaryTerm));
+
+    const dalilBriefings: DalilBriefing[] = [];
+    dalilSnap.forEach((d) => dalilBriefings.push(d.data() as DalilBriefing));
+
+    return { sources, messages, syntheses, glossaryTerms, dalilBriefings };
+  } catch (err) {
+    handleFirestoreError(err, "loadProjectData");
+    return { sources: [], messages: [], syntheses: [], glossaryTerms: [], dalilBriefings: [] };
+  }
+}
+
+// Load the current user's subscription/profile document from Firestore.
+export async function loadUserProfile(userId: string): Promise<UserPlanProfile | null> {
+  if (isFirestoreQuotaExceeded) return null;
+  try {
+    const profileRef = doc(db, "users", userId);
+    const snapshot = await getDoc(profileRef);
+    if (!snapshot.exists()) return null;
+    return snapshot.data() as UserPlanProfile;
+  } catch (err) {
+    handleFirestoreError(err, "loadUserProfile");
+    return null;
+  }
+}
+
+// Persist the current user's subscription/profile document (their own doc only;
+// owner-scoped by the Firestore rules).
+export async function saveUserProfile(profile: UserPlanProfile): Promise<void> {
+  if (isFirestoreQuotaExceeded || !profile?.uid) return;
+  try {
+    const profileRef = doc(db, "users", profile.uid);
+    await setDoc(profileRef, sanitizeForFirestore(profile), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, "saveUserProfile");
+  }
+}

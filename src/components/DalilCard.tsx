@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, Loader2, Volume2, Pause, Square, ChevronDown, ChevronUp, Radio, Download } from "lucide-react";
 import { DalilBriefing } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import { exportToWordDocument } from "../utils/reportFormatter.js";
 
 interface DalilCardProps {
@@ -185,13 +184,9 @@ export default function DalilCard({
     if (!chunk) return null;
 
     const request = (async () => {
-      const authHeaders = await getAuthHeaders();
       const res = await fetch("/api/tts", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: chunk.text }),
         signal: audioAbortControllerRef.current?.signal,
       });

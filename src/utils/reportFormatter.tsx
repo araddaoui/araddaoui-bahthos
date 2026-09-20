@@ -1,0 +1,1360 @@
+import React from "react";
+import { normalizeArabicText } from "./termExtractor.js";
+
+/**
+ * Utility to strip out XML evidence tags completely (<evidence ...>...</evidence>) and normalize Arabic font/OCR characters.
+ */
+export function stripEvidenceTags(text: string): string {
+  if (!text) return "";
+  const stripped = text.replace(/<evidence([\s\S]*?)>([\s\S]*?)<\/evidence>/gi, "").trim();
+  return normalizeArabicText(stripped);
+}
+
+/**
+ * Normalizes raw report text structure to guarantee line breaks between sections,
+ * questions (س1:), answers (ج:), headings (####), disclosures, and fix all-bold lines.
+ */
+export function normalizeReportStructure(text: string): string {
+  if (!text) return "";
+
+  // 0.P Protect clean matrix tables FIRST, before anything strips/collapses newlines or runs the
+  // fragile normalization regexes. Several pipeline steps (stripEvidenceTags -> normalizeArabicText
+  // joins lines, header-detach, table-grouping, reparagraphing) match *inside* valid pipe rows and
+  // fragment them into '| :' noise / merged rows. Snapshot each boundary-delimited pipe region into
+  // a sentinel token, run the rest of the pipeline, then restore verbatim at the end.
+  const matrixBlocks: string[] = [];
+  const TABLE_SENTINEL = "\u0000MATRIX\u0000";
+  let result = text.replace(/[ \t]*\|[^\n]*\|[ \t]*(?:\n[ \t]*\|[^\n]*\|[ \t]*)*\n?/g, (block) => {
+    matrixBlocks.push(block.trim().replace(/\n{3,}/g, "\n\n"));
+    return "\n\n" + TABLE_SENTINEL + (matrixBlocks.length - 1) + TABLE_SENTINEL + "\n\n";
+  });
+
+  result = stripEvidenceTags(result);
+
+  // 0. Fix common Arabic typos, grammar agreement issues, and garbled BiDi parentheses
+  result = result
+    .replace(/\bقراءة\s+نقدي\b/g, "قراءة نقدية")
+    .replace(/\bمستقبيلة\b/g, "مستقبلية")
+    .replace(/\bباعتماها\b/g, "باعتمادها")
+    .replace(/\bصناع\s+القرا\s*\n\s*ر\b/g, "صناع القرار")
+    .replace(/توصية\s+مستندة\s+إلى\s*[\(\[«]\s*[\s.\-–—:؛"'\(\)]*([^)\n]+?)[\s.\-–—:؛"'\(\)]*[\)\]»]\s*[:：]?/gi, 'توصية مستندة إلى "$1":')
+    .replace(/توصية\s+مستندة\s+إلى\s*[-–—•*]?\s*\(\s*([^)]+)\s*\)\s*[:：]?/gi, 'توصية مستندة إلى "$1":');
+
+  // 0. Detach table headers from preceding non-table text (e.g. "توضيح النطاق: ... | الرقم | ...")
+  result = result.replace(/([^\n|]+)\s*(\|[ \t]*الرقم[ \t]*\|)/gi, "$1\n\n$2");
+  result = result.replace(/([^\n|]+)\s*(\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|[ \t]*[^\n|]+\|)/g, "$1\n\n$2");
+
+  // 0.05 Drop stray table-noise fragments (lone '|', '| :', '| :---') that the AI sometimes
+  // emits between real rows. They carry no content and, if left, render as broken empty rows
+  // or text paragraphs. Only lines that consist SOLELY of pipe/colon/dash/whitespace are removed.
+  result = result.replace(/^[ \t]*\|[ \t:]*$/gm, "\n");
+  result = result.replace(/^[ \t]*\|[ \t]*:?-{1,}[ \t]*\|?[ \t]*$/gm, "\n");
+
+  // 0.1 Rebuild any malformed evidence-matrix table region (tab-separated, rows split across
+  // physical lines, trailing row indices) into a clean pipe-delimited markdown table.
+  result = rebuildEvidenceMatrix(result);
+
+  // 1. Clean leading bullets/dots/numbers before pipes '|' on table lines
+  result = result.replace(/^[ \t]*[•*.\d\s]+(?=\|)/gm, "");
+
+  // 2. Convert bullet-prefixed section headings (e.g., "• الفجوات المعرفية والمنهجية المرصودة") to proper markdown h3
+  result = result.replace(/^[ \t]*[•*-]\s*(الفجوات المعرفية[^\n]*|الأسئلة البحثية[^\n]*|مقترحات المستندات[^\n]*|التوصيات العملية[^\n]*|الملخص التنفيذي[^\n]*|القراءة التحليلية[^\n]*|نقاط الاتفاق[^\n]*|نقاط الاختلاف[^\n]*|الخلاصة والاستنتاجات[^\n]*)/gm, "### $1");
+
+  // 3. Separate inline merged gap blocks (e.g. "...حالياً. - الفجوة 2: ..." or "• الفجوة 1: ...") into double-spaced standalone bullet lines
+  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?الفجوة\s*(?:رقم\s*)?[:\[]?\s*\d+\s*\]?:?)/gi, "\n\n- $1");
+
+  // 4. Separate inline proposals for gap resolution (e.g. "...شاملة. - لسد فجوة...") into double-spaced bullet lines
+  result = result.replace(/(?:[ \t]*[-–—•*]?\s*)(\*?\*?لسد\s+فجوة\s+الأدلة)/gi, "\n\n- $1");
+
+  // 5. Separate inline numbered research questions (e.g. "...موسعة؟ 2. بناءً على...") into double-spaced numbered lines
+  result = result.replace(/(?:[ \t]*[•*-]?\s*)(\d+\.\s+بناءً\s+على|بناءً\s+على\s+الملاحظات)/gi, "\n\n$1");
+
+  // 6. Separate inline merged recommendation lines (e.g. "...الميدانية. توصية مستندة إلى...") into double-spaced bullet points
+  // Ensure we NEVER match lines that are already Markdown headings (e.g. ### 2. التوصيات العملية...)
+  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?توصية\s+(?:تنفيذية|مستندة|عملية|من\s+مستند)[^*]*:\*?\*?|\*?\*?توصية\s+(?:تنفيذية|مستندة|عملية|من\s+مستند))/gim, "\n\n- $1");
+  result = result.replace(/([.؛:!؟]|\w|[\u0600-\u06FF])\s*[-–—•*]?\s*(\*?\*?توصية\s+(?:تنفيذية|مستندة|عملية|من\s+مستند))/gi, "$1.\n\n- $2");
+
+  // Separate evidence network source lines e.g. - **توصية تنفيذية من مستند "..."**: or - **مستند "..."**:
+  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?مستند\s*["«])/gim, "\n\n- $1");
+
+  // Ensure double newlines between consecutive bullet items so list items never compress into dense blocks
+  result = result.replace(/([^\n])\n[ \t]*[-–—•*]\s+/g, "$1\n\n- ");
+
+  // Clean leading dots/punctuation in title quotes/parentheses
+  result = result.replace(/(توصية\s+مستندة\s+إلى\s*["«\(\s]*)[\s.\-–—:؛"'\(\)]+([^"»\)\n]+)/gi, "$1$2");
+
+  // 7. Separate inline merged strategic implications and subheadings (e.g. "...التطبيق. - **تطوير معايير...") into double-spaced section headings/bullets
+  result = result.replace(/^(?![ \t]*#{1,6}\s*)(?:[ \t]*[-–—•*]?\s*)(\*?\*?التداعيات\s+والآثار\s+الاستراتيجية[^*]*:\*?\*?|\*?\*?التداعيات\s+والآثار)/gim, "\n\n### $1\n\n");
+
+  // Break up inline bullet points (e.g. "...المستهدفة. - **تطوير معايير..." or "...السياق. - **إدارة المخاطر...") into separate double-spaced bullet lines
+  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+(\*\*[\u0600-\u06FFa-zA-Z])/g, "$1.\n\n- $2");
+  result = result.replace(/([.؛:!؟\u0600-\u06FFa-zA-Z])\s*[-–—•*]\s+([\u0600-\u06FFa-zA-Z]{3,}\s*[:：])/g, "$1.\n\n- $2");
+  result = result.replace(/\s+[-–—•*]\s+(\*\*[^*]+:\*\*)/g, "\n\n- $1");
+
+  // Untangle all-bold lines where heading and body were wrapped in double asterisks
+  // e.g., **1. تحليل الأدلة من المصادر: توثق الوثيقة نتائج...** -> **1. تحليل الأدلة من المصادر:** توثق الوثيقة نتائج...
+  result = result.replace(/^(\s*)\*\*(\d+\.\s*[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
+  result = result.replace(/^(\s*)\*\*(تحليل الأدلة[^:\n]+:)\s*([^*]+)\*\*/gm, "$1**$2** $3");
+  result = result.replace(/^(\s*)\*\*([^*:\n]+:)\s*([^*]{30,})\*\*/gm, "$1**$2** $3");
+
+  // Clean and preserve markdown tables: group consecutive lines with pipes '|' together without interior blank lines
+  // Merge table rows separated by empty lines into a single contiguous table block
+  result = result.replace(/(\|[^\n]+\|)[ \t]*\n+[ \t]*(?=\|[^\n]+\|)/g, "$1\n");
+
+  result = result.replace(/(?:^[ \t]*\|[^\n]+\n?)+/gm, (tableBlock) => {
+    const cleanRows = tableBlock
+      .split("\n")
+      .map((r) => r.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim())
+      .filter((r) => r.startsWith("|") && (r.match(/\|/g) || []).length >= 2);
+    if (cleanRows.length === 0) return "";
+    return "\n\n" + cleanRows.join("\n") + "\n\n";
+  });
+
+  // Ensure double newlines before key meta headers
+  result = result.replace(/(\s*)(عنوان تقرير التوليف:)/gi, "\n\n$2\n");
+  result = result.replace(/(\s*)(محتوى التقرير الأكاديمي:|محتوى التقرير التوليفي:|محتوى التقرير:)/gi, "\n\n$2\n");
+  
+  // Ensure double newlines around disclosure banners (توضيح النطاق: or نطاق التقرير:)
+  result = result.replace(/([^\n])\s*(توضيح النطاق:|نطاق التقرير:)/gi, "$1\n\n$2");
+  result = result.replace(/(توضيح النطاق:[^\n]+|نطاق التقرير:[^\n]+)([^\n])/gi, "$1\n\n$2");
+
+  // Ensure double newlines before markdown headings (####, ###, ##, #)
+  result = result.replace(/([^\n])(#{1,6}\s+)/g, "$1\n\n$2");
+
+  // Break up numbered points mid-paragraph (e.g. "...النتائج. 1. النقطة الأولى..." or "...أولاً: ...") into clean paragraph breaks
+  result = result.replace(/([.؛:!؟])\s+(\d+\.\s+[\u0600-\u06FFa-zA-Z*])/g, "$1\n\n$2");
+
+  // Break up structural bold subheaders inside paragraphs into separate lines
+  result = result.replace(/([.؛!؟])\s+(\*\*(?:منهجية|النتائج|الأدلة|القراءة|التباين|التوصية|المحور|الجدول|أولاً|ثانياً|ثالثاً|رابعاً|خامساً)[^*]*:\*\*)/g, "$1\n\n$2");
+
+  // Ensure double newlines before questions like #### س1: or س1: or سؤال 1: or **س1:**
+  result = result.replace(/([^\n])\s*(#{1,6}\s*)?(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*)/gi, "$1\n\n$2$3");
+
+  // Ensure double newlines before answers like **ج:** or ج: or **إجابة:** or إجابة:
+  result = result.replace(/([^\n])\s*(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/gi, "$1\n\n$2 ");
+
+  // Ensure double newlines around section dividers
+  result = result.replace(/([^\n])(---)/g, "$1\n\n$2\n\n");
+
+  // Reparagraph dense, monolithic blocks (>200 chars) on sentence boundaries
+  result = result.replace(/([^\n]{200,})/g, (longBlock) => {
+    // Split on sentence boundaries followed by whitespace
+    const sentences = longBlock.split(/(?<=[.؛!؟])\s+/);
+    if (sentences.length <= 1) return longBlock;
+    const chunks: string[] = [];
+    let current = "";
+    for (const sentence of sentences) {
+      if (current.length + sentence.length > 160 && current.length > 60) {
+        chunks.push(current.trim());
+        current = sentence;
+      } else {
+        current = current ? current + " " + sentence : sentence;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.join("\n\n");
+  });
+
+  // Normalize max 2 newlines in a row
+  result = result.replace(/\n{3,}/g, "\n\n");
+
+  // Deduplicate Q&A blocks and bullet items, renumbering questions sequentially
+  result = deduplicateReportBlocks(result);
+
+  // Restore the protected matrix tables verbatim.
+  if (matrixBlocks.length > 0) {
+    result = result.replace(
+      new RegExp(TABLE_SENTINEL + "(\\d+)" + TABLE_SENTINEL, "g"),
+      (_, idx) => "\n\n" + matrixBlocks[Number(idx)] + "\n\n"
+    );
+  }
+
+  return result.trim();
+}
+
+/**
+ * Deduplicates sources by normalized title and content snippet.
+ */
+export function deduplicateSources<T extends { title?: string; content?: string; summary?: string; extractedText?: string }>(sources: T[]): T[] {
+  if (!Array.isArray(sources)) return [];
+  const seenKeys = new Set<string>();
+  const unique: T[] = [];
+
+  for (const src of sources) {
+    if (!src) continue;
+    const title = (src.title || "").trim();
+    const normTitle = title
+      .replace(/^[\s.\-–—:؛"']+|[\s.\-–—:؛"']+$/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+    const rawContent = (src.content || src.summary || src.extractedText || "").trim();
+    const contentSnippet = rawContent.substring(0, 300).toLowerCase().replace(/\s+/g, " ");
+
+    const titleKey = normTitle.length > 5 ? normTitle : null;
+    const contentKey = contentSnippet.length > 30 ? contentSnippet : null;
+
+    if (titleKey && seenKeys.has(titleKey)) {
+      continue;
+    }
+    if (contentKey && seenKeys.has(contentKey)) {
+      continue;
+    }
+
+    if (titleKey) seenKeys.add(titleKey);
+    if (contentKey) seenKeys.add(contentKey);
+
+    unique.push(src);
+  }
+
+  return unique.length > 0 ? unique : sources;
+}
+
+/**
+ * Removes duplicate Q&A questions/answers, repeated bullet items, and near-identical blocks.
+ * Re-numbers Q&A questions sequentially (س1:, س2:, س3:...).
+ */
+export function deduplicateReportBlocks(text: string): string {
+  if (!text) return "";
+
+  const blocks = text.split(/\n{2,}/);
+  const resultBlocks: string[] = [];
+  
+  const seenQAKeys = new Set<string>();
+  const seenBulletKeys = new Set<string>();
+  let questionCounter = 1;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i].trim();
+    if (!block) continue;
+
+    // Detect if block is a Question line
+    const isQuestion = /^(?:#{1,6}\s*)?(?:س\d*:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*|\*\*سؤال:\*\*)/i.test(block);
+
+    if (isQuestion) {
+      // Check if next block is an Answer line
+      const nextBlock = i + 1 < blocks.length ? blocks[i + 1].trim() : "";
+      const isAnswer = /^(?:\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*|الإجابة\s+العلمية\s*\(ج\):)/i.test(nextBlock);
+
+      // Clean question text
+      const rawQuestionText = block.replace(/^(?:#{1,6}\s*)?(?:س\d*:|سؤال\s*\d*:|\*\*س\d+:\*\*|\*\*س:\*\*|\*\*سؤال:\*\*)\s*/i, "").trim();
+      const normQuestion = rawQuestionText
+        .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+      let normAnswer = "";
+      if (isAnswer) {
+        const rawAnswerText = nextBlock.replace(/^(?:\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*|الإجابة\s+العلمية\s*\(ج\):)\s*/i, "").trim();
+        normAnswer = rawAnswerText
+          .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+          .substring(0, 150)
+          .toLowerCase()
+          .replace(/\s+/g, " ");
+      }
+
+      // Deduplication key
+      const qaKey = normQuestion + "||" + normAnswer;
+
+      if (seenQAKeys.has(qaKey)) {
+        // Skip duplicate question AND skip its answer if paired!
+        if (isAnswer) {
+          i++; // Skip answer block
+        }
+        continue;
+      }
+
+      seenQAKeys.add(qaKey);
+
+      // Format clean, sequentially numbered question
+      const cleanQHeader = `#### س${questionCounter++}: ${rawQuestionText}`;
+      resultBlocks.push(cleanQHeader);
+
+      if (isAnswer) {
+        resultBlocks.push(nextBlock);
+        i++; // Skip answer block as it's processed
+      }
+      continue;
+    }
+
+    // Deduplicate bullet points (e.g. - توصية مستندة إلى... or - الفجوة 1...)
+    if (block.startsWith("- ") || block.startsWith("* ") || block.startsWith("• ")) {
+      const bulletContent = block.replace(/^[*•-]\s+/, "").trim();
+      const normBullet = bulletContent
+        .replace(/^[\s.\-–—:؛"'\(\)]+|[\s.\-–—:؛"'\(\)]+$/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+      if (normBullet.length > 20 && seenBulletKeys.has(normBullet)) {
+        continue; // Skip duplicate bullet
+      }
+      if (normBullet.length > 20) {
+        seenBulletKeys.add(normBullet);
+      }
+    }
+
+    resultBlocks.push(block);
+  }
+
+  return resultBlocks.join("\n\n");
+}
+
+/**
+ * Strips all markdown syntax (####, **, *, -, etc.) returning clean plain text
+ */
+export function cleanMarkdownToPlainText(text: string): string {
+  if (!text) return "";
+  let result = normalizeReportStructure(text);
+
+  // Remove heading prefixes (####, ###, ##, #)
+  result = result.replace(/^#{1,6}\s+/gm, "");
+
+  // Convert **ج:** or **س:** or **س1:** to clean labels without asterisks
+  result = result.replace(/\*\*ج:\*\*/g, "ج: ");
+  result = result.replace(/\*\*س:\*\*/g, "س: ");
+  result = result.replace(/\*\*س(\d+):\*\*/g, "س$1: ");
+
+  // Remove bold asterisks **text**
+  result = result.replace(/\*\*([^*]+)\*\*/g, "$1");
+  result = result.replace(/\*([^*]+)\*/g, "$1");
+
+  // Clean bullet markers
+  result = result.replace(/^[* -]\s+/gm, "• ");
+
+  return result.trim();
+}
+
+/**
+ * Renders inline markdown text (like **bold**) as React nodes
+ */
+export function renderInlineMarkdown(text: string): React.ReactNode[] {
+  if (!text) return [];
+
+  // Split by **bold** pattern
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      const boldText = part.slice(2, -2);
+
+      // Check if bold text is a QA label like **ج:** or **س:** or **س1:**
+      if (/^(ج|س\d*|سؤال|إجابة|الجواب|الأسئلة):?$/.test(boldText.trim())) {
+        const isAnswer = /^(ج|إجابة|الجواب):?$/.test(boldText.trim());
+        return (
+          <span
+            key={index}
+            className={`inline-flex items-center px-2 py-0.5 rounded font-black text-xs mx-1 border shadow-2xs ${
+              isAnswer
+                ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                : "bg-teal-100 text-[#094d4e] border-teal-300"
+            }`}
+          >
+            {boldText}
+          </span>
+        );
+      }
+
+      return (
+        <strong key={index} className="font-extrabold text-gray-950">
+          {boldText}
+        </strong>
+      );
+    }
+    return <React.Fragment key={index}>{part}</React.Fragment>;
+  });
+}
+
+const DEFAULT_MATRIX_HEADERS = [
+  "الرقم",
+  "الوثيقة والمحور الرئيسي",
+  "الأدلة والنتائج المؤيدة",
+  "التباين والتحليل النقدي",
+];
+
+const _IS_MATRIX_INDEX = (s: string): boolean => /^\d{1,3}$/.test(s) || /^[٠-٩]{1,3}$/.test(s);
+
+/**
+ * Splits a raw table row into cells, tolerating BOTH pipe ('|') and tab ('\t') separators.
+ * The synthesis AI frequently emits evidence matrices tab-separated with row numbers on
+ * standalone/line-split tokens, so we must accept tabs as cell boundaries too.
+ */
+function splitMatrixCells(line: string): string[] {
+  const cleared = line.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "");
+  return cleared
+    .split(/\t|\|/)
+    .map((s) => s.trim())
+    .filter((s) => s !== "" && s !== ":");
+}
+
+/**
+ * Re-shapes a stream of raw evidence-matrix lines (some spanning multiple physical lines,
+ * some tab-separated, some with the NEXT row's index appended to the previous row) into a
+ * list of fixed-column rows.
+ *
+ * Rules:
+ *  - A line whose first token is a number (row index) starts a new row.
+ *  - Otherwise the line's tokens are continuations appended into the current row's cells in order.
+ *  - On a TAB-separated (mangled) line only, a bare trailing number (e.g. "...التباين...\t3") is
+ *    lifted as the NEXT row's index. Clean pipe rows never trigger this, so real numeric content
+ *    in the last column is never corrupted.
+ */
+function reconstructMatrixRows(lines: string[], nCols = 4): string[][] {
+  const rows: string[][] = [];
+  let cur: string[] = [];
+
+  const foldInto = (cells: string[], token: string, cols: number) => {
+    if (cells.length < cols) {
+      cells.push(token);
+    } else if (cells.length === cols) {
+      // Fold overflow into the LAST cell so no real content is dropped.
+      cells[cols - 1] = cells[cols - 1] + " " + token;
+    }
+  };
+
+  const flush = () => {
+    if (cur.length) rows.push([...cur]);
+    cur = [];
+  };
+
+  for (const line of lines) {
+    const isTabForm = line.includes("\t");
+    const toks = splitMatrixCells(line);
+    if (toks.length === 0) continue;
+
+    let trailingIdx: string | null = null;
+    // Only recover a trailing next-row index from tab-separated (mangled) lines — never clean pipes.
+    if (isTabForm && toks.length >= 2 && _IS_MATRIX_INDEX(toks[toks.length - 1])) {
+      trailingIdx = toks.pop() as string;
+    }
+
+    const startsNew = cur.length === 0 || _IS_MATRIX_INDEX(toks[0]);
+    if (startsNew) {
+      flush();
+    }
+
+    for (const t of toks) {
+      foldInto(cur, t, nCols);
+    }
+
+    if (trailingIdx !== null) {
+      flush();
+      cur = [trailingIdx];
+    }
+  }
+
+  flush();
+
+  // Drop "stub" rows produced when the AI emitted a bare row number with no cell content.
+  // A stub = first cell is a number/index AND every other cell is empty.
+  const isStub = (cells: string[]): boolean =>
+    cells.length > 0 &&
+    _IS_MATRIX_INDEX(cells[0]) &&
+    cells.slice(1).every((c) => c.trim() === "");
+
+  const meaningful = rows.filter((cells) => !isStub(cells));
+
+  // If nothing meaningful remains, keep a single empty result so callers can drop the table.
+  return meaningful.length > 0 ? meaningful : [];
+}
+
+const _MATRIX_DELIM_RE = /^\|?\s*:?-+\s*([|:]).*:?-+\s*\|?\s*$/;
+const _MATRIX_HEADER_RE = /^[|]?\s*(الرقم|رقم|الوثيقة|المستند)/;
+const _MATRIX_HEADER_KW_RE = /الرقم|الوثيقة|المستند|الأدلة|التباين|المحور/;
+const _MATRIX_REGION_END_RE = /^#{1,6}\s/;
+
+/**
+ * Searches the report text for a malformed evidence-matrix table region (tab-separated header,
+ * rows split across physical lines, trailing row indices) and rewrites it as a clean, well-formed
+ * pipe-delimited markdown table so downstream React/Word rendering is deterministic.
+ */
+export function rebuildEvidenceMatrix(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    const isHeaderish = _MATRIX_HEADER_RE.test(trimmed.replace(/\t/g, " "));
+    const hasTab = trimmed.includes("\t");
+
+    if (!isHeaderish && !hasTab) {
+      out.push(raw);
+      i++;
+      continue;
+    }
+
+    // Gather the contiguous matrix region. Inside a matrix we keep consuming fragment lines that
+    // continue a row (tab-separated, leading-pipe, leading row-index, or containing an internal
+    // '|' mixed separator). We STOP at a heading, a '---' divider, or a clearly standalone prose
+    // paragraph that is blank-line-separated, so the analysis section is never swallowed.
+    const region: string[] = [raw];
+    let j = i + 1;
+    let prevBlank = false;
+    while (j < lines.length) {
+      const rawNxt = lines[j];
+      const nxt = rawNxt.trim();
+      if (!nxt) {
+        prevBlank = true;
+        j++;
+        continue;
+      }
+      if (_MATRIX_REGION_END_RE.test(nxt) || nxt === "---") break;
+
+      const isPipeRow = /^\|/.test(nxt);
+      const isTabRow = rawNxt.includes("\t");
+      const isRowIndexLine = /^\d{1,3}(\t|\s|و|\.)/.test(nxt) || /^[٠-٩]{1,3}(\t)/.test(nxt);
+      const isHeaderishLog = /^[|]?\s*(الرقم|رقم|الوثيقة|المستند|الأدلة|التباين|المحور)/.test(nxt.replace(/\t/g, " "));
+      const isDelimLine = _MATRIX_DELIM_RE.test(nxt.replace(/\t/g, " "));
+      const isMixedContinuation = /\|/.test(nxt);
+      const isStandaloneProse =
+        prevBlank &&
+        nxt.length >= 60 &&
+        !rawNxt.includes("\t") &&
+        !/\|/.test(nxt) &&
+        /[.؛!؟]$/.test(nxt);
+
+      if (isStandaloneProse) break;
+      if (!isPipeRow && !isTabRow && !isRowIndexLine && !isHeaderishLog && !isDelimLine && !isMixedContinuation) break;
+
+      // A non-blank table/fragment line resets the blank run.
+      prevBlank = false;
+      region.push(lines[j]);
+      j++;
+    }
+    i = j;
+
+    // Pass through already well-formed pipe tables verbatim. Reconstructing a clean pipe table
+    // corrupts it (delimiter residues become '| :' fragments and rows get merged), so only
+    // malformed regions (tab-separated or broken/fragment rows) should be rebuilt.
+    const regionTrimmed = region.map((r) => r.trim()).filter((r) => r !== "");
+    const isCleanPipe = regionTrimmed.every(
+      (r) => r.startsWith("|") && r.endsWith("|") && !/^\|[ \t:]*\|?$/.test(r)
+    );
+    if (isCleanPipe && regionTrimmed.length > 0) {
+      const hasContentRow = regionTrimmed.some((r) => {
+        const nonEmptyCells = r
+          .slice(1, r.endsWith("|") ? r.length - 1 : r.length)
+          .split("|")
+          .map((c) => c.replace(/[\s:\-|_.*•]/g, "").trim())
+          .filter(Boolean);
+        return nonEmptyCells.length >= 2;
+      });
+      if (hasContentRow) {
+        for (const line of region) out.push(line);
+        i = j;
+        continue;
+      }
+    }
+
+    // Detect header (first region line mentioning matrix keywords).
+    let header: string[] | null = null;
+    let dataStart = 0;
+    if (_MATRIX_HEADER_KW_RE.test(region[0].replace(/\t/g, " "))) {
+      header = splitMatrixCells(region[0]).slice(0, 4);
+      dataStart = 1;
+    }
+
+    const dataLines = region
+      .slice(dataStart)
+      .map((r) => r.trim())
+      .filter((r) => r !== "" && !_MATRIX_DELIM_RE.test(r.replace(/\t/g, " ")));
+
+    const dataRows = reconstructMatrixRows(dataLines, 4);
+
+    // Only emit the header/delimiter if the region actually has content rows; otherwise
+    // drop the whole (empty) table so we never render a header with no data below it.
+    if (dataRows.length === 0) continue;
+
+    if (header && header.length > 0) {
+      out.push("| " + header.join(" | ") + " |");
+      out.push("| :--- | :--- | :--- | :--- |");
+    }
+    for (const row of dataRows) {
+      if (row.length > 4) {
+        out.push("| " + row.slice(0, 4).join(" | ") + " |");
+      } else {
+        while (row.length < 4) row.push("");
+        out.push("| " + row.join(" | ") + " |");
+      }
+    }
+  }
+
+  return out.join("\n");
+}
+
+/**
+ * Helper to clean and parse a block of markdown table lines into header cells and data rows.
+ * Strips delimiter lines, removes artifacts, normalizes columns to max 4.
+ */
+function parseTableBlock(tableLines: string[]) {
+  const parseRow = (rowStr: string): string[] => {
+    // Remove BiDi formatting characters first
+    let cleaned = rowStr.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "");
+    let trimmed = cleaned.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+    if (trimmed.startsWith("|")) trimmed = trimmed.substring(1);
+    if (trimmed.endsWith("|")) trimmed = trimmed.substring(0, trimmed.length - 1);
+    
+    let cells = trimmed.split("|").map((cell) => {
+      let c = cell.trim();
+      c = c.replace(/span<>\/br<[^\s]*/gi, " ")
+           .replace(/<[^>]*>/g, " ")
+           .replace(/\s+/g, " ")
+           .trim();
+      return c;
+    });
+    return cells;
+  };
+
+  const isMeaningfulRow = (rowCells: string[]): boolean => {
+    if (!rowCells || rowCells.length === 0) return false;
+    return rowCells.some((cell) => {
+      const stripped = cell.replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\s:\-|_.*•]/g, "");
+      return stripped.length > 0;
+    });
+  };
+
+  // A "stub" matrix row carries only a row number (column 0) with all content columns empty.
+  // The AI sometimes emits such placeholders instead of real cells; drop them so the matrix is
+  // not padded with meaningless empty rows.
+  const isMatrixStubRow = (rowCells: string[]): boolean => {
+    if (!rowCells || rowCells.length < 2) return false;
+    const first = (rowCells[0] || "").trim();
+    const isIndex = /^\d{1,3}$/.test(first) || /^[٠-٩]{1,3}$/.test(first);
+    if (!isIndex) return false;
+    return rowCells.slice(1).every((c) => (c || "").trim() === "");
+  };
+
+  // Filter out pure delimiter/alignment rows (e.g. | :--- | :--- | or empty cells)
+  const contentRowsStr = tableLines.filter((line) => {
+    const cells = parseRow(line);
+    return isMeaningfulRow(cells);
+  });
+
+  if (contentRowsStr.length === 0) {
+    return { headerCells: [], rows: [] };
+  }
+
+  const rawRow0 = parseRow(contentRowsStr[0]);
+  const row0Joined = rawRow0.join(" ").toLowerCase();
+
+  // Check if first row is a genuine header row or a data row
+  const isRealHeader =
+    !/^\s*[\d١-٩]+\s*$/.test(rawRow0[0] || "") &&
+    (row0Joined.includes("الرقم") ||
+      row0Joined.includes("الوثيقة") ||
+      row0Joined.includes("المستند") ||
+      row0Joined.includes("الأدلة") ||
+      row0Joined.includes("النتائج") ||
+      row0Joined.includes("التباين") ||
+      row0Joined.includes("المحور") ||
+      row0Joined.includes("title") ||
+      row0Joined.includes("document") ||
+      row0Joined.includes("evidence") ||
+      row0Joined.includes("analysis") ||
+      row0Joined.includes("header") ||
+      row0Joined.includes("#"));
+
+  let headerCells: string[] = [];
+  let dataRowsLines: string[] = [];
+
+  if (isRealHeader) {
+    headerCells = rawRow0.map((hCell) => {
+      return hCell
+        .replace(/^.*?(توضيح النطاق:|نطاق التقرير:)[^|]*?(?=\bالرقم\b|\bالوثيقة\b|\bالمستند\b|\bالمحور\b|$)/gi, "")
+        .trim() || hCell;
+    });
+    dataRowsLines = contentRowsStr.slice(1);
+  } else {
+    // If first row is actually a data row, supply standard 4 matrix headers
+    headerCells = [...DEFAULT_MATRIX_HEADERS];
+    dataRowsLines = contentRowsStr;
+  }
+
+  if (headerCells.length > 4) {
+    headerCells = headerCells.slice(0, 4);
+  }
+
+  const rows: string[][] = [];
+
+  for (const rowLine of dataRowsLines) {
+    let rowCells = parseRow(rowLine);
+    if (!isMeaningfulRow(rowCells)) continue;
+    if (isMatrixStubRow(rowCells)) continue;
+
+    if (rowCells.length > headerCells.length) {
+      rowCells = rowCells.slice(0, headerCells.length);
+    }
+    while (rowCells.length < headerCells.length) {
+      rowCells.push("");
+    }
+    rows.push(rowCells);
+  }
+
+  // If the only "data" was stub rows, return an empty table so callers skip rendering it.
+  if (rows.length === 0) {
+    return { headerCells: [], rows: [] };
+  }
+
+  return { headerCells, rows };
+}
+
+/**
+ * Maps a table header label to a short, human-friendly Arabic field label used on cards.
+ */
+function matrixFieldLabel(header: string): string {
+  const h = (header || "").toLowerCase();
+  if (/الرقم|رقم\b|number/i.test(h)) return "رقم الوثيقة";
+  if (/الوثيقة|المستند|document|title/i.test(h)) return "الوثيقة والمحور";
+  if (/الأدلة|النتائج|evidence|results|support/i.test(h)) return "الأدلة والنتائج المؤيدة";
+  if (/التباين|التحليل|نقدي|contradiction|analysis/i.test(h)) return "التباين والتحليل النقدي";
+  if (/الإجابة|الجواب|answer|ج:/i.test(h)) return "الإجابة العلمية";
+  if (/السؤال|question/i.test(h) || /^س/.test(h)) return "السؤال";
+  return (header || "").trim() || "التفصيل";
+}
+
+/**
+ * Helper to pixel-perfectly render the FIRST header cell as the card title when it carries the
+ * document reference (e.g. "الوثيقة 3" or a document title), otherwise fall back to the index.
+ */
+function cardTitleFromCell(cell: string, index: number): string {
+  const t = (cell || "").trim();
+  if (!t) return `الوثيقة ${index}`;
+  // Strip a leading row-number so we don't duplicate it as title and badge.
+  return t.replace(/^\d{1,3}\s*[.\-–—]\s*/, "").trim() || `الوثيقة ${index}`;
+}
+
+/**
+ * Helper to parse and render a markdown table into resilient, vertically-stacked CARDS instead of a
+ * <table>. Cards have no column-alignment or empty-cell failure modes, so they are immune to the
+ * malformed/mixed table markdown the synthesis AI emits. Field labels come from the header row.
+ */
+function renderMarkdownTableReact(tableLines: string[], key: string): React.ReactNode {
+  if (tableLines.length === 0) return null;
+
+  const { headerCells, rows } = parseTableBlock(tableLines);
+
+  if (headerCells.length === 0 && rows.length === 0) return null;
+
+  const isMatrixStyle = headerCells.length >= 3 && /الرقم|الوثيقة|المستند/i.test(headerCells.join(" ") || "");
+
+  return (
+    <div key={key} className="my-6 space-y-4">
+      {rows.map((rowCells, rIdx) => {
+        const first = (rowCells[0] || "").trim();
+        const idxMatch = /^(\d{1,3})/.exec(first);
+        const badge = idxMatch ? idxMatch[1] : String(rIdx + 1);
+        const titleCell = idxMatch ? first.replace(/^\d{1,3}/, "").trim() : first;
+        const title = titleCell || `الوثيقة ${badge}`;
+
+        const fields = rowCells.slice(idxMatch ? 1 : 0);
+        const fieldLabels = headerCells.slice(idxMatch ? 1 : 0);
+
+        return (
+          <div
+            key={rIdx}
+            className="rounded-xl border border-teal-200/90 bg-white shadow-2xs overflow-hidden"
+            dir="rtl"
+          >
+            <div className="flex items-center gap-3 px-4 py-3 bg-[#094d4e]/5 border-b border-teal-100">
+              <span className="shrink-0 h-7 w-7 rounded-md bg-[#094d4e] text-white text-xs font-black flex items-center justify-center">
+                {badge}
+              </span>
+              <h4 className="text-sm md:text-base font-extrabold text-[#094d4e] leading-snug break-words">
+                {renderInlineMarkdown(title)}
+              </h4>
+            </div>
+            <div className="px-4 py-3 space-y-2.5">
+              {fields.length === 0 ? (
+                <p className="text-xs md:text-sm text-gray-600">{renderInlineMarkdown(first)}</p>
+              ) : (
+                fields.map((cell, cIdx) => {
+                  const label = (fieldLabels[cIdx] || (rIdx + 1)).toString();
+                  const pretty = isMatrixStyle ? matrixFieldLabel(label) : label;
+                  return (
+                    <div key={cIdx} className="flex items-start gap-2.5">
+                      <span className="shrink-0 mt-0.5 inline-flex items-center rounded-md bg-teal-50 border border-teal-200/70 px-2 py-0.5 text-[10px] font-extrabold text-[#094d4e]">
+                        {pretty || "التفصيل"}
+                      </span>
+                      <p className="flex-1 text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 break-words">
+                        {renderInlineMarkdown(cell)}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Helper to render a markdown table into MS Word HTML string with explicit table-layout and column widths
+ */
+function renderMarkdownTableHtml(tableLines: string[]): string {
+  if (tableLines.length === 0) return "";
+
+  const { headerCells, rows } = parseTableBlock(tableLines);
+
+  if (headerCells.length === 0 && rows.length === 0) return "";
+
+  const colWidths = headerCells.length === 2
+    ? ["25%", "75%"]
+    : headerCells.length === 3
+    ? ["10%", "42%", "48%"]
+    : ["6%", "30%", "34%", "30%"];
+
+  let html = `<table style="width: 100%; border-collapse: collapse; margin-top: 18pt; margin-bottom: 22pt; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; mso-table-lspace: 0pt; mso-table-rspace: 0pt;" dir="rtl">\n`;
+  if (headerCells.length > 0) {
+    html += `  <thead>\n    <tr style="background-color: #094d4e; color: #ffffff;">\n`;
+    headerCells.forEach((h, i) => {
+      const w = colWidths[i] || "auto";
+      html += `      <th style="width: ${w}; padding: 11pt 12pt; border: 1.5pt solid #094d4e; background-color: #094d4e; color: #ffffff; font-weight: bold; text-align: right; font-size: 10.5pt; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(h)}</th>\n`;
+    });
+    html += `    </tr>\n  </thead>\n`;
+  }
+
+  html += `  <tbody>\n`;
+  rows.forEach((rowCells, rIdx) => {
+    const bgColor = rIdx % 2 === 0 ? "#ffffff" : "#f0fdfa";
+    html += `    <tr style="background-color: ${bgColor};">\n`;
+    rowCells.forEach((cell, cIdx) => {
+      const w = colWidths[cIdx] || "auto";
+      html += `      <td style="width: ${w}; padding: 10pt 12pt; border: 1pt solid #cbd5e1; text-align: right; line-height: 1.6; color: #1e293b; vertical-align: top; word-break: break-word; overflow-wrap: break-word;">${formatInlineHtml(cell)}</td>\n`;
+    });
+    html += `    </tr>\n`;
+  });
+  html += `  </tbody>\n</table>\n`;
+
+  return html;
+}
+
+/**
+ * Converts a raw report string (containing markdown and XML) into structured React components.
+ * Formats headers, Q&A blocks, scope disclosures, tables, and lists seamlessly with generous spacing.
+ */
+export function parseMarkdownToReact(text: string): React.ReactNode {
+  if (!text) return null;
+
+  const normalized = normalizeReportStructure(text);
+  const lines = normalized.split("\n");
+
+  const elements: React.ReactNode[] = [];
+  let currentListItems: React.ReactNode[] = [];
+  let currentTableLines: string[] = [];
+
+  const flushList = (keyPrefix: string) => {
+    if (currentListItems.length > 0) {
+      elements.push(
+        <ul key={`${keyPrefix}-ul`} className="my-6 space-y-3 pr-2 md:pr-3 border-r-4 border-[#094d4e] bg-teal-50/30 p-3 md:p-4 rounded-xl shadow-2xs">
+          {currentListItems}
+        </ul>
+      );
+      currentListItems = [];
+    }
+  };
+
+  const flushTable = (keyPrefix: string) => {
+    if (currentTableLines.length > 0) {
+      const tableNode = renderMarkdownTableReact(currentTableLines, `${keyPrefix}-tbl`);
+      if (tableNode) elements.push(tableNode);
+      currentTableLines = [];
+    }
+  };
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    const trimmed = line.trim();
+
+    // Check if line is a table row
+    const cleanTableLine = trimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+    const isTableLine = cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2;
+
+    if (isTableLine) {
+      flushList(`line-${idx}`);
+      currentTableLines.push(cleanTableLine);
+      continue;
+    } else {
+      if (!trimmed && currentTableLines.length > 0) {
+        let hasMoreTableLinesAhead = false;
+        for (let j = idx + 1; j < lines.length; j++) {
+          const nextTrimmed = lines[j].trim();
+          if (!nextTrimmed) continue;
+          const nextClean = nextTrimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+          if (nextClean.startsWith("|") && (nextClean.match(/\|/g) || []).length >= 2) {
+            hasMoreTableLinesAhead = true;
+          }
+          break;
+        }
+        if (hasMoreTableLinesAhead) {
+          continue;
+        }
+      }
+      flushTable(`line-${idx}`);
+    }
+
+    if (!trimmed) {
+      flushList(`line-${idx}`);
+      continue;
+    }
+
+    // Horizontal rule divider
+    if (trimmed === "---") {
+      flushList(`line-${idx}`);
+      elements.push(
+        <hr key={idx} className="my-6 border-t-2 border-teal-100/80" />
+      );
+      continue;
+    }
+
+    // Meta / Scope disclosure banners
+    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير التوليفي:") || trimmed.startsWith("محتوى التقرير الأكاديمي:") || trimmed.startsWith("محتوى التقرير:")) {
+      flushList(`line-${idx}`);
+      elements.push(
+        <div key={idx} className="mt-4 mb-2 p-2.5 px-4 bg-[#094d4e]/10 border-r-4 border-[#094d4e] text-[#094d4e] font-extrabold text-xs md:text-sm rounded-lg flex items-center gap-2">
+          <span>{trimmed}</span>
+        </div>
+      );
+      continue;
+    }
+
+    if (trimmed.startsWith("توضيح النطاق:")) {
+      flushList(`line-${idx}`);
+      elements.push(
+        <div key={idx} className="my-4 p-3.5 px-4 bg-teal-50/90 border border-teal-200/80 text-[#094d4e] text-xs md:text-sm font-semibold rounded-xl shadow-2xs flex items-center gap-2 leading-relaxed">
+          <span className="shrink-0 bg-[#094d4e] text-white px-2 py-0.5 rounded text-[11px] font-extrabold">نطاق التقرير</span>
+          <span className="flex-1">{trimmed.replace("توضيح النطاق:", "").trim()}</span>
+        </div>
+      );
+      continue;
+    }
+
+    // Check for Headings: ####, ###, ##, #
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+    if (headingMatch) {
+      flushList(`line-${idx}`);
+      const level = headingMatch[1].length;
+      const headingContent = headingMatch[2];
+
+      // Check if heading is a question like "#### س1: هل يؤدي..."
+      const isQAHeading = /^(س\d*|سؤال|س):/i.test(headingContent.trim());
+
+      if (level <= 2) {
+        elements.push(
+          <h2 key={idx} className="text-base md:text-xl font-black text-[#094d4e] mt-7 mb-4 pb-2 border-b-2 border-teal-200/80 flex items-center gap-2">
+            <span className="w-2.5 h-6 bg-[#094d4e] rounded-sm shrink-0"></span>
+            <span>{headingContent}</span>
+          </h2>
+        );
+      } else if (level === 3) {
+        elements.push(
+          <h3 key={idx} className="text-sm md:text-lg font-extrabold text-[#094d4e] mt-6 mb-3 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-teal-600 shrink-0"></span>
+            <span>{headingContent}</span>
+          </h3>
+        );
+      } else {
+        // level >= 4
+        if (isQAHeading) {
+          const colonIdx = headingContent.indexOf(":");
+          const qPrefix = colonIdx !== -1 ? headingContent.substring(0, colonIdx + 1) : "سؤال:";
+          const qBody = colonIdx !== -1 ? headingContent.substring(colonIdx + 1) : headingContent;
+          elements.push(
+            <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-amber-50/90 border-r-4 border-r-amber-600 border border-amber-200/90 rounded-xl shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <span className="bg-amber-600 text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5 shadow-2xs">
+                  {qPrefix}
+                </span>
+                <h4 className="text-sm md:text-base font-extrabold text-amber-950 leading-snug flex-1">
+                  {renderInlineMarkdown(qBody.trim())}
+                </h4>
+              </div>
+            </div>
+          );
+        } else {
+          elements.push(
+            <h4 key={idx} className="text-xs md:text-sm font-extrabold text-gray-900 mt-5 mb-2 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#094d4e] shrink-0"></span>
+              <span>{renderInlineMarkdown(headingContent)}</span>
+            </h4>
+          );
+        }
+      }
+      continue;
+    }
+
+    // Direct Question line without #### (e.g. "س1: ما هي...")
+    const directQuestionMatch = /^(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*)\s*(.*)$/i.exec(trimmed);
+    if (directQuestionMatch) {
+      flushList(`line-${idx}`);
+      const qPrefix = directQuestionMatch[1].replace(/\*/g, "").trim();
+      const qBody = directQuestionMatch[2].trim();
+      elements.push(
+        <div key={idx} className="mt-6 mb-3 p-4 md:p-5 bg-amber-50/90 border-r-4 border-r-amber-600 border border-amber-200/90 rounded-xl shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <span className="bg-amber-600 text-white px-2.5 py-1 rounded-md text-xs font-black shrink-0 mt-0.5 shadow-2xs">
+              {qPrefix}
+            </span>
+            <h4 className="text-sm md:text-base font-extrabold text-amber-950 leading-snug flex-1">
+              {renderInlineMarkdown(qBody)}
+            </h4>
+          </div>
+        </div>
+      );
+      continue;
+    }
+
+    // Check for List Items: * or - or 1.
+    const listMatch = /^([*-]|\d+\.)\s+(.*)$/.exec(trimmed);
+    if (listMatch) {
+      const itemContent = listMatch[2];
+      currentListItems.push(
+        <li key={idx} className="text-xs md:text-sm text-gray-850 leading-relaxed md:leading-loose flex items-start gap-3 p-3.5 md:p-4 bg-white/90 border border-teal-200/80 rounded-xl shadow-2xs hover:bg-teal-50/30 transition-all my-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#094d4e] shrink-0 mt-2 shadow-2xs" />
+          <div className="flex-1 leading-relaxed md:leading-loose space-y-1">
+            {renderInlineMarkdown(itemContent)}
+          </div>
+        </li>
+      );
+      continue;
+    }
+
+    // Check if line starts with Answer tag (**ج:** or ج: or **إجابة:** or إجابة:)
+    if (/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/.test(trimmed)) {
+      flushList(`line-${idx}`);
+      const body = trimmed.replace(/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/, "").trim();
+      elements.push(
+        <div key={idx} className="mt-2 mb-6 p-4 md:p-5 bg-slate-50/90 border-r-4 border-r-emerald-600 border border-slate-200/90 rounded-xl shadow-2xs space-y-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="bg-emerald-700 text-white px-2.5 py-0.5 rounded text-xs font-bold">
+              الإجابة والتحليل (ج)
+            </span>
+          </div>
+          <div className="text-xs md:text-sm leading-relaxed md:leading-loose text-slate-800 font-normal">
+            {renderInlineMarkdown(body)}
+          </div>
+        </div>
+      );
+      continue;
+    }
+
+    // Normal paragraph line
+    flushList(`line-${idx}`);
+
+    if (trimmed.length > 280 && /[.؛!؟]\s+/.test(trimmed)) {
+      const parts = trimmed.split(/(?<=[.؛!؟])\s+/);
+      const chunks: string[] = [];
+      let currentChunk = "";
+      for (const p of parts) {
+        if (currentChunk.length + p.length > 220 && currentChunk.length > 80) {
+          chunks.push(currentChunk.trim());
+          currentChunk = p;
+        } else {
+          currentChunk = currentChunk ? currentChunk + " " + p : p;
+        }
+      }
+      if (currentChunk.trim()) chunks.push(currentChunk.trim());
+
+      chunks.forEach((chunk, cIdx) => {
+        elements.push(
+          <p key={`${idx}-p-${cIdx}`} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 my-3 md:my-4 font-sans tracking-normal">
+            {renderInlineMarkdown(chunk)}
+          </p>
+        );
+      });
+    } else {
+      elements.push(
+        <p key={idx} className="text-xs md:text-sm leading-relaxed md:leading-loose text-gray-850 my-3 md:my-4 font-sans tracking-normal">
+          {renderInlineMarkdown(trimmed)}
+        </p>
+      );
+    }
+  }
+
+  flushList("end");
+  flushTable("end");
+
+  return <div className="space-y-1 text-right" dir="rtl">{elements}</div>;
+}
+
+/**
+ * Formats inline text into HTML strings for MS Word export
+ */
+function formatInlineHtml(text: string): string {
+  if (!text) return "";
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Bold **text** -> <strong>
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong style='font-weight: bold; color: #0f172a;'>$1</strong>");
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  return html;
+}
+
+/**
+ * Converts report text containing markdown and evidence tags into an MS Word compatible HTML document string.
+ */
+export function markdownToWordHtml(title: string, markdownText: string): string {
+  const normalized = normalizeReportStructure(markdownText);
+  const lines = normalized.split("\n");
+
+  let bodyHtml = "";
+  let inList = false;
+  let currentTableLines: string[] = [];
+
+  const flushTable = () => {
+    if (currentTableLines.length > 0) {
+      bodyHtml += renderMarkdownTableHtml(currentTableLines);
+      currentTableLines = [];
+    }
+  };
+
+  lines.forEach((line, lineIdx) => {
+    const trimmed = line.trim();
+
+    const cleanTableLine = trimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+    const isTableLine = cleanTableLine.startsWith("|") && (cleanTableLine.match(/\|/g) || []).length >= 2;
+
+    if (isTableLine) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      currentTableLines.push(cleanTableLine);
+      return;
+    } else {
+      if (!trimmed && currentTableLines.length > 0) {
+        let hasMoreTableLinesAhead = false;
+        for (let j = lineIdx + 1; j < lines.length; j++) {
+          const nextTrimmed = lines[j].trim();
+          if (!nextTrimmed) continue;
+          const nextClean = nextTrimmed.replace(/^[ \t]*[•*.\d\s]+(?=\|)/, "").trim();
+          if (nextClean.startsWith("|") && (nextClean.match(/\|/g) || []).length >= 2) {
+            hasMoreTableLinesAhead = true;
+          }
+          break;
+        }
+        if (hasMoreTableLinesAhead) {
+          return;
+        }
+      }
+      flushTable();
+    }
+
+    if (!trimmed) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      return;
+    }
+
+    // Divider
+    if (trimmed === "---") {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      bodyHtml += `<hr style="border: none; border-top: 1.5pt solid #094d4e; margin-top: 18pt; margin-bottom: 18pt;" />\n`;
+      return;
+    }
+
+    // Meta / Scope disclosure
+    if (trimmed.startsWith("عنوان تقرير التوليف:") || trimmed.startsWith("محتوى التقرير التوليفي:") || trimmed.startsWith("محتوى التقرير الأكاديمي:") || trimmed.startsWith("محتوى التقرير:")) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      bodyHtml += `<div style="background-color: #f0fdfa; border-right: 3.5pt solid #094d4e; padding: 8pt 12pt; margin-top: 12pt; margin-bottom: 10pt; font-weight: bold; color: #094d4e; font-size: 11pt; font-family: 'Segoe UI', Arial, sans-serif;">${formatInlineHtml(trimmed)}</div>\n`;
+      return;
+    }
+
+    if (trimmed.startsWith("توضيح النطاق:")) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      bodyHtml += `<div style="background-color: #f0fdfa; border: 1pt solid #99f6e4; border-right: 3.5pt solid #094d4e; padding: 10pt 12pt; margin-top: 12pt; margin-bottom: 14pt; border-radius: 4pt; color: #0f766e; font-size: 10.5pt; font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.7;"><strong>نطاق التقرير:</strong> ${formatInlineHtml(trimmed.replace("توضيح النطاق:", "").trim())}</div>\n`;
+      return;
+    }
+
+    // Headings
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+    if (headingMatch) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      const level = headingMatch[1].length;
+      const content = headingMatch[2];
+      const isQAHeading = /^(س\d*|سؤال|س):/i.test(content.trim());
+
+      if (level <= 2) {
+        bodyHtml += `<h2 style="color: #094d4e; font-size: 16pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 20pt; margin-bottom: 8pt; font-weight: bold; border-bottom: 2pt solid #094d4e; padding-bottom: 4pt;">${cleanMarkdownToPlainText(content)}</h2>\n`;
+      } else if (level === 3) {
+        bodyHtml += `<h3 style="color: #094d4e; font-size: 13.5pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 16pt; margin-bottom: 6pt; font-weight: bold;">${cleanMarkdownToPlainText(content)}</h3>\n`;
+      } else {
+        if (isQAHeading) {
+          const colonIdx = content.indexOf(":");
+          const qPrefix = colonIdx !== -1 ? content.substring(0, colonIdx + 1) : "سؤال:";
+          const qBody = colonIdx !== -1 ? content.substring(colonIdx + 1) : content;
+          bodyHtml += `<div style="background-color: #f0fdfa; border-right: 4pt solid #094d4e; border: 1pt solid #ccfbf1; padding: 10pt 14pt; margin-top: 16pt; margin-bottom: 6pt; border-radius: 6pt;"><strong style="color: #094d4e; font-size: 11.5pt;">${formatInlineHtml(qPrefix)}</strong> <span style="font-size: 11.5pt; font-weight: bold; color: #0f172a;">${formatInlineHtml(qBody.trim())}</span></div>\n`;
+        } else {
+          bodyHtml += `<h4 style="color: #0f766e; font-size: 11.5pt; font-family: 'Segoe UI', Arial, sans-serif; margin-top: 14pt; margin-bottom: 6pt; font-weight: bold;">${cleanMarkdownToPlainText(content)}</h4>\n`;
+        }
+      }
+      return;
+    }
+
+    // Direct question
+    const directQuestionMatch = /^(س\d+:|سؤال\s*\d*:|\*\*س\d+:\*\*)\s*(.*)$/i.exec(trimmed);
+    if (directQuestionMatch) {
+      if (inList) {
+        bodyHtml += "</ul>\n";
+        inList = false;
+      }
+      const qPrefix = directQuestionMatch[1].replace(/\*/g, "").trim();
+      const qBody = directQuestionMatch[2].trim();
+      bodyHtml += `<div style="background-color: #f0fdfa; border-right: 4pt solid #094d4e; border: 1pt solid #ccfbf1; padding: 10pt 14pt; margin-top: 16pt; margin-bottom: 6pt; border-radius: 6pt;"><strong style="color: #094d4e; font-size: 11.5pt;">${formatInlineHtml(qPrefix)}</strong> <span style="font-size: 11.5pt; font-weight: bold; color: #0f172a;">${formatInlineHtml(qBody)}</span></div>\n`;
+      return;
+    }
+
+    // Bullet lists
+    const listMatch = /^([*-]|\d+\.)\s+(.*)$/.exec(trimmed);
+    if (listMatch) {
+      if (!inList) {
+        bodyHtml += `<ul style="margin-right: 18pt; margin-top: 6pt; margin-bottom: 10pt; font-size: 11pt; font-family: 'Segoe UI', Arial, sans-serif;">\n`;
+        inList = true;
+      }
+      const itemText = formatInlineHtml(listMatch[2]);
+      bodyHtml += `  <li style="margin-bottom: 6pt; line-height: 1.8;">${itemText}</li>\n`;
+      return;
+    }
+
+    if (inList) {
+      bodyHtml += "</ul>\n";
+      inList = false;
+    }
+
+    // QA Answer lines
+    if (/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/.test(trimmed)) {
+      const answerContent = trimmed.replace(/^(\*\*ج:\*\*|ج:|\*\*إجابة:\*\*|إجابة:|\*\*الجواب:\*\*)/, "").trim();
+      bodyHtml += `<div style="background-color: #f0fdf4; border-right: 4pt solid #059669; border: 1pt solid #dcfce7; padding: 10pt 14pt; margin-top: 6pt; margin-bottom: 16pt; border-radius: 6pt; font-size: 11pt; line-height: 1.8;"><strong style="color: #047857; font-size: 11pt;">الإجابة العلمية (ج):</strong> <span style="color: #1e293b;">${formatInlineHtml(answerContent)}</span></div>\n`;
+      return;
+    }
+
+    // Standard paragraph
+    bodyHtml += `<p style="margin-top: 8pt; margin-bottom: 14pt; font-size: 11pt; line-height: 1.8; color: #1e293b; font-family: 'Segoe UI', Arial, sans-serif; text-align: justify;">${formatInlineHtml(trimmed)}</p>\n`;
+  });
+
+  if (inList) {
+    bodyHtml += "</ul>\n";
+  }
+  flushTable();
+
+  return `
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset='utf-8'>
+<title>${title || "تقرير بحثي"}</title>
+<!--[if gte mso 9]>
+<xml>
+ <w:WordDocument>
+  <w:View>Print</w:View>
+  <w:Zoom>100</w:Zoom>
+  <w:DoNotOptimizeForBrowser/>
+ </w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+  @page {
+    size: A4;
+    margin: 2.5cm;
+  }
+  body {
+    font-family: 'Segoe UI', 'Traditional Arabic', 'Arial', sans-serif;
+    direction: rtl;
+    text-align: right;
+    line-height: 1.85;
+    color: #1e293b;
+    margin: 25pt;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Segoe UI', 'Traditional Arabic', 'Arial', sans-serif;
+    direction: rtl;
+  }
+  h1 { font-size: 20pt; color: #094d4e; font-weight: bold; margin-top: 0; margin-bottom: 16pt; border-bottom: 2.5pt solid #094d4e; padding-bottom: 8pt; text-align: center; }
+  h2 { font-size: 15pt; color: #094d4e; font-weight: bold; margin-top: 22pt; margin-bottom: 10pt; border-bottom: 1.5pt solid #094d4e; padding-bottom: 4pt; page-break-after: avoid; }
+  h3 { font-size: 13pt; color: #094d4e; font-weight: bold; margin-top: 18pt; margin-bottom: 8pt; page-break-after: avoid; }
+  h4 { font-size: 11.5pt; color: #0f766e; font-weight: bold; margin-top: 14pt; margin-bottom: 6pt; page-break-after: avoid; }
+  p { margin-top: 8pt; margin-bottom: 14pt; font-size: 11pt; line-height: 1.85; color: #1e293b; text-align: justify; }
+  ul, ol { margin-top: 8pt; margin-bottom: 14pt; padding-right: 22pt; }
+  li { margin-bottom: 8pt; line-height: 1.85; color: #1e293b; }
+  table { width: 100%; border-collapse: collapse; margin-top: 18pt; margin-bottom: 22pt; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  th { background-color: #094d4e !important; color: #ffffff !important; font-weight: bold; border: 1.5pt solid #094d4e; padding: 11pt 12pt; text-align: right; font-size: 10.5pt; }
+  td { border: 1pt solid #cbd5e1; padding: 10pt 12pt; text-align: right; font-size: 10pt; line-height: 1.6; vertical-align: top; }
+</style>
+</head>
+<body dir="rtl">
+  ${title ? `<h1 style="color: #094d4e; font-size: 20pt; font-weight: bold; margin-bottom: 16pt; border-bottom: 2.5pt solid #094d4e; padding-bottom: 8pt; text-align: center;">${title}</h1>` : ""}
+  ${bodyHtml}
+</body>
+</html>`.trim();
+}
+
+/**
+ * Downloads report as an MS Word (.doc/.docx) file with proper typography and formatting
+ */
+export function exportToWordDocument(title: string, text: string) {
+  const htmlContent = markdownToWordHtml(title, text);
+  const blob = new Blob(['\ufeff', htmlContent], {
+    type: 'application/msword;charset=utf-8'
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  const safeFileName = (title || "تقرير_بحثي").replace(/[\\/:*?"<>|]/g, "_") + ".doc";
+  link.download = safeFileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Copies formatted report to clipboard with both Rich Text (HTML) for MS Word and Clean Plain Text fallback
+ */
+export async function copyReportToClipboard(title: string, text: string): Promise<boolean> {
+  const htmlContent = markdownToWordHtml(title, text);
+  const plainText = cleanMarkdownToPlainText(text);
+
+  try {
+    if (navigator.clipboard && typeof ClipboardItem !== "undefined") {
+      const htmlBlob = new Blob([htmlContent], { type: "text/html" });
+      const textBlob = new Blob([plainText], { type: "text/plain" });
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": htmlBlob,
+          "text/plain": textBlob,
+        }),
+      ]);
+      return true;
+    } else {
+      await navigator.clipboard.writeText(plainText);
+      return true;
+    }
+  } catch (err) {
+    console.error("Clipboard write error:", err);
+    try {
+      await navigator.clipboard.writeText(plainText);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+}
+

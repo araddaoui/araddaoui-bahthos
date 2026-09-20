@@ -1,22 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import AuthView from "./AuthView.js";
-import { 
-  X, 
-  LogOut, 
-  LayoutGrid, 
-  Key, 
-  UserPlus, 
-  Check, 
-  Sparkles, 
-  Shield, 
-  Zap, 
-  ArrowLeft, 
-  Loader2, 
-  AlertCircle, 
-  CheckCircle2, 
-  Star 
-} from "lucide-react";
-import { redirectToCheckout } from "../utils/billing.js";
+import { X, LogOut, LayoutGrid, Key, UserPlus, Menu, ArrowLeft, BookOpen, CircleCheck, Link2, Landmark, ShieldCheck, Scale, Quote, Combine, SpellCheck, Compass, Globe } from "lucide-react";
 
 interface LandingPageProps {
   onEnterApp: () => void;
@@ -38,71 +22,17 @@ export default function LandingPage({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialIsSignUp, setAuthInitialIsSignUp] = useState(false);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [billingNotice, setBillingNotice] = useState<"success" | "canceled" | null>(null);
-
-  useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const billingParam = params.get("billing");
-      if (billingParam === "success") {
-        setBillingNotice("success");
-      } else if (billingParam === "canceled") {
-        setBillingNotice("canceled");
-      }
-    } catch (e) {}
-  }, []);
-
-  const handleUpgradeToPro = async () => {
-    setCheckoutError(null);
-    if (!currentUser) {
-      setAuthInitialIsSignUp(true);
-      setAuthModalOpen(true);
-      return;
-    }
-    setCheckoutLoading(true);
-    const res = await redirectToCheckout();
-    if (res.error) {
-      setCheckoutError(res.error);
-      setCheckoutLoading(false);
-    }
-  };
 
   return (
-    <div className="bg-slate-50 text-slate-800 font-sans min-h-screen selection:bg-teal-500 selection:text-white" style={{ fontFamily: "'Noto Sans Arabic', 'Inter', system-ui, sans-serif" }}>
-      {/* Billing Status Notice Banner */}
-      {billingNotice === "success" && (
-        <div className="bg-emerald-700 text-white px-6 py-3 text-xs md:text-sm font-bold flex items-center justify-between shadow-sm z-50 sticky top-0" id="billing-success-banner">
-          <div className="flex items-center gap-2 max-w-screen-xl mx-auto w-full justify-center">
-            <CheckCircle2 className="w-5 h-5 text-emerald-200 flex-shrink-0" />
-            <span>تم تفعيل اشتراكك في باقة باحث OS الاحترافية (Pro) بنجاح! مرحباً بك في مساحة العمل المتقدمة.</span>
-          </div>
-          <button onClick={() => setBillingNotice(null)} className="text-emerald-200 hover:text-white cursor-pointer mr-2">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-      {billingNotice === "canceled" && (
-        <div className="bg-amber-700 text-white px-6 py-3 text-xs md:text-sm font-bold flex items-center justify-between shadow-sm z-50 sticky top-0" id="billing-canceled-banner">
-          <div className="flex items-center gap-2 max-w-screen-xl mx-auto w-full justify-center">
-            <AlertCircle className="w-5 h-5 text-amber-200 flex-shrink-0" />
-            <span>تم إلغاء جلسة الدفع عبر Stripe دون خصم أي مبالغ. يمكنك الترقية إلى باقة Pro في أي وقت.</span>
-          </div>
-          <button onClick={() => setBillingNotice(null)} className="text-amber-200 hover:text-white cursor-pointer mr-2">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
+    <div className="bg-slate-50 text-slate-800 font-sans min-h-screen selection:bg-teal-500 selection:text-white" style={{ fontFamily: "'Tajawal', ui-sans-serif, system-ui, sans-serif" }}>
       {/* Navbar */}
-      <nav className="bg-white border-b border-slate-200 sticky top-0 z-40">
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-screen-xl mx-auto">
           <div className="px-6 py-4 flex items-center justify-between">
             {/* Logo */}
             <div className="flex items-center gap-x-3">
               <div className="w-11 h-11 bg-teal-800 flex items-center justify-center rounded-2xl shadow-inner">
-                <i className="fas fa-book text-white text-2xl"></i>
+                <BookOpen className="w-6 h-6 text-white" />
               </div>
               <div>
                 <span className="font-bold text-2xl tracking-tight text-teal-900 block leading-tight">بحث OS</span>
@@ -115,7 +45,6 @@ export default function LandingPage({
               <a href="#features" className="font-medium text-slate-600 hover:text-teal-800 transition-colors">المميزات</a>
               <a href="#how" className="font-medium text-slate-600 hover:text-teal-800 transition-colors">كيف يعمل</a>
               <a href="#comparison" className="font-medium text-slate-600 hover:text-teal-800 transition-colors">لماذا بحث OS؟</a>
-              <a href="#pricing" className="font-semibold text-teal-800 hover:text-teal-950 transition-colors">الأسعار والباقات</a>
               <a href="#testimonials" className="font-medium text-slate-600 hover:text-teal-800 transition-colors">آراء الباحثين</a>
             </div>
             
@@ -172,7 +101,7 @@ export default function LandingPage({
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 id="landing-mobile-menu-btn"
                 className="md:hidden w-10 h-10 flex items-center justify-center text-teal-800 cursor-pointer">
-                <i className="fas fa-bars text-xl"></i>
+                <Menu className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -184,7 +113,6 @@ export default function LandingPage({
             <a href="#features" onClick={() => setMobileMenuOpen(false)} className="font-medium text-slate-600 hover:text-teal-800 py-1 transition-colors">المميزات</a>
             <a href="#how" onClick={() => setMobileMenuOpen(false)} className="font-medium text-slate-600 hover:text-teal-800 py-1 transition-colors">كيف يعمل</a>
             <a href="#comparison" onClick={() => setMobileMenuOpen(false)} className="font-medium text-slate-600 hover:text-teal-800 py-1 transition-colors">لماذا بحث OS؟</a>
-            <a href="#pricing" onClick={() => setMobileMenuOpen(false)} className="font-semibold text-teal-800 hover:text-teal-950 py-1 transition-colors">الأسعار والباقات</a>
             <a href="#testimonials" onClick={() => setMobileMenuOpen(false)} className="font-medium text-slate-600 hover:text-teal-800 py-1 transition-colors">آراء الباحثين</a>
           </div>
         )}
@@ -223,7 +151,7 @@ export default function LandingPage({
                   id="landing-hero-cta"
                   className="w-full sm:w-auto px-8 py-3.5 bg-white text-teal-900 hover:bg-teal-50 transition-all font-bold text-lg rounded-3xl flex items-center justify-center gap-x-3 shadow-xl cursor-pointer">
                   <span>{currentUser ? "دخول مساحة العمل" : "ابدأ رحلتك مجاناً"}</span>
-                  <i className="fas fa-arrow-left"></i>
+                  <ArrowLeft className="w-4 h-4" />
                 </button>
                 
                 <button 
@@ -253,7 +181,7 @@ export default function LandingPage({
                 <div className="bg-white rounded-2xl overflow-hidden shadow-inner text-slate-800 text-right">
                   <div className="px-4 py-3 bg-teal-800 text-white flex items-center justify-between">
                     <div className="flex items-center gap-x-2">
-                      <i className="fas fa-book text-lg"></i>
+                      <BookOpen className="w-4.5 h-4.5" />
                       <span className="font-semibold text-sm">مساعد بحث OS والتحليل المتكامل</span>
                     </div>
                     <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></div>
@@ -273,11 +201,11 @@ export default function LandingPage({
                     
                     <div className="flex items-center justify-between text-xs">
                       <div className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-2xl font-semibold flex items-center gap-x-1">
-                        <i className="fas fa-check-circle text-xs"></i> 
+                        <CircleCheck className="w-3.5 h-3.5" /> 
                         <span className="font-bold text-[10px]">10 مصادر مدمجة</span>
                       </div>
                       <div className="text-teal-700 text-xs flex items-center gap-x-1">
-                        <i className="fas fa-link"></i> 
+                        <Link2 className="w-3 h-3" /> 
                         <span className="text-[11px]">توثيق دقيق</span>
                       </div>
                     </div>
@@ -301,7 +229,7 @@ export default function LandingPage({
       <div className="max-w-screen-xl mx-auto px-6 py-6 border-b border-slate-200">
         <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-center">
           <div className="flex items-center gap-x-2">
-            <div className="text-teal-700"><i className="fas fa-university text-lg"></i></div>
+            <div className="text-teal-700"><Landmark className="w-5 h-5" /></div>
             <span className="text-sm font-semibold text-slate-600">شركات، جامعات، ومؤسسات بحثية</span>
           </div>
           <div className="hidden md:block w-px h-4 bg-slate-300"></div>
@@ -322,7 +250,7 @@ export default function LandingPage({
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between" id="landing-feature-1">
             <div>
               <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-                <i className="fas fa-file-shield text-2xl"></i>
+                <ShieldCheck className="w-6 h-6" />
               </div>
               <h3 className="font-bold text-xl text-slate-900 mb-3">الالتزام الحصري بوثائقك</h3>
               <p className="text-slate-600 leading-relaxed text-sm">
@@ -336,10 +264,10 @@ export default function LandingPage({
           
           {/* Feature 2 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-2">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-balance-scale text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">التمييز بين الحقيقة والاستنتاج</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Scale className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">التمييز بين الحقيقة والاستنتاج</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يفرق محرك بحث OS بوضوح تام بين ما ورد صراحة في المصادر ("الحقائق المصرحة") وبين الاستدلالات أو الفرضيات الضمنية التي يطرحها الباحثون.
             </p>
@@ -347,10 +275,10 @@ export default function LandingPage({
           
           {/* Feature 3 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-3">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-quote-right text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">الاستشهاد المباشر والموثق</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Quote className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">الاستشهاد المباشر والموثق</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يربط كل استنتاج أو فكرة بالوثيقة التي استقى منها المعلومة بشكل دقيق، مع ذكره لاسم الوثيقة داخل سياق الجملة لتيسير المراجعة.
             </p>
@@ -358,10 +286,10 @@ export default function LandingPage({
           
           {/* Feature 4 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-4">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-object-group text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">مقارنة وتوليف مصادر متعددة</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Combine className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">مقارنة وتوليف مصادر متعددة</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يقوم بتشريح منهجي لمجموعة المصادر التي ترفعها، ليكشف تلقائياً عن نقاط التوافق والاتفاق الفكري، ونقاط الاختلاف والتعارض الإحصائي بينها.
             </p>
@@ -369,10 +297,10 @@ export default function LandingPage({
           
           {/* Feature 5 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-5">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-spell-check text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">تنقية اللفظ والتعريب الركيك</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <SpellCheck className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">تنقية اللفظ والتعريب الركيك</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               يكتشف تلقائياً المصطلحات والتعريبات الصوتية الركيكة (مثل "البلندد ليرنينغ") ويستبدلها فوراً بمصطلحات عربية فصيحة ومعتمدة علمياً.
             </p>
@@ -380,10 +308,10 @@ export default function LandingPage({
           
           {/* Feature 6 */}
           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300" id="landing-feature-6">
-            <div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
-              <i className="fas fa-compass text-2xl"></i>
-            </div>
-            <h3 className="font-bold text-xl text-slate-900 mb-3">اقتراح أسئلة مكملة ذكية</h3>
+<div className="w-12 h-12 flex items-center justify-center bg-teal-50 text-teal-700 rounded-2xl mb-6">
+                <Compass className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-xl text-slate-900 mb-3">اقتراح أسئلة مكملة ذكية</h3>
             <p className="text-slate-600 leading-relaxed text-sm">
               لا يقف عند حد الإجابة، بل يقود خطتك البحثية إلى الأمام عبر اقتراح أسئلة تكميلية عميقة تكشف الفجوات البحثية والآفاق غير المستكشفة.
             </p>
@@ -402,7 +330,7 @@ export default function LandingPage({
           <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-8">
             <div className="text-right max-w-3xl">
               <div className="inline-flex items-center gap-x-2 px-3 py-1 bg-teal-500/20 text-teal-300 rounded-full text-xs font-semibold mb-4 border border-teal-500/30">
-                <i className="fas fa-globe text-xs"></i>
+                <Globe className="w-3 h-3" />
                 <span>دعم المصادر متعددة اللغات</span>
               </div>
               <h3 className="text-2xl font-bold mb-3">تحليل مصادر بلغات مختلفة وصياغة عربية فصحى</h3>
@@ -489,21 +417,21 @@ export default function LandingPage({
             
             <div className="mt-8 space-y-4">
               <div className="flex items-start gap-x-3">
-                <div className="mt-1 text-emerald-600"><i className="fas fa-check-circle text-lg"></i></div>
+                <div className="mt-1 text-emerald-600"><CircleCheck className="w-4.5 h-4.5" /></div>
                 <div>
                   <div className="font-semibold text-slate-900">مصداقية وأمان كامل</div>
                   <div className="text-sm text-slate-500">لا اجتهاد ولا اختلاق لنصوص خارجية غريبة.</div>
                 </div>
               </div>
               <div className="flex items-start gap-x-3">
-                <div className="mt-1 text-emerald-600"><i className="fas fa-check-circle text-lg"></i></div>
+                <div className="mt-1 text-emerald-600"><CircleCheck className="w-4.5 h-4.5" /></div>
                 <div>
                   <div className="font-semibold text-slate-900">عربية فصحى راقية</div>
                   <div className="text-sm text-slate-500">صياغة بأسلوب النثر العلمي المحكم والمعبر.</div>
                 </div>
               </div>
               <div className="flex items-start gap-x-3">
-                <div className="mt-1 text-emerald-600"><i className="fas fa-check-circle text-lg"></i></div>
+                <div className="mt-1 text-emerald-600"><CircleCheck className="w-4.5 h-4.5" /></div>
                 <div>
                   <div className="font-semibold text-slate-900">هندسة متخصصة لكافة أنواع البحث</div>
                   <div className="text-sm text-slate-500">مبني خصيصاً لأبحاث السوق، التحليل التقني، مراجعة الأدبيات، وتقارير السياسات.</div>
@@ -616,170 +544,6 @@ export default function LandingPage({
         </div>
       </div>
       
-      {/* Pricing Section */}
-      <div className="py-20 bg-slate-100 border-t border-slate-200" id="pricing">
-        <div className="max-w-screen-xl mx-auto px-6">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <span className="px-3.5 py-1.5 bg-teal-100 text-teal-800 rounded-3xl text-xs font-bold inline-flex items-center gap-1.5 mb-4 border border-teal-200/80">
-              <Sparkles className="w-3.5 h-3.5 text-teal-700" />
-              <span>خطط واضحة تناسب احتياجاتك</span>
-            </span>
-            <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4 tracking-tight">
-              باقات الاشتراك للباحثين والمؤسسات
-            </h2>
-            <p className="text-slate-600 text-sm md:text-base leading-relaxed">
-              اختر الخطة المناسبة لدراساتك ومشاريعك البحثية. ابدأ مجاناً بالخطة الأساسية، أو قم بالترقية إلى باقة Pro للحصول على وصول متقدم وغير مقيد.
-            </p>
-          </div>
-
-          {checkoutError && (
-            <div className="max-w-md mx-auto mb-8 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-700 text-xs font-bold text-right shadow-xs" id="pricing-checkout-error">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500" />
-              <span>{checkoutError}</span>
-            </div>
-          )}
-
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto items-stretch">
-            {/* Free Plan */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-8 flex flex-col justify-between shadow-xs hover:shadow-md transition-shadow relative" id="pricing-card-free">
-              <div>
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-3 py-1 rounded-full">الخطة الأساسية</span>
-                  <span className="text-xs text-slate-400 font-medium">مجاناً مدى الحياة</span>
-                </div>
-                <h3 className="text-2xl font-bold text-slate-900 mb-2">الباحث المستقل</h3>
-                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-                  مثالية لتجربة المنصة وتحليل الوثائق الفردية للطلاب والمستكشفين.
-                </p>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-extrabold text-slate-900">0$</span>
-                  <span className="text-xs text-slate-500 font-medium">/ شهرياً</span>
-                </div>
-
-                <div className="space-y-3 pt-6 border-t border-slate-100 mb-8 text-xs text-slate-700">
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                    <span>رفع حتى 5 وثائق ومصادر لكل مساحة عمل</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                    <span>استخلاص أساسي للمصطلحات والمفاهيم</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                    <span>توليد تقارير توليفية أولية بصيغة Markdown</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                    <span>محادثة بحثية مقيدة بالوثائق المرفوعة</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                    <span>حفظ البيانات محلياً على جهازك</span>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  if (currentUser) {
-                    if (onEnterAsUser) onEnterAsUser();
-                    else onEnterApp();
-                  } else {
-                    if (onContinueAsGuest) onContinueAsGuest();
-                    else onEnterApp();
-                  }
-                }}
-                id="pricing-free-cta-btn"
-                className="w-full py-3 px-4 rounded-2xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>{currentUser ? "المتابعة بالخطة المجانية" : "ابدأ الآن مجاناً"}</span>
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Pro Plan */}
-            <div className="bg-white border-2 border-teal-700 rounded-3xl p-8 flex flex-col justify-between shadow-xl relative overflow-hidden" id="pricing-card-pro">
-              {/* Highlight Badge */}
-              <div className="absolute top-0 left-0 right-0 bg-teal-800 text-white text-center py-1.5 text-[11px] font-bold tracking-wide flex items-center justify-center gap-1.5 shadow-xs">
-                <Star className="w-3 h-3 text-amber-300 fill-amber-300" />
-                <span>الخيار الأكثر طلباً للأكاديميين والمحللين</span>
-              </div>
-
-              <div className="pt-3">
-                <div className="flex justify-between items-center mb-4 mt-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-teal-800 bg-teal-50 px-3 py-1 rounded-full border border-teal-200">الخطة الاحترافية (Pro)</span>
-                  <span className="text-xs text-teal-700 font-bold">وصول كامل غير مقيد</span>
-                </div>
-                <h3 className="text-2xl font-bold text-slate-900 mb-2">باحث OS برو</h3>
-                <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-                  للباحثين المتخصصين، رسائل الماجستير والدكتوراه، وصناع القرار.
-                </p>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-extrabold text-teal-900">$19</span>
-                  <span className="text-xs text-slate-500 font-medium">/ شهرياً (فواتير مرنة)</span>
-                </div>
-
-                <div className="space-y-3 pt-6 border-t border-slate-100 mb-8 text-xs text-slate-800 font-medium">
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span className="font-bold text-slate-900">رفع غير محدود للدراسات والأبحاث (PDF & Word)</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>توليد مصفوفات أدلة شمولية ومقارنات إحصائية عميقة</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>تنقية آلية دقيقة للمصطلحات والتعريبات الصوتية الركيكة</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>تحويل التقارير إلى موجز صوتي نقي بتقنية (TTS)</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>مزامنة سحابية فورية مشفرة متعددة الأجهزة (Firebase)</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>تصدير مباشر احترافي إلى مستندات Word جاهزة للنشر</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>أولوية قصوى لمعالجة النماذج وسرعة الاستجابة</span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <button
-                  onClick={handleUpgradeToPro}
-                  disabled={checkoutLoading}
-                  id="pricing-pro-cta-btn"
-                  className="w-full py-3.5 px-4 rounded-2xl bg-teal-800 hover:bg-teal-900 disabled:bg-teal-700 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {checkoutLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري الاتصال ببوابة Stripe الآمنة...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4 text-amber-300" />
-                      <span>{currentUser ? "الترقية إلى باقة Pro الآن" : "سجل واشترك في باقة Pro"}</span>
-                    </>
-                  )}
-                </button>
-                <p className="text-[11px] text-center text-slate-400 mt-2">
-                  دفع آمن 100% عبر Stripe مع إمكانية الإلغاء في أي وقت بنقرة واحدة
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
       {/* Call to Action Footer Section */}
       <div className="max-w-screen-xl mx-auto px-6 py-12 text-center text-slate-500 text-xs border-t border-slate-200" id="landing-footer-section">
         <div className="max-w-xl mx-auto mb-6">
@@ -800,7 +564,7 @@ export default function LandingPage({
             id="landing-footer-cta"
             className="px-8 py-3.5 bg-teal-800 hover:bg-teal-900 transition-all text-white font-bold text-base rounded-3xl inline-flex items-center gap-x-3 shadow-md cursor-pointer">
             <span>{currentUser ? "ادخل إلى مساحة العمل" : "ادخل إلى منصة الباحث مجاناً"}</span>
-            <i className="fas fa-arrow-left"></i>
+            <ArrowLeft className="w-4 h-4" />
           </button>
         </div>
         <div className="flex justify-between items-center text-[11px]">

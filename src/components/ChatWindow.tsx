@@ -14,7 +14,6 @@ import {
   Paperclip
 } from "lucide-react";
 import { Message, Source, DalilBriefing } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import DalilCard from "./DalilCard.js";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView.js";
 import ReportFollowUp from "./ReportFollowUp.js";
@@ -131,22 +130,24 @@ function ChatWindow({
       };
 
       try {
-        const authHeaders = await getAuthHeaders();
         const response = await fetch("/api/analyze-document", {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(reqBody),
         });
 
         if (response.ok) {
           const data = await response.json();
-          const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, data.originalText || parsed.text));
+          const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20)
+            ? data.extractedText
+            : (data.originalText || parsed.text);
+          if (/^\[مستند (PDF|Word):/.test(resolvedText)) {
+            throw new Error(`تعذر استخراج نص قابل للتحليل من المستند (${file.name}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
+          }
+          const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText));
           const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
-          const detectedLang = detectSourceLanguage(data.originalText || parsed.text, cleanTitle, data.language);
-          onAddSource(cleanTitle, data.originalText || parsed.text, detectedLang, cleanSummary, undefined, data.terms);
+          const detectedLang = detectSourceLanguage(resolvedText, cleanTitle, data.language);
+          onAddSource(cleanTitle, resolvedText, detectedLang, cleanSummary, undefined, data.terms);
         } else {
           const cleanTitle = spellcheckAndRepairArabicAndEnglishText(file.name);
           const fallbackText = (parsed.text && parsed.text.trim()) 

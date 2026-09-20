@@ -1,0 +1,259 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Tajawal", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* BahthOS design tokens — aligned with the landing page palette */
+  --color-ink: #0f172a;          /* high-contrast ink */
+  --color-ink-soft: #1e293b;     /* soft slate ink */
+  --color-brand: #064e3b;        /* primary dark emerald */
+  --color-mint: #ecfdf5;         /* active-state mint */
+  --color-accent-teal: #0d9488;  /* vibrant teal accent */
+  --color-accent-emerald: #047857; /* vibrant emerald accent */
+}
+
+/* Global base: readable ink + crisp Arabic rendering */
+html {
+  font-size: 106.25%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: #fafaf8;
+  color: #0f172a;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbars for a clean academic look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e2e2dd;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #cbcbbf;
+}
+
+/* =====================================================================
+   1. WORKSPACE-WIDE TYPOGRAPHY & CONTRAST (scope: #bahthos-root-container)
+   The landing page / terms / privacy render outside this container and
+   keep their own tuned palette.
+   ===================================================================== */
+#bahthos-root-container {
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1;
+}
+
+/* High-contrast ink remaps */
+#bahthos-root-container .text-\[\#1f1f1f\] { color: #0f172a; }
+#bahthos-root-container .text-\[\#0d6264\] { color: #047857; }
+#bahthos-root-container .text-\[\#094d4e\] { color: #064e3b; }
+#bahthos-root-container .text-\[\#062d2e\] { color: #064e3b; }
+
+/* Pale grays -> bold slate for effortless Arabic caption reading */
+#bahthos-root-container .text-gray-300 { color: #94a3b8; }
+#bahthos-root-container .text-gray-400 { color: #64748b; font-weight: 600; }
+#bahthos-root-container .text-gray-500 { color: #475569; font-weight: 600; }
+#bahthos-root-container .text-gray-600 { color: #334155; }
+#bahthos-root-container .placeholder-gray-400::placeholder,
+#bahthos-root-container .placeholder-slate-400::placeholder { color: #94a3b8; }
+
+/* Global minimum font floor for tiny Arabic labels/diacritics */
+#bahthos-root-container .text-\[8px\] { font-size: 10px; }
+#bahthos-root-container .text-\[9px\] { font-size: 10px; }
+#bahthos-root-container .text-\[10px\] { font-size: 11px; }
+#bahthos-root-container .text-\[10\.5px\] { font-size: 11.5px; }
+#bahthos-root-container .text-\[11px\] { font-size: 12px; }
+
+/* =====================================================================
+   2. TEAL -> EMERALD ACCENT REMAP (workspace-wide harmony)
+   Light teal tints become mint/emerald; dark teal becomes brand #064e3b.
+   Blue export CTA and red danger elements are intentionally untouched.
+   ===================================================================== */
+#bahthos-root-container .bg-teal-50,
+#bahthos-root-container .bg-teal-50\/20,
+#bahthos-root-container .bg-teal-50\/30,
+#bahthos-root-container .bg-teal-50\/50,
+#bahthos-root-container .bg-teal-50\/60,
+#bahthos-root-container .bg-teal-50\/70,
+#bahthos-root-container .bg-teal-50\/90 { background-color: #ecfdf5; }
+
+#bahthos-root-container .bg-teal-100,
+#bahthos-root-container .bg-teal-100\/30,
+#bahthos-root-container .bg-teal-100\/70,
+#bahthos-root-container .bg-teal-100\/80 { background-color: #ccfbf1; }
+
+#bahthos-root-container .border-teal-100,
+#bahthos-root-container .border-teal-100\/50,
+#bahthos-root-container .border-teal-100\/80 { border-color: #a7f3d0; }
+
+#bahthos-root-container .border-teal-200,
+#bahthos-root-container .border-teal-200\/60,
+#bahthos-root-container .border-teal-200\/70,
+#bahthos-root-container .border-teal-200\/80,
+#bahthos-root-container .border-teal-200\/90 { border-color: #99f6e4; }
+
+#bahthos-root-container .bg-\[\#094d4e\] { background-color: #064e3b; }
+#bahthos-root-container .bg-\[\#094d4e\]\/5 { background-color: rgba(6, 78, 59, 0.05); }
+#bahthos-root-container .bg-\[\#094d4e\]\/10 { background-color: rgba(6, 78, 59, 0.10); }
+#bahthos-root-container .border-\[\#094d4e\] { border-color: #064e3b; }
+#bahthos-root-container .border-\[\#062d2e\] { border-color: #064e3b; }
+
+/* Vibrant teal/emerald accent for the temperature slider */
+#bahthos-root-container .accent-\[\#0d6264\] { accent-color: #0d9488; }
+
+/* =====================================================================
+   3. SCRIPT: سجل التوليفات (Synthesis History)
+   Clean white cards, emerald-100/80 borders, soft elevated shadows,
+   vibrant emerald hover states, and mint/emerald pill metadata.
+   ===================================================================== */
+#synthesis-history-view .border-b { border-bottom-color: #ccfbf1; }
+
+#synthesis-history-view div[id^="history-item-"] {
+  background: #ffffff;
+  border: 1px solid rgb(209 250 229 / 0.85); /* emerald-100/80 */
+  box-shadow: 0 6px 18px -10px rgb(4 120 87 / 0.22);
+  border-radius: 0.75rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+#synthesis-history-view div[id^="history-item-"]:hover {
+  background: #ecfdf5;
+  border-color: #34d399;
+  box-shadow: 0 10px 24px -12px rgb(4 120 87 / 0.30);
+  transform: translateY(-1px);
+}
+
+#synthesis-history-view div[id^="history-item-"].bg-\[\#f4f3ee\] {
+  background: #ecfdf5;
+  border-color: #0d9488;
+  box-shadow: 0 8px 22px -10px rgb(13 148 136 / 0.30);
+}
+
+/* Metadata (date / sources / status) -> lively mint pill badge */
+#synthesis-history-view div[id^="history-item-"] div.flex.items-center.gap-2 {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.7rem;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 9999px;
+  color: #047857;
+  font-size: 10.5px;
+  font-weight: 800;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8);
+}
+
+/* Active report document card -> white with emerald frame */
+#active-synthesis-history-details div.flex-1.bg-\[\#fafaf8\] {
+  background: #ffffff;
+  border-color: rgb(209 250 229 / 0.9);
+  box-shadow: 0 10px 30px -18px rgb(6 78 59 / 0.20);
+}
+
+/* =====================================================================
+   4. SCRIPT: الإعدادات (Settings View)
+   Deep emerald accent borders + subtle mint gradient fills on cards;
+   vibrant teal/emerald ranges and focus rings.
+   ===================================================================== */
+#settings-view .rounded-2xl.shadow-2xs:not(.border-red-100) {
+  background: linear-gradient(180deg, #ffffff 0%, #f0fdfa 55%, #ecfdf5 100%);
+  border: 1px solid rgb(16 185 129 / 0.25);
+  border-top: 3px solid #0d9488;
+  box-shadow: 0 12px 28px -16px rgb(6 78 59 / 0.24);
+}
+
+#settings-view .border-b.border-gray-100 { border-bottom-color: #ccfbf1; }
+
+#settings-account-card .p-4.rounded-xl {
+  background: linear-gradient(135deg, #ecfdf5, #f0fdfa);
+  border-color: #a7f3d0;
+}
+
+#settings-view .p-3\.5.rounded-xl {
+  background: #ffffff;
+  border-color: rgb(209 250 229 / 0.9);
+  box-shadow: 0 6px 16px -10px rgb(4 120 87 / 0.18);
+}
+
+#settings-view .p-3.rounded-xl {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #1e293b;
+}
+
+/* =====================================================================
+   5. FORM CONTROLS / RANGE / FOCUS RINGS (workspace-wide)
+   ===================================================================== */
+#bahthos-root-container input:focus-visible,
+#bahthos-root-container textarea:focus-visible,
+#bahthos-root-container select:focus-visible,
+#bahthos-root-container button:focus-visible,
+#bahthos-root-container [role="button"]:focus-visible {
+  outline: 2px solid rgb(13 148 136 / 0.5);
+  outline-offset: 2px;
+}
+
+/* Custom emerald track + thumb for range sliders */
+#bahthos-root-container input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  accent-color: #0d9488;
+  height: auto;
+}
+
+#bahthos-root-container input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #0d9488, #047857);
+}
+
+#bahthos-root-container input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 3px solid #047857;
+  box-shadow: 0 2px 8px rgb(4 120 87 / 0.35);
+  margin-top: -6px;
+}
+
+#bahthos-root-container input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #0d9488, #047857);
+}
+
+#bahthos-root-container input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 3px solid #047857;
+  box-shadow: 0 2px 8px rgb(4 120 87 / 0.35);
+}
+
+#bahthos-root-container input[type="range"]:focus-visible {
+  outline-offset: 3px;
+}

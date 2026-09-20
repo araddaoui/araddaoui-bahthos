@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { 
   Plus, 
   Search, 
@@ -15,7 +15,6 @@ import {
   FileText
 } from "lucide-react";
 import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
-import { getAuthHeaders } from "../firebase.js";
 import DalilCard from "./DalilCard.js";
 import { parseDocumentFile } from "../utils/documentParser.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
@@ -33,6 +32,7 @@ interface UploadQueueItem {
 interface SourcesListProps {
   sources: Source[];
   activeTab?: string;
+  pendingUpload?: { files: File[]; id: number } | null;
   onToggleSource: (id: string) => void;
   onEnableAll: () => void;
   onDisableAll: () => void;
@@ -51,11 +51,15 @@ interface SourcesListProps {
   dalilCountdown?: number | null;
   isDalilGenerating?: boolean;
   onTriggerDalilBriefing?: () => void;
+  tier?: string;
+  sourceCount?: number;
+  onRequireUpgrade?: () => void;
 }
 
 function SourcesList({
   sources,
   activeTab = "sources",
+  pendingUpload = null,
   onToggleSource,
   onEnableAll,
   onDisableAll,
@@ -74,6 +78,9 @@ function SourcesList({
   dalilCountdown = null,
   isDalilGenerating = false,
   onTriggerDalilBriefing,
+  tier = "free",
+  sourceCount = 0,
+  onRequireUpgrade,
 }: SourcesListProps) {
   const [activeSubTab, setActiveSubTab] = useState<"sources" | "glossary">("sources");
   const [searchQuery, setSearchQuery] = useState("");
@@ -98,6 +105,7 @@ function SourcesList({
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [uploadProgress, setUploadProgress] = useState({ completed: 0, total: 0 });
+  const processedUploadIdRef = useRef<number | null>(null);
 
   const activeCount = useMemo(
     () => sources.reduce((count, source) => count + (source.enabled ? 1 : 0), 0),
@@ -240,6 +248,15 @@ function SourcesList({
     }
   };
 
+  // Files handed over from the Sources Explorer empty-state hero (drop zone /
+  // picker) are forwarded into the existing upload queue exactly once.
+  useEffect(() => {
+    if (!pendingUpload || pendingUpload.files.length === 0) return;
+    if (processedUploadIdRef.current === pendingUpload.id) return;
+    processedUploadIdRef.current = pendingUpload.id;
+    void processFiles(pendingUpload.files);
+  }, [pendingUpload]);
+
   const runAutomaticAnalysis = async (
     content: string,
     base64?: string,
@@ -268,13 +285,9 @@ function SourcesList({
         setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بليغ باللغة العربية..."), 800);
       }
 
-      const authHeaders = await getAuthHeaders();
       const response = await fetch("/api/analyze-document", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, base64, mimeType, fileName }),
       });
 
@@ -308,19 +321,29 @@ function SourcesList({
         throw new Error("تلقى التطبيق استجابة غير صالحة من خادم التحليل.");
       }
       
-      const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, data.originalText || content));
-      const detectedLang = detectSourceLanguage(data.originalText || content, data.title, data.language);
+      // The server can rescue a scanned PDF / broken Word file via base64 re-parse
+      // or Gemini multimodal; prefer its extractedText when it is meaningful.
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
+      const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20)
+        ? data.extractedText
+        : (data.originalText || content);
+      if (/^\[مستند (PDF|Word):/.test(resolvedText)) {
+        const err = new Error(`تعذر استخراج نص قابل للتحليل من المستند (${fileName || cleanTitle}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
+        if (commit) onAddSource(cleanTitle, "", "ar", "", err.message, []);
+        throw err;
+      }
+      const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText));
+      const detectedLang = detectSourceLanguage(resolvedText, data.title, data.language);
       // If the server returned no concepts (quota exhausted, missing API key, model error, or
       // the AI simply found none), fall back to LOCAL extraction so the user is never left empty.
       let terms = Array.isArray(data.terms) ? data.terms : [];
       if (!Array.isArray(data.terms) || data.terms.length === 0) {
         console.warn("Server returned no terms; using local fallback extractor.");
-        terms = extractFallbackTermsFromText(content || data.originalText || "", undefined, cleanTitle);
+        terms = extractFallbackTermsFromText(resolvedText, undefined, cleanTitle);
       }
       const draft: SourceDraft = {
         title: cleanTitle,
-        content: data.originalText || content,
+        content: resolvedText,
         language: detectedLang,
         summary: finalArabicSummary,
         terms,
@@ -334,12 +357,22 @@ function SourcesList({
       }
     } catch (err: any) {
       console.warn("Server analysis unavailable or failed, using client-side fallback:", err);
-      
+
       const rawTitle = fileName || `مستند مضاف ${sources.length + 1}`;
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(rawTitle);
-      const textContent = (content && content.trim()) 
-        ? content 
-        : `محتوى المستند المرفق (${cleanTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
+      // If there is genuinely no readable text (e.g. scanned PDF beyond the base64
+      // rescue cap, or a corrupt file), surface it as a per-file upload failure
+      // instead of silently adding an empty source.
+      const textContent = (content && content.trim().length >= 20)
+        ? content
+        : (content && content.trim())
+          ? `${content.trim()}\n${fileName || "المستند"} — ${rawTitle}`
+          : "";
+      if (!textContent || textContent.trim().length < 20) {
+        const err = new Error(`تعذر استخراج نص قابل للتحليل من المستند (${fileName || cleanTitle}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
+        if (commit) onAddSource(cleanTitle, "", "ar", "", err.message, []);
+        throw err;
+      }
       const autoSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, textContent));
       const detectedLang = detectSourceLanguage(textContent, cleanTitle);
       
@@ -382,6 +415,28 @@ function SourcesList({
         <p className="text-[11px] text-gray-600 leading-relaxed font-semibold">
           الوثائق المفعّلة يتم تضمينها تلقائياً في سياق التحليل والمقارنة بواسطة الذكاء الاصطناعي.
         </p>
+        {tier === "free" && (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-bold text-slate-600">الخطة المجانية</span>
+              <button
+                onClick={onRequireUpgrade}
+                className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline underline-offset-2"
+              >
+                ترقية للحصول على استخدام غير محدود
+              </button>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${sourceCount >= 5 ? "bg-amber-400" : "bg-teal-500"}`}
+                style={{ width: `${Math.min(100, (sourceCount / 5) * 100)}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5 font-semibold">
+              {sourceCount} / 5 مصادر مستخدمة{sourceCount >= 5 ? " — بلغت الحد الأقصى للخطة المجانية" : ""}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Sub-Tabs Switcher */}
@@ -706,24 +761,29 @@ function SourcesList({
                     </div>
                     <div className="max-h-36 overflow-y-auto space-y-1 text-right">
                       {uploadQueue.map((item) => (
-                        <div key={item.id} className="flex items-center gap-1.5 rounded-md bg-[#fafaf8] border border-gray-100 px-2 py-1">
-                          {item.status === "completed" ? (
-                            <FileCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                          ) : item.status === "processing" ? (
-                            <Loader2 className="w-3.5 h-3.5 text-[#094d4e] animate-spin flex-shrink-0" />
-                          ) : item.status === "failed" ? (
-                            <AlertCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
-                          ) : (
-                            <FileText className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                        <div key={item.id} className="flex flex-col rounded-md bg-[#fafaf8] border border-gray-100 px-2 py-1">
+                          <div className="flex items-center gap-1.5">
+                            {item.status === "completed" ? (
+                              <FileCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                            ) : item.status === "processing" ? (
+                              <Loader2 className="w-3.5 h-3.5 text-[#094d4e] animate-spin flex-shrink-0" />
+                            ) : item.status === "failed" ? (
+                              <AlertCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+                            ) : (
+                              <FileText className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                            )}
+                            <span className="truncate text-[10px] text-gray-600 flex-1" title={item.fileName}>{item.fileName}</span>
+                            <span className={`text-[9px] font-bold flex-shrink-0 ${
+                              item.status === "completed" ? "text-emerald-600" :
+                              item.status === "failed" ? "text-red-600" :
+                              item.status === "processing" ? "text-[#094d4e]" : "text-gray-400"
+                            }`}>
+                              {item.status === "completed" ? "تم" : item.status === "failed" ? "فشل" : item.status === "processing" ? "جاري" : "انتظار"}
+                            </span>
+                          </div>
+                          {item.status === "failed" && item.error && (
+                            <span className="text-[9px] leading-snug text-red-600 mt-0.5">{item.error}</span>
                           )}
-                          <span className="truncate text-[10px] text-gray-600 flex-1" title={item.fileName}>{item.fileName}</span>
-                          <span className={`text-[9px] font-bold flex-shrink-0 ${
-                            item.status === "completed" ? "text-emerald-600" :
-                            item.status === "failed" ? "text-red-600" :
-                            item.status === "processing" ? "text-[#094d4e]" : "text-gray-400"
-                          }`}>
-                            {item.status === "completed" ? "تم" : item.status === "failed" ? "فشل" : item.status === "processing" ? "جاري" : "انتظار"}
-                          </span>
                         </div>
                       ))}
                     </div>
@@ -1010,6 +1070,7 @@ function areSourcesListPropsEqual(prev: SourcesListProps, next: SourcesListProps
   // menu click should not force every source card to render again.
   return (
     prev.sources === next.sources &&
+    prev.pendingUpload === next.pendingUpload &&
     prev.selectedSourceId === next.selectedSourceId &&
     prev.glossaryTerms === next.glossaryTerms &&
     prev.isSweeping === next.isSweeping &&

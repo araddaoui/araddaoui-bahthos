@@ -1,5 +1,4 @@
 import express from "express";
-import { requireAuth } from "../src/server/middleware/auth.js";
 import ttsRouter from "../src/server/routers/tts.js";
 import chatRouter from "../src/server/routers/chat.js";
 import documentsRouter from "../src/server/routers/documents.js";
@@ -7,23 +6,12 @@ import synthesisRouter from "../src/server/routers/synthesis.js";
 import reportFollowupRouter from "../src/server/routers/reportFollowup.js";
 import glossaryRouter from "../src/server/routers/glossary.js";
 import glossarySweepRouter from "../src/server/routers/glossarySweep.js";
-import billingRouter, { stripeWebhookHandler } from "../src/server/routers/billing.js";
+import billingRouter from "../src/server/routers/billing.js";
 
 const app = express();
 
-// Stripe Webhook MUST receive raw Buffer before express.json() parses the body
-app.post("/api/billing/webhook", express.raw({ type: "application/json" }), stripeWebhookHandler);
-
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
-
-// Health check endpoint remains open without auth
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
-// Enforce Firebase ID token verification & guest preservation for API endpoints
-app.use("/api", requireAuth);
 
 // Mount every router statically so Vercel can bundle them into the serverless
 // function. Dynamic import() of sibling .js files is unreliable in serverless
