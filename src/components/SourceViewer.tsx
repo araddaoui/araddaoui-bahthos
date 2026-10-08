@@ -144,7 +144,7 @@ export default function SourceViewer({
             <div className="mb-6 p-5 bg-[#fcfbfa] border-r-4 border-[#094d4e] rounded-l-xl border-y border-l border-[#e2e2dd] space-y-2" id="source-auto-summary">
               <div className="flex items-center gap-1.5 text-xs font-bold text-[#094d4e]">
                 <Sparkles className="w-4 h-4" />
-                <span>ملخص ذكي (توليد تلقائي)</span>
+                <span>{source.fallback ? "ملخص أوّلي (تعذّر التحليل الذكي — توليد تلقائي)" : "ملخص ذكي (توليد تلقائي)"}</span>
               </div>
               <p className="text-xs text-gray-700 leading-relaxed font-medium whitespace-pre-wrap">
                 {source.summary}

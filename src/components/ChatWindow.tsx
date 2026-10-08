@@ -72,7 +72,8 @@ interface ChatWindowProps {
     language: "ar" | "en" | "fr",
     summary?: string,
     error?: string,
-    terms?: any[]
+    terms?: any[],
+    fallback?: boolean
   ) => void;
   dalilBriefing?: DalilBriefing | null;
   dalilCountdown?: number | null;
@@ -147,7 +148,7 @@ function ChatWindow({
           const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText));
           const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
           const detectedLang = detectSourceLanguage(resolvedText, cleanTitle, data.language);
-          onAddSource(cleanTitle, resolvedText, detectedLang, cleanSummary, undefined, data.terms);
+          onAddSource(cleanTitle, resolvedText, detectedLang, cleanSummary, undefined, data.terms, data.fallback === true);
         } else {
           const cleanTitle = spellcheckAndRepairArabicAndEnglishText(file.name);
           const fallbackText = (parsed.text && parsed.text.trim()) 
@@ -156,7 +157,7 @@ function ChatWindow({
           const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText));
           const detectedLang = detectSourceLanguage(fallbackText, cleanTitle);
           const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, cleanTitle);
-          onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms);
+          onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms, true);
         }
       } catch (netErr: any) {
         const cleanTitle = spellcheckAndRepairArabicAndEnglishText(file.name);
@@ -166,7 +167,7 @@ function ChatWindow({
         const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText));
         const detectedLang = detectSourceLanguage(fallbackText, cleanTitle);
         const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, cleanTitle);
-        onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms);
+        onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms, true);
       }
 
       setIsUploading(false);

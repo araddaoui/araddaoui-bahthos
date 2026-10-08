@@ -36,7 +36,7 @@ interface SourcesListProps {
   onToggleSource: (id: string) => void;
   onEnableAll: () => void;
   onDisableAll: () => void;
-  onAddSource: (title: string, content: string, language: "ar" | "en" | "fr", summary?: string, error?: string, terms?: any[]) => void;
+  onAddSource: (title: string, content: string, language: "ar" | "en" | "fr", summary?: string, error?: string, terms?: any[], fallback?: boolean) => void;
   onAddSources?: (drafts: SourceDraft[]) => void;
   onDeleteSource: (id: string) => void;
   onDeleteAllSources?: () => void;
@@ -232,7 +232,7 @@ function SourcesList({
         onAddSources(successfulDrafts);
       } else {
         successfulDrafts.forEach((draft) => {
-          onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms);
+          onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms, draft.fallback);
         });
       }
     }
@@ -347,8 +347,9 @@ function SourcesList({
         language: detectedLang,
         summary: finalArabicSummary,
         terms,
+        fallback: data.fallback === true,
       };
-      if (commit) onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms);
+      if (commit) onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms, draft.fallback);
       return draft;
       if (manageUi) {
         setNewContent("");
@@ -383,8 +384,9 @@ function SourcesList({
         language: detectedLang,
         summary: autoSummary,
         terms: fallbackTerms,
+        fallback: true,
       };
-      if (commit) onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms);
+      if (commit) onAddSource(draft.title, draft.content, draft.language, draft.summary, draft.error, draft.terms, draft.fallback);
       return draft;
       if (manageUi) {
         setNewContent("");

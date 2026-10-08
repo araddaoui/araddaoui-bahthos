@@ -8,6 +8,7 @@ export interface Source {
   language: "ar" | "en" | "fr";
   summary?: string;
   error?: string;
+  fallback?: boolean;
 }
 
 export interface SourceDraft {
@@ -17,6 +18,7 @@ export interface SourceDraft {
   summary?: string;
   error?: string;
   terms?: any[];
+  fallback?: boolean;
 }
 
 export interface Message {

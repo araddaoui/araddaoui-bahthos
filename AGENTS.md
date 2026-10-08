@@ -38,6 +38,55 @@ silently changed by future edits.
 4. New code must call the frozen API; it must not rewrite it.
 5. The **evidence-matrix / synthesis report generation** is a separate concern
    (rendering of tables) and is NOT frozen.
+6. **Approved exception (2026-10-08):** `src/utils/termExtractor.ts` string
+   literals were mechanically de-mojibaked (cp1252 → UTF-8, no logic changes)
+   with the user's explicit approval. If this file (or any frozen file) ever
+   shows `Ø`/`Ù` mojibake again, repair the encoding only — never rewrite the
+   algorithm — and get explicit approval first.
+
+## Deployment & source of truth
+
+- **Production** = bahthos.app, served by **Vercel** project `araddaoui-bahthos`
+  (project id in `.vercel/project.json`), deployed from **GitHub
+  `araddaoui/araddaoui-bahthos` branch `main`**. There is no separate server
+  codebase.
+- **This desktop checkout can lag origin by weeks.** ALWAYS run `git fetch`
+  and compare `HEAD` with `origin/main` before diagnosing anything. The
+  deployed build fingerprint: page title `بحث OS | bahthOS`, `/api/health`
+  returns 404 with body `Unknown API route`.
+- **No server-side auth exists** on main (all routes are open; an optional
+  `BYPASS_AUTH`/`VITE_BYPASS_AUTH` flag was added in `436426be`). Live API
+  probes are read-only-possible via header `x-guest-mode: true`.
+
+## Known failure modes (diagnosed 2026-10-08, keep this section updated)
+
+- **Garbled Arabic auto-summaries + exactly-2-terms** were caused by
+  cp1252-mojibake corruption of `src/utils/termExtractor.ts` string literals
+  during the Sep-18/19 source-tree reconstruction — NOT by PDF extraction,
+  the AI, or the server. Repaired 2026-10-08 (see freeze rule 6).
+  Diagnostic signature: if Arabic UI text shows `Ø`/`Ù` sequences, the file
+  was saved through a non-UTF-8 tool; repair encoding, do not rewrite code.
+- **Seeing exactly 2 terms** = extraction contributed nothing (App enforces a
+  min-2 title-derived-term floor at `App.tsx` ~line 245).
+- **`data.fallback: true`** from `/api/analyze-document` means the AI analysis
+  failed (quota/model/timeout) and the server suppressed a synthetic summary.
+  The client re-synthesizes locally; `Source.fallback` marks it and the
+  SourceViewer labels it `ملخص أوّلي` instead of `ملخص ذكي`.
+- **AI calls can exceed Vercel's 60s limit** → gateway 504; client shows a
+  per-file upload failure. Retrying is the only mitigation.
+- **No local `GEMINI_API_KEY`** in this checkout's `.env` → server AI path
+  cannot be reproduced locally; diagnose AI issues via Vercel logs.
+
+## Verification workflow (run after any change touching extraction/UI)
+
+1. `npx tsc --noEmit` must exit 0.
+2. Grep any edited Arabic-bearing file for mojibake: `rg "[ØÙ][\x80-\xFF]"`.
+3. Extraction repro: extract a known Arabic PDF with pdf.js, run
+   `normalizeArabicText` → `ensureArabicSummary` → `extractFallbackTermsFromText`
+   (esbuild-bundled script is fine) and assert: summary contains no `Ø`/`Ù`
+   and terms are non-empty.
+4. Never trust the PowerShell console for Arabic output (codepage mangles it);
+   write results to a UTF-8 file and use the Read tool.
 
 ## Table / Arabic rendering conventions
 

@@ -1619,6 +1619,7 @@ export default function App() {
       language: draft.language,
       ...(draft.error || draft.summary ? { summary: draft.error || draft.summary } : {}),
       ...(draft.error ? { error: draft.error } : {}),
+      ...(draft.fallback ? { fallback: true } : {}),
     };
   };
 
@@ -1679,9 +1680,10 @@ export default function App() {
     language: "ar" | "en" | "fr",
     summary?: string,
     error?: string,
-    terms?: any[]
+    terms?: any[],
+    fallback?: boolean
   ) => {
-    commitSourceDrafts([{ title, content, language, summary, error, terms }], true);
+    commitSourceDrafts([{ title, content, language, summary, error, terms, fallback }], true);
   };
 
   const handleAddSources = (drafts: SourceDraft[]) => {
