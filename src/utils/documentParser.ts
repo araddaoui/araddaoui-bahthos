@@ -14,6 +14,17 @@ export interface ParsedDocumentResult {
   fileName: string;
 }
 
+// Detects model-echoed `extractedText` made of ASCII "?" placeholders (observed
+// when Gemini echoes very short inputs). Legitimate Arabic uses "؟" (U+061F),
+// so real content never trips this threshold.
+export function isMostlyQuestionMarks(text: string): boolean {
+  if (!text) return false;
+  const meaningful = text.replace(/\s+/g, "");
+  if (meaningful.length < 20) return false;
+  const questionMarks = (meaningful.match(/\?/g) || []).length;
+  return questionMarks / meaningful.length >= 0.3;
+}
+
 export async function parseDocumentFile(file: File): Promise<ParsedDocumentResult> {
   const fileName = file.name;
   const isPdf = file.type === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");

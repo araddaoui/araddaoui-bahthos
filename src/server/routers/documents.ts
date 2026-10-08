@@ -182,6 +182,17 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
         }
       }
 
+      // Guard against model-echoed extractedText made of ASCII "?" placeholders
+      // (observed on very short pastes). Prefer the server's own parsed text;
+      // when there is none, an empty string makes the client keep its own parse.
+      {
+        const meaningful = (resData.extractedText || "").replace(/\s+/g, "");
+        if (meaningful.length >= 20 && (meaningful.match(/\?/g) || []).length / meaningful.length >= 0.3) {
+          console.warn("AI returned placeholder extractedText (mostly '?'); using server-parsed text instead.");
+          resData.extractedText = parsedContent || "";
+        }
+      }
+
       if (resData.summary) {
         resData.summary = sanitizeSourceSummary(resData.summary, resData.title || fileName, parsedContent);
       } else {

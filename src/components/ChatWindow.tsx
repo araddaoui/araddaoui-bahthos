@@ -17,7 +17,7 @@ import { Message, Source, DalilBriefing } from "../types.js";
 import DalilCard from "./DalilCard.js";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView.js";
 import ReportFollowUp from "./ReportFollowUp.js";
-import { parseDocumentFile } from "../utils/documentParser.js";
+import { parseDocumentFile, isMostlyQuestionMarks } from "../utils/documentParser.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor.js";
 import { parseMarkdownToReact } from "../utils/reportFormatter.js";
 
@@ -139,7 +139,7 @@ function ChatWindow({
 
         if (response.ok) {
           const data = await response.json();
-          const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20)
+          const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20 && !isMostlyQuestionMarks(data.extractedText))
             ? data.extractedText
             : (data.originalText || parsed.text);
           if (/^\[مستند (PDF|Word):/.test(resolvedText)) {

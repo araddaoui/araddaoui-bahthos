@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
 import DalilCard from "./DalilCard.js";
-import { parseDocumentFile } from "../utils/documentParser.js";
+import { parseDocumentFile, isMostlyQuestionMarks } from "../utils/documentParser.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
 
 type UploadQueueStatus = "queued" | "processing" | "completed" | "failed";
@@ -324,7 +324,7 @@ function SourcesList({
       // The server can rescue a scanned PDF / broken Word file via base64 re-parse
       // or Gemini multimodal; prefer its extractedText when it is meaningful.
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
-      const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20)
+      const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20 && !isMostlyQuestionMarks(data.extractedText))
         ? data.extractedText
         : (data.originalText || content);
       if (/^\[مستند (PDF|Word):/.test(resolvedText)) {
