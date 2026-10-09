@@ -9,9 +9,7 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
-router.use(requireAuth, rateLimit);
-
-router.post("/api/report-followup", async (req, res) => {
+router.post("/api/report-followup", requireAuth, rateLimit, async (req, res) => {
   const { question, reportContext, reportTitle, sources, history } = req.body;
 
   if (!question || typeof question !== "string" || question.trim().length === 0) {

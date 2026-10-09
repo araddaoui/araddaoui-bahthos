@@ -106,10 +106,13 @@ silently changed by future edits.
   (sha256), `cacheGet`/`cacheSet` (60-day TTL). No env vars → no-op.
 - `src/server/rateLimit.ts` applies 30/min + 500/day per identity, keyed by
   `clientKey` (uid, else IP), and fails open on Redis errors.
-- Every router installs `router.use(requireAuth, rateLimit)` locally — do NOT
-  edit the frozen `api/index.ts` to add global middleware. Success responses
-  are cached under `bahthos:ai:v1:<route>:<sha256>`; failure/fallback responses
-  are never cached. `X-Cache: HIT|MISS` is set.
+- Attach `requireAuth, rateLimit` **per route** (`router.post("/api/x", requireAuth, rateLimit, handler)`)
+  — do NOT use a pathless `router.use(...)`: routers are mounted at `/` in the
+  frozen `api/index.ts`, so a pathless `.use` would run once per router (up to
+  8×) for every request, over-counting the rate limit and turning unknown
+  `/api/*` into 401 instead of 404. Success responses are cached under
+  `bahthos:ai:v1:<route>:<sha256>`; failure/fallback responses are never cached.
+  `X-Cache: HIT|MISS` is set.
 - Client: use `authFetch` from `src/utils/api.ts` for every `/api` call; it
   attaches `Authorization: Bearer <getIdToken()>`.
 - Guests get an anonymous Firebase session via `ensureGuestSession()` (requires

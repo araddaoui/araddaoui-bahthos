@@ -10,8 +10,6 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
-router.use(requireAuth, rateLimit);
-
 function isArabicFirstText(text: string): boolean {
   const arabicLetters = (text.match(/[\u0600-\u06FF]/g) || []).length;
   const latinLetters = (text.match(/[A-Za-z]/g) || []).length;
@@ -92,7 +90,7 @@ function buildDalilFallback(activeSources: any[]): string {
   ].join("\n\n");
 }
 
-router.post("/api/synthesize", async (req, res) => {
+router.post("/api/synthesize", requireAuth, rateLimit, async (req, res) => {
   try {
     const { sources: rawSourcesInput, topic, toolType } = req.body || {};
     const sources = Array.isArray(rawSourcesInput) ? rawSourcesInput : [];

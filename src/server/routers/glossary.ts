@@ -8,9 +8,7 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
-router.use(requireAuth, rateLimit);
-
-router.post("/api/extract-glossary", async (req, res) => {
+router.post("/api/extract-glossary", requireAuth, rateLimit, async (req, res) => {
   const { text, systemPrompt, existingTerms } = req.body;
 
   if (!text || typeof text !== "string" || text.trim().length < 10) {

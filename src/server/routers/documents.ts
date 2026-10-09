@@ -11,9 +11,7 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
-router.use(requireAuth, rateLimit);
-
-router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => {
+router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLimit, async (req, res) => {
   try {
     const { content, base64, mimeType, fileName } = req.body || {};
 

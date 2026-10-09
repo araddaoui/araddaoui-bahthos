@@ -5,7 +5,6 @@ import { requireAuth } from "../auth.js";
 import { rateLimit } from "../rateLimit.js";
 
 const router = Router();
-router.use(requireAuth, rateLimit);
 const ENABLE_ARABIC_TTS = false;
 
 type GeneratedAudio = {
@@ -66,7 +65,7 @@ async function generateInteractionAudio(
   );
 }
 
-router.post("/api/tts", async (req, res) => {
+router.post("/api/tts", requireAuth, rateLimit, async (req, res) => {
   if (!ENABLE_ARABIC_TTS) {
     return res.status(410).json({
       error: "تم إيقاف القراءة الصوتية العربية مؤقتاً لتخفيف الحمل على التطبيق.",

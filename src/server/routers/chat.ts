@@ -7,9 +7,7 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
-router.use(requireAuth, rateLimit);
-
-router.post("/api/chat", async (req, res) => {
+router.post("/api/chat", requireAuth, rateLimit, async (req, res) => {
   try {
     const { messages, sources } = req.body || {};
     const validSources = Array.isArray(sources) ? sources : [];

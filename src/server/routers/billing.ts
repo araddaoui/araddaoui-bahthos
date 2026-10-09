@@ -5,8 +5,6 @@ import { rateLimit } from "../rateLimit.js";
 
 const router = Router();
 
-router.use(requireAuth, rateLimit);
-
 // Lazily-initialized Stripe client so imports never crash when the secret is
 // missing (the checkout route then returns a clear, graceful error instead).
 let stripeClient: Stripe | null = null;
@@ -45,7 +43,7 @@ async function resolvePlanPrice(planType: "monthly" | "yearly"): Promise<Stripe.
 
 // POST /api/billing/stripe-checkout
 // Body: { planType: "monthly" | "yearly", uid, email }
-router.post("/api/billing/stripe-checkout", async (req, res) => {
+router.post("/api/billing/stripe-checkout", requireAuth, rateLimit, async (req, res) => {
   try {
     const stripe = getStripe();
     if (!stripe) {
@@ -82,7 +80,7 @@ router.post("/api/billing/stripe-checkout", async (req, res) => {
 // GET /api/billing/verify?session_id=<id>
 // Confirms the checkout was paid and returns the resources the client needs to
 // persist its own profile document.
-router.get("/api/billing/verify", async (req, res) => {
+router.get("/api/billing/verify", requireAuth, rateLimit, async (req, res) => {
   try {
     const stripe = getStripe();
     if (!stripe) {
@@ -124,7 +122,7 @@ router.get("/api/billing/verify", async (req, res) => {
 
 // POST /api/billing/customer-portal
 // Body: { customer }
-router.post("/api/billing/customer-portal", async (req, res) => {
+router.post("/api/billing/customer-portal", requireAuth, rateLimit, async (req, res) => {
   try {
     const stripe = getStripe();
     if (!stripe) {
@@ -149,7 +147,7 @@ router.post("/api/billing/customer-portal", async (req, res) => {
 // POST /api/billing/status
 // Body: { customer } — returns the latest active subscription expiry so the
 // client can refresh its own expiresAt (renewal-aware without webhooks).
-router.post("/api/billing/status", async (req, res) => {
+router.post("/api/billing/status", requireAuth, rateLimit, async (req, res) => {
   try {
     const stripe = getStripe();
     if (!stripe) {

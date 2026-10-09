@@ -8,9 +8,7 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
-router.use(requireAuth, rateLimit);
-
-router.post("/api/sweep-glossary", async (req, res) => {
+router.post("/api/sweep-glossary", requireAuth, rateLimit, async (req, res) => {
   const { terms } = req.body;
   if (!Array.isArray(terms) || terms.length === 0) {
     return res.json({ terms: [] });
