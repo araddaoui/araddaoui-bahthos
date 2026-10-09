@@ -3,8 +3,13 @@ import { getAiClient, generateContentWithRetry, DEFAULT_MODEL } from "../ai.js";
 import { normalizeArabicText } from "../../utils/termExtractor.js";
 import { generateReportFollowUpFallback } from "../../utils/synthesisFallback.js";
 import { deduplicateSources, deduplicateReportText } from "../sourceUtils.js";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
+import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
+
+router.use(requireAuth, rateLimit);
 
 router.post("/api/report-followup", async (req, res) => {
   const { question, reportContext, reportTitle, sources, history } = req.body;
@@ -14,6 +19,13 @@ router.post("/api/report-followup", async (req, res) => {
   }
 
   const activeSources = Array.isArray(sources) ? sources : [];
+
+  const followupCacheKey = cacheKey("report-followup", req.body || {});
+  const cachedFollowup = await cacheGet<any>(followupCacheKey);
+  if (cachedFollowup) {
+    res.setHeader("X-Cache", "HIT");
+    return res.json(cachedFollowup);
+  }
 
   try {
     const ai = getAiClient();
@@ -82,10 +94,13 @@ ${historyFormatted ? `[سجل الاستفسارات المباشرة الساب
 
     if (response?.text && response.text.trim().length > 30) {
       const cleanAnswer = deduplicateReportText(normalizeArabicText(response.text.trim()));
-      return res.json({
+      const followupPayload = {
         answer: cleanAnswer,
         isFallback: false
-      });
+      };
+      await cacheSet(followupCacheKey, followupPayload);
+      res.setHeader("X-Cache", "MISS");
+      return res.json(followupPayload);
     }
   } catch (aiErr: any) {
     console.error("AI report follow-up call failed, using smart fallback:", aiErr);

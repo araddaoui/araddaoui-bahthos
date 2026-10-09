@@ -3,6 +3,7 @@ import {
   getAuth, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
+  signInAnonymously,
   signOut, 
   onAuthStateChanged,
   User as FirebaseUser 
@@ -82,6 +83,31 @@ function handleFirestoreError(error: any, actionName: string) {
 }
 
 export { app, auth, db };
+
+// Guests get a real (anonymous) Firebase session purely so the API can
+// authenticate and rate-limit them. Anonymous users are never treated as
+// accounts: App.tsx keeps them in guest mode and never loads or saves Firestore
+// data under this uid. Requires the Anonymous provider to be enabled in the
+// Firebase console; when it is not, this resolves to null and guest mode still
+// works with the warn-only API (ENFORCE_API_AUTH=false).
+let guestSignInPromise: Promise<FirebaseUser | null> | null = null;
+
+export function ensureGuestSession(): Promise<FirebaseUser | null> {
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+  if (!guestSignInPromise) {
+    guestSignInPromise = signInAnonymously(auth)
+      .then((cred) => cred.user)
+      .catch((err: any) => {
+        guestSignInPromise = null;
+        console.warn(
+          "[auth] Anonymous guest sign-in failed (is the Anonymous provider enabled?):",
+          err?.code || err?.message
+        );
+        return null;
+      });
+  }
+  return guestSignInPromise;
+}
 
 // Tracking set for deleted project IDs to prevent race conditions and re-persisting deleted projects
 const deletedProjectIds = new Set<string>();

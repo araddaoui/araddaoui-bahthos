@@ -18,6 +18,7 @@ import DalilCard from "./DalilCard.js";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView.js";
 import ReportFollowUp from "./ReportFollowUp.js";
 import { parseDocumentFile, isMostlyQuestionMarks } from "../utils/documentParser.js";
+import { authFetch } from "../utils/api.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor.js";
 import { parseMarkdownToReact } from "../utils/reportFormatter.js";
 
@@ -131,7 +132,7 @@ function ChatWindow({
       };
 
       try {
-        const response = await fetch("/api/analyze-document", {
+        const response = await authFetch("/api/analyze-document", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(reqBody),

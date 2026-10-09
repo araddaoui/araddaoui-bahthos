@@ -4,6 +4,7 @@ import { MessageSquare, Send, Sparkles, Loader2, HelpCircle, ShieldCheck, Corner
 import { generateReportFollowUpFallback } from "../utils/synthesisFallback.js";
 import { parseMarkdownToReact } from "../utils/reportFormatter.js";
 import { spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor.js";
+import { authFetch } from "../utils/api.js";
 
 interface ReportFollowUpProps {
   reportContext: string;
@@ -65,7 +66,7 @@ export default function ReportFollowUp({
     }));
 
     try {
-      const response = await fetch("/api/report-followup", {
+      const response = await authFetch("/api/report-followup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

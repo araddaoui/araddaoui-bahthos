@@ -95,3 +95,27 @@ silently changed by future edits.
   must sanitize them (drop empty lines, merge stray pipes) so the table is
   well-formed.
 - Column text must not be chunked; the renderer should leave words whole.
+
+## API hardening (auth + cache + rate limit)
+
+- `src/server/auth.ts` (`requireAuth`) verifies Firebase ID tokens via Google
+  JWKS (`jose`) against `FIREBASE_PROJECT_ID`. `ENFORCE_API_AUTH=true` returns
+  401; `false` is warn-only (attaches `req.auth` when valid, never blocks).
+  `BYPASS_AUTH`/`VITE_BYPASS_AUTH` skip verification entirely (local dev).
+- `src/server/cache.ts` holds the shared Upstash Redis client, `cacheKey`
+  (sha256), `cacheGet`/`cacheSet` (60-day TTL). No env vars → no-op.
+- `src/server/rateLimit.ts` applies 30/min + 500/day per identity, keyed by
+  `clientKey` (uid, else IP), and fails open on Redis errors.
+- Every router installs `router.use(requireAuth, rateLimit)` locally — do NOT
+  edit the frozen `api/index.ts` to add global middleware. Success responses
+  are cached under `bahthos:ai:v1:<route>:<sha256>`; failure/fallback responses
+  are never cached. `X-Cache: HIT|MISS` is set.
+- Client: use `authFetch` from `src/utils/api.ts` for every `/api` call; it
+  attaches `Authorization: Bearer <getIdToken()>`.
+- Guests get an anonymous Firebase session via `ensureGuestSession()` (requires
+  the Firebase Anonymous provider). `App.tsx`'s `onAuthStateChanged` treats
+  `user.isAnonymous` as a guest (never as an account): it keeps `currentUser`
+  null and never loads/saves Firestore data under an anonymous uid.
+- Rollout: Deploy A ships this with `ENFORCE_API_AUTH=false`; only after the
+  token-attach + anonymous sign-in are verified live, set
+  `ENFORCE_API_AUTH=true` (Deploy B).

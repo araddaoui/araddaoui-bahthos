@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { getAiClient } from "../ai.js";
 import { pcmToWav } from "../audio.js";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
 
 const router = Router();
+router.use(requireAuth, rateLimit);
 const ENABLE_ARABIC_TTS = false;
 
 type GeneratedAudio = {

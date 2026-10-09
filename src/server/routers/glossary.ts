@@ -2,14 +2,26 @@ import { Router } from "express";
 import { Type } from "@google/genai";
 import { getAiClient, generateContentWithRetry, DEFAULT_MODEL } from "../ai.js";
 import { extractFallbackTermsFromText, sanitizeAndRepairTermsPipeline } from "../../utils/termExtractor.js";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
+import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
+
+router.use(requireAuth, rateLimit);
 
 router.post("/api/extract-glossary", async (req, res) => {
   const { text, systemPrompt, existingTerms } = req.body;
 
   if (!text || typeof text !== "string" || text.trim().length < 10) {
     return res.json({ terms: [] });
+  }
+
+  const glossaryCacheKey = cacheKey("extract-glossary", { text, systemPrompt, existingTerms });
+  const cachedGlossary = await cacheGet<{ terms: any[] }>(glossaryCacheKey);
+  if (cachedGlossary) {
+    res.setHeader("X-Cache", "HIT");
+    return res.json(cachedGlossary);
   }
 
   try {
@@ -47,7 +59,10 @@ router.post("/api/extract-glossary", async (req, res) => {
       } catch (parseError) {
         console.error("❌ Failed to parse AI response as JSON:", parseError);
       }
-      return res.json({ terms });
+      const customPayload = { terms };
+      await cacheSet(glossaryCacheKey, customPayload);
+      res.setHeader("X-Cache", "MISS");
+      return res.json(customPayload);
     }
 
     const existingTermsStr = existingTerms && Array.isArray(existingTerms) && existingTerms.length > 0 
@@ -132,7 +147,10 @@ text.substring(0, 3500);
         definition: t.definition,
       }));
 
-    return res.json({ terms: normalizedTerms });
+    const normalizedPayload = { terms: normalizedTerms };
+    await cacheSet(glossaryCacheKey, normalizedPayload);
+    res.setHeader("X-Cache", "MISS");
+    return res.json(normalizedPayload);
   } catch (error: any) {
     console.warn("Passive glossary extraction backend failed, using local extraction fallback:", error);
     const fallbacks = extractFallbackTermsFromText(text, undefined, undefined).map((t) => ({

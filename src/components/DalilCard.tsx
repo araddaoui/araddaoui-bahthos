@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, Loader2, Volume2, Pause, Square, ChevronDown, ChevronUp, Radio, Download } from "lucide-react";
 import { DalilBriefing } from "../types.js";
 import { exportToWordDocument } from "../utils/reportFormatter.js";
+import { authFetch } from "../utils/api.js";
 
 interface DalilCardProps {
   dalilBriefing: DalilBriefing | null;
@@ -184,7 +185,7 @@ export default function DalilCard({
     if (!chunk) return null;
 
     const request = (async () => {
-      const res = await fetch("/api/tts", {
+      const res = await authFetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: chunk.text }),

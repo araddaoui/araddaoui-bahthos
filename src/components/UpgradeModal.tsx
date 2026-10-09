@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { X, Sparkles, Loader2, CreditCard, Landmark, Upload, CircleCheck } from "lucide-react";
 import { collection, addDoc } from "firebase/firestore";
 import { db } from "../firebase.js";
+import { authFetch } from "../utils/api.js";
 import {
   UserPlanProfile,
   SubscriptionTier,
@@ -76,7 +77,7 @@ export default function UpgradeModal({
       setBusy(true);
       setError(null);
       try {
-        const res = await fetch(`/api/billing/verify?session_id=${encodeURIComponent(sessionId)}`);
+        const res = await authFetch(`/api/billing/verify?session_id=${encodeURIComponent(sessionId)}`);
         const data = await res.json();
         if (!res.ok) {
           setError(data.error || "تعذر التحقق من جلسة الدفع.");
@@ -125,7 +126,7 @@ export default function UpgradeModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/billing/stripe-checkout", {
+      const res = await authFetch("/api/billing/stripe-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planType, uid, email }),
@@ -152,7 +153,7 @@ export default function UpgradeModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/billing/customer-portal", {
+      const res = await authFetch("/api/billing/customer-portal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customer: customerId }),

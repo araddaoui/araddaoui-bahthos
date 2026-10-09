@@ -34,8 +34,10 @@ import {
   clearDeletedProjectsRegistry,
   isQuotaExceeded,
   loadUserProfile,
-  saveUserProfile
+  saveUserProfile,
+  ensureGuestSession
 } from "./firebase.js";
+import { authFetch } from "./utils/api.js";
 import { UserPlanProfile, SubscriptionTier, resolveEffectiveTier, isUnlimitedTier, isAdminUser, addMonthsToNow, FREE_PROJECT_LIMIT, FREE_SOURCE_LIMIT, GUEST_PLAN_STORAGE_KEY } from "./utils/plans.js";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 
@@ -321,6 +323,15 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      // Anonymous guests are not accounts: their session exists solely to
+      // authenticate and rate-limit API calls. Keep them in guest mode and never
+      // load or save Firestore data under an anonymous uid.
+      if (!BYPASS_AUTH && user && user.isAnonymous) {
+        setCurrentUser(null);
+        setUseAsGuest(true);
+        setAuthChecking(false);
+        return;
+      }
       const isBypassMock = BYPASS_AUTH && !user;
       const effectiveUser = isBypassMock ? BYPASS_USER : user;
       if (effectiveUser && !isBypassMock) setIsFirebaseLoading(true);
@@ -336,6 +347,14 @@ export default function App() {
       clearTimeout(timer);
     };
   }, []);
+
+  // Bootstrap an anonymous Firebase session for guests so /api calls carry a
+  // token and can be authenticated and rate-limited once enforcement is on.
+  useEffect(() => {
+    if (useAsGuest && !currentUser && !BYPASS_AUTH) {
+      void ensureGuestSession();
+    }
+  }, [useAsGuest, currentUser]);
 
   useEffect(() => {
     if (isLiveFirebaseUser) {
@@ -358,7 +377,7 @@ export default function App() {
     const customerId = (profile as any).stripeCustomerId as string | undefined;
     if (!customerId) return profile;
     try {
-      const res = await fetch("/api/billing/status", {
+      const res = await authFetch("/api/billing/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customer: customerId }),
@@ -821,7 +840,7 @@ export default function App() {
       setIsSweeping(true);
       try {
         console.log(`Retroactive sweep started for ${toSweep.length} glossary terms...`);
-        const response = await fetch("/api/sweep-glossary", {
+        const response = await authFetch("/api/sweep-glossary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ terms: toSweep }),
@@ -1384,7 +1403,7 @@ export default function App() {
     let extractedCount = 0;
 
     try {
-      const response = await fetch("/api/extract-glossary", {
+      const response = await authFetch("/api/extract-glossary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, sourceId, existingTerms }),
@@ -1546,7 +1565,7 @@ export default function App() {
     let briefingText = "";
 
     try {
-      const res = await fetch("/api/synthesize", {
+      const res = await authFetch("/api/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1662,14 +1681,17 @@ export default function App() {
 
     drafts.forEach((draft, index) => {
       const source = newSources[index];
-      // Always attempt to add terms from draft, and always run local extraction 
-      // as a reliable fallback to ensure the "min 2 terms" rule is met.
-      if (draft.terms && draft.terms.length > 0) {
-        addGlossaryTermsDirectly(draft.terms, source.id);
+      const draftTerms = Array.isArray(draft.terms) ? draft.terms : [];
+      if (draftTerms.length > 0) {
+        addGlossaryTermsDirectly(draftTerms, source.id);
       }
-      
-      // Force local fallback extraction for every new source to ensure glossary growth
-      void extractGlossaryTerms(draft.content.substring(0, 5000), source.id);
+
+      // Batch analysis already produced these terms (and the client backfills
+      // locally), so only call the glossary API when a source arrived with none.
+      // This removes the redundant second AI call per uploaded document.
+      if (draftTerms.length < 2) {
+        void extractGlossaryTerms(draft.content.substring(0, 5000), source.id);
+      }
     });
   };
 
@@ -1841,7 +1863,7 @@ export default function App() {
         activeSources = sources.map((src) => ({ ...src, enabled: true }));
       }
       
-      const response = await fetch("/api/chat", {
+      const response = await authFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

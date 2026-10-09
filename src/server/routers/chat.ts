@@ -1,8 +1,13 @@
 import { Router } from "express";
 import { getAiClient, generateContentWithRetry, SYSTEM_INSTRUCTIONS, DEFAULT_MODEL } from "../ai.js";
 import { normalizeArabicText } from "../../utils/termExtractor.js";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
+import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
+
+router.use(requireAuth, rateLimit);
 
 router.post("/api/chat", async (req, res) => {
   try {
@@ -11,6 +16,13 @@ router.post("/api/chat", async (req, res) => {
     
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: "Invalid messages format" });
+    }
+
+    const chatCacheKey = cacheKey("chat", { messages, sources: validSources });
+    const cachedChat = await cacheGet<{ text: string }>(chatCacheKey);
+    if (cachedChat) {
+      res.setHeader("X-Cache", "HIT");
+      return res.json(cachedChat);
     }
 
     const ai = getAiClient();
@@ -65,7 +77,10 @@ router.post("/api/chat", async (req, res) => {
     }, res);
 
     const replyText = normalizeArabicText(response?.text || "المصادر المتاحة لا توفر إجابة كافية حيال هذا السؤال المباشر.");
-    return res.json({ text: replyText });
+    const chatPayload = { text: replyText };
+    await cacheSet(chatCacheKey, chatPayload);
+    res.setHeader("X-Cache", "MISS");
+    return res.json(chatPayload);
   } catch (error: any) {
     console.error("Gemini chat API call failed, generating synthesis fallback:", error);
 

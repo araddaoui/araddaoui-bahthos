@@ -5,12 +5,27 @@ import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSumm
         sanitizeAndRepairTermsPipeline } from "../../utils/termExtractor.js";
 import { getAiClient, generateContentWithRetry, DEFAULT_MODEL } from "../ai.js";
 import { ensurePdfDomGlobals } from "../pdfDomGlobals.js";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
+import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
+
+router.use(requireAuth, rateLimit);
 
 router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => {
   try {
     const { content, base64, mimeType, fileName } = req.body || {};
+
+    // Deterministic per-document cache: identical inputs return the identical
+    // analysis without any AI call. Only successful analyses are stored, so a
+    // transient failure never poisons the cache.
+    const analyzeCacheKey = cacheKey("analyze-document", { content, base64, mimeType, fileName });
+    const cachedAnalysis = await cacheGet<any>(analyzeCacheKey);
+    if (cachedAnalysis) {
+      res.setHeader("X-Cache", "HIT");
+      return res.json(cachedAnalysis);
+    }
 
     const isPdf = mimeType === "application/pdf" || fileName?.toLowerCase().endsWith(".pdf");
     const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || 
@@ -146,6 +161,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
         model: DEFAULT_MODEL,
         contents: contentsInput,
         config: {
+          temperature: 0,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -230,6 +246,8 @@ router.post(["/api/extract-text", "/api/analyze-document"], async (req, res) => 
         }
       }
 
+      await cacheSet(analyzeCacheKey, resData);
+      res.setHeader("X-Cache", "MISS");
       return res.json(resData);
     } catch (err: any) {
       console.error("AI Extraction failed:", err);

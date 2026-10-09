@@ -17,6 +17,7 @@ import {
 import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
 import DalilCard from "./DalilCard.js";
 import { parseDocumentFile, isMostlyQuestionMarks } from "../utils/documentParser.js";
+import { authFetch } from "../utils/api.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
 
 type UploadQueueStatus = "queued" | "processing" | "completed" | "failed";
@@ -285,7 +286,7 @@ function SourcesList({
         setTimeout(() => setAnalysisStep("جاري استخلاص العنوان وصياغة ملخص بليغ باللغة العربية..."), 800);
       }
 
-      const response = await fetch("/api/analyze-document", {
+      const response = await authFetch("/api/analyze-document", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, base64, mimeType, fileName }),

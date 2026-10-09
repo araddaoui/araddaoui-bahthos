@@ -4,8 +4,13 @@ import { normalizeArabicText, sanitizeSourceSummary } from "../../utils/termExtr
 import { generateClientSynthesisFallback, injectEvidenceMatrixIntoReport } from "../../utils/synthesisFallback.js";
 import { deduplicateSources, deduplicateReportText } from "../sourceUtils.js";
 import { DALIL_SYSTEM_INSTRUCTION } from "../prompts.js";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
+import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
+
+router.use(requireAuth, rateLimit);
 
 function isArabicFirstText(text: string): boolean {
   const arabicLetters = (text.match(/[\u0600-\u06FF]/g) || []).length;
@@ -100,6 +105,13 @@ router.post("/api/synthesize", async (req, res) => {
       return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
     }
 
+    const synthesizeCacheKey = cacheKey("synthesize", req.body || {});
+    const cachedSynthesis = await cacheGet<any>(synthesizeCacheKey);
+    if (cachedSynthesis) {
+      res.setHeader("X-Cache", "HIT");
+      return res.json(cachedSynthesis);
+    }
+
     console.log("Starting synthesis for topic:", topic, "toolType:", toolType, "sources:", activeSources.length);
 
     const ai = getAiClient();
@@ -169,7 +181,10 @@ ${sourcesContext}
         });
 
         if (response?.text && isSubstantiveDalilText(response.text)) {
-          return res.json({ text: response.text.trim(), isFallback: false, silent: false });
+          const dalilPayload = { text: response.text.trim(), isFallback: false, silent: false };
+          await cacheSet(synthesizeCacheKey, dalilPayload);
+          res.setHeader("X-Cache", "MISS");
+          return res.json(dalilPayload);
         }
         if (response?.text && response.text.trim().length > 5) {
           console.warn("Al-Dalil model returned a short or meta-level briefing; using the content-grounded six-paragraph fallback.");
@@ -378,10 +393,13 @@ scopeIntro + sourcesContext;
                 injectEvidenceMatrixIntoReport(cleanText, activeSources, topic || "تحليل ومقارنة شاملة للمصادر")
               )
             : cleanText;
-        return res.json({
+        const synthesisPayload = {
           text: finalText,
           isFallback: false
-        });
+        };
+        await cacheSet(synthesizeCacheKey, synthesisPayload);
+        res.setHeader("X-Cache", "MISS");
+        return res.json(synthesisPayload);
       }
       if (cleanText.length > 100) {
         console.warn("Synthesis response contained excessive Latin text; using Arabic fallback.");

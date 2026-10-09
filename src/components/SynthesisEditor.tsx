@@ -20,6 +20,7 @@ import { Source, Synthesis, DalilBriefing } from "../types.js";
 import SynthesisReportView, { stripEvidenceTags } from "./SynthesisReportView.js";
 import { copyReportToClipboard, exportToWordDocument, deduplicateSources } from "../utils/reportFormatter.js";
 import { generateClientSynthesisFallback } from "../utils/synthesisFallback.js";
+import { authFetch } from "../utils/api.js";
 import DalilCard from "./DalilCard.js";
 
 interface SynthesisEditorProps {
@@ -160,7 +161,7 @@ function SynthesisEditor({
       let serverErrorCode: string | null = null;
       let serverErrorMessage: string | null = null;
       try {
-        const response = await fetch("/api/synthesize", {
+        const response = await authFetch("/api/synthesize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

@@ -1,7 +1,11 @@
 import { Router } from "express";
 import Stripe from "stripe";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
 
 const router = Router();
+
+router.use(requireAuth, rateLimit);
 
 // Lazily-initialized Stripe client so imports never crash when the secret is
 // missing (the checkout route then returns a clear, graceful error instead).

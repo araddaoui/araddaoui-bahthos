@@ -2,13 +2,25 @@ import { Router } from "express";
 import { Type } from "@google/genai";
 import { getAiClient, generateContentWithRetry, DEFAULT_MODEL } from "../ai.js";
 import { cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "../../utils/termExtractor.js";
+import { requireAuth } from "../auth.js";
+import { rateLimit } from "../rateLimit.js";
+import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
+
+router.use(requireAuth, rateLimit);
 
 router.post("/api/sweep-glossary", async (req, res) => {
   const { terms } = req.body;
   if (!Array.isArray(terms) || terms.length === 0) {
     return res.json({ terms: [] });
+  }
+
+  const sweepCacheKey = cacheKey("sweep-glossary", { terms });
+  const cachedSweep = await cacheGet<{ terms: any[] }>(sweepCacheKey);
+  if (cachedSweep) {
+    res.setHeader("X-Cache", "HIT");
+    return res.json(cachedSweep);
   }
 
   try {
@@ -91,7 +103,10 @@ ${JSON.stringify(terms, null, 2)}`;
         };
       })
       .filter(Boolean);
-    res.json({ terms: normalizedTerms });
+    const sweepPayload = { terms: normalizedTerms };
+    await cacheSet(sweepCacheKey, sweepPayload);
+    res.setHeader("X-Cache", "MISS");
+    res.json(sweepPayload);
   } catch (error: any) {
     console.warn("Glossary sweep backend failed:", error);
     res.json({ terms: [] });
