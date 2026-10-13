@@ -29,10 +29,14 @@ export async function generateContentWithRetry(
     config?: any;
     systemInstruction?: any;
   },
-  res?: any
+  res?: any,
+  deadlineAt?: number
 ) {
   let attempt = 1;
   const maxAttempts = 3;
+  // A hard wall-clock budget (epoch ms) lets callers guarantee they return a
+  // response before a serverless timeout instead of being killed mid-flight.
+  const hasBudget = () => !deadlineAt || Date.now() < deadlineAt - 1000;
   const requestedModel = params.model || "gemini-3-flash-preview";
   const normalizedRequestedModel = requestedModel === "gemini-1.5-pro" || requestedModel === "gemini-pro"
     ? "gemini-3.1-pro-preview"
@@ -46,6 +50,9 @@ export async function generateContentWithRetry(
   let currentModel = modelCandidates[modelIndex];
 
   while (true) {
+    if (!hasBudget()) {
+      throw new Error("AI_DEADLINE_EXCEEDED: no time budget left for the model request.");
+    }
     try {
       return await ai.models.generateContent({
         ...params,
@@ -77,9 +84,11 @@ export async function generateContentWithRetry(
         errorStr.includes("limit") || 
         errorStr.includes("exhausted");
 
-      if ((isRetryable || isQuota) && attempt < maxAttempts) {
+      if ((isRetryable || isQuota) && attempt < maxAttempts && hasBudget()) {
         attempt++;
-        const delay = isQuota ? attempt * 2000 : (attempt === 2 ? 1000 : 2000);
+        const baseDelay = isQuota ? attempt * 2000 : (attempt === 2 ? 1000 : 2000);
+        const remaining = deadlineAt ? Math.max(0, deadlineAt - Date.now() - 1000) : baseDelay;
+        const delay = Math.min(baseDelay, remaining);
         
         if (modelIndex < modelCandidates.length - 1) {
           modelIndex += 1;

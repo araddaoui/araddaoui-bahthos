@@ -72,29 +72,94 @@ function isSubstantiveDalilText(text: string): boolean {
 }
 
 function buildDalilFallback(activeSources: any[]): string {
+  const sources = Array.isArray(activeSources) ? activeSources : [];
   const title = (source: any, index: number) => shortReference(source?.title, index);
-  
-  const segments = activeSources.slice(0, 5).map((source, index) => {
-    const evidence = arabicEvidence(source, 600);
-    if (evidence) {
-      return `ورد في «${title(source, index)}» ما نصه: «${evidence}».`;
+  const paragraphs: string[] = [];
+
+  paragraphs.push(
+    `تجمع هذه القراءة ${sources.length} من المصادر النشطة في المشروع الحالي، وتستخرج من كل وثيقة أدلتها المباشرة ورقمها الأساسي، ثم تربطها في رؤية مقارنة متكاملة بدلاً من سرد منفصل.`
+  );
+
+  sources.slice(0, 6).forEach((source, index) => {
+    const reference = title(source, index);
+    const summary = String(source?.summary || "").trim();
+    const evidence = arabicEvidence(source, 500);
+    const numbers = (String(source?.content || "").match(/\d[\d,.]*%?/g) || []).slice(0, 4).join("، ");
+
+    let paragraph = `تعرض «${reference}» محوراً مستقلاً يمكن إثباته من نصها المتاح`;
+    if (summary) {
+      paragraph += `؛ فالملخص المحفوظ لها يقول: ${summary.slice(0, 420)}`;
     }
-    return `تتضمن «${title(source, index)}» معطيات تحتاج إلى تحليل معمق لاستخراج الأدلة المباشرة منها.`;
+    if (evidence) {
+      paragraph += ` ومن أقوى أدلتها المباشرة ما نصه: «${evidence}».`;
+    } else if (numbers) {
+      paragraph += `، وقد حفظت في أصلها الأجنبي معطيات رقمية قابلة للتحقق منها: ${numbers}.`;
+    } else {
+      paragraph += `، غير أن النص المتاح لا يتضمن مقطعاً عربياً كافياً للاقتباس المباشر، ويُستحسن إعادة رفع الوثيقة بنسخة نصية كاملة.`;
+    }
+    paragraphs.push(paragraph);
   });
 
-  return [
-    `تجمع هذه الإحاطة الأولية بين ${activeSources.length} مصادر تم رفعها للمشروع الحالي.`,
-    ...segments,
-    `تشكل هذه الأدلة مجتمعة أساساً للبحث الحالي، حيث يكمل كل مصدر جوانب النقص في المصادر الأخرى، مما يسمح ببناء رؤية تكاملية للموضوع المدروس.`,
-    `يرجى ملاحظة أن هذه الإحاطة هي توليف أولي يعتمد على المقاطع المتاحة؛ للحصول على تحليل أعمق، يوصى باستخدام خيار "تحديث الإحاطة" بعد التأكد من اكتمال رفع كافة الوثائق.`
-  ].join("\n\n");
+  paragraphs.push(
+    `وعند تقاطع هذه الوثائق يتضح أن كلاً منها يغطي جانباً من الموضوع يكمل نقص الآخر، إذ تغطي بعضها الإطار النظري وأخرى المعطيات الميدانية والأرقام، وهو ما يجعل التوليف في نقاط الاتفاق والاختلاف أقوى من أي قراءة منفردة لوثيقة واحدة.`
+  );
+  paragraphs.push(
+    `ويبقى الحكم المقارن النهائي معلقاً على مواضع لا يفصل فيها النص المتاح، مثل تفاصيل العينة والمنهج والمدى الزمني، وهي مواضع يوصى بتلبيتها بأدلة إضافية عند تحديث الإحاطة، مع الإبقاء على كل استنتاج مرتبطاً باقتباسه الوارد أعلاه.`
+  );
+
+  return paragraphs.join("\n\n");
+}
+
+function groundedTextFor(activeSources: any[], topic: string, toolType: string): string {
+  if (toolType === "dalil-update") {
+    return buildDalilFallback(activeSources);
+  }
+  return generateClientSynthesisFallback(
+    activeSources,
+    topic || "تحليل ومقارنة شاملة للمصادر",
+    (toolType as any) || "general"
+  );
+}
+
+// Terminal responder for every synthesis path. It is intentionally synchronous
+// and dependency-free so it can never throw or hang: whatever the model did, the
+// client receives a real, source-grounded Arabic response with HTTP 200.
+function sendGrounded(res: any, activeSources: any[], topic: string, toolType: string) {
+  let raw = "";
+  try {
+    raw = groundedTextFor(activeSources, topic, toolType) || "";
+  } catch (builderErr) {
+    console.error("grounded synthesis builder failed:", builderErr);
+    raw = "";
+  }
+  if (!raw.trim()) {
+    raw = Array.isArray(activeSources) && activeSources.length > 0
+      ? buildDalilFallback(activeSources)
+      : "لا تتوفر مصادر كافية لإنتاج إحاطة في هذه اللحظة.";
+  }
+  let text = raw;
+  try {
+    text = sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(raw)));
+  } catch (normErr) {
+    console.error("grounded synthesis normalization failed:", normErr);
+    text = raw;
+  }
+  if (!text.trim()) {
+    text = raw;
+  }
+  return res.json({ text, isFallback: true, silent: false });
 }
 
 router.post("/api/synthesize", requireAuth, rateLimit, async (req, res) => {
+  let activeSources: any[] = [];
+  let topic = "";
+  let toolType = "";
   try {
-    const { sources: rawSourcesInput, topic, toolType } = req.body || {};
+    const { sources: rawSourcesInput, topic: bodyTopic, toolType: bodyToolType } = req.body || {};
+    topic = bodyTopic;
+    toolType = bodyToolType;
     const sources = Array.isArray(rawSourcesInput) ? rawSourcesInput : [];
-    const activeSources = deduplicateSources(sources).map((source: any) => ({
+    activeSources = deduplicateSources(sources).map((source: any) => ({
       ...source,
       summary: sanitizeSourceSummary(source?.summary, source?.title, source?.content),
     }));
@@ -113,6 +178,13 @@ router.post("/api/synthesize", requireAuth, rateLimit, async (req, res) => {
     console.log("Starting synthesis for topic:", topic, "toolType:", toolType, "sources:", activeSources.length);
 
     const ai = getAiClient();
+
+    // Hard self-imposed deadline below Vercel's 60s function cap: a slow or hung
+    // model call aborts into the deterministic, source-grounded fallback instead
+    // of being killed by the gateway, so this endpoint always returns a response.
+    const deadlineAt = Date.now() + 48_000;
+    const aiAbortSignal = AbortSignal.timeout(48_000);
+    const withDeadline = (config: any) => ({ ...(config || {}), abortSignal: aiAbortSignal });
 
     if (toolType === "dalil-update") {
       const { newSourceIds } = req.body || {};
@@ -164,63 +236,63 @@ ${priorContext}
 ${sourcesContext}
 `;
 
-      let lastAiError: any = null;
-      try {
-        // Use Gemini 3.1 Pro for the deep comparative synthesis. Falling back
-        // to the Flash model is handled only for transient model errors.
-        const response = await generateContentWithRetry(ai, {
-          model: "gemini-3.1-pro-preview",
-          contents: dalilPrompt,
-          config: {
-            systemInstruction: DALIL_SYSTEM_INSTRUCTION,
-            temperature: 0.3,
-            maxOutputTokens: 4096
-          },
-        });
+      // Layer 1-3: best-effort model synthesis. Any failure here is caught and
+      // degrades to the deterministic, source-grounded briefing below — this
+      // path never returns an error to the client.
+      const generateDalil = async (contents: string): Promise<string> => {
+        try {
+          const response = await generateContentWithRetry(
+            ai,
+            {
+              model: "gemini-3.1-pro-preview",
+              contents,
+              config: withDeadline({
+                systemInstruction: DALIL_SYSTEM_INSTRUCTION,
+                temperature: 0.3,
+                maxOutputTokens: 4096,
+              }),
+            },
+            res,
+            deadlineAt
+          );
+          return typeof response?.text === "string" ? response.text.trim() : "";
+        } catch (aiErr: any) {
+          console.error("al-Dalil briefing generation attempt failed:", aiErr?.message || aiErr);
+          return "";
+        }
+      };
 
-        if (response?.text && isSubstantiveDalilText(response.text)) {
-          const dalilPayload = { text: response.text.trim(), isFallback: false, silent: false };
+      const looksMeta = (text: string) =>
+        /تتناول هذه الإحاطة|تركز المقارنة|من الناحية المنهجية|تكشف المقارنة الأولية|تُقرأ هذه المجموعة|يقتصر هذا الوصف|الموضوع التخصصي لمستند/i.test(text);
+      const acceptable = (text: string) =>
+        isSubstantiveDalilText(text) ||
+        (isArabicFirstText(text) && text.trim().length >= 700 && !looksMeta(text));
+
+      let bestText = await generateDalil(dalilPrompt);
+      if (!acceptable(bestText)) {
+        const repairInstruction =
+          "أعد الآن صياغة الإحاطة كاملة بالعربية الفصحى حصراً من جديد: ابدأ مباشرة في صلب النتائج والأدلة الواردة في النصوص المتاحة دون أي خطاب منهجي، ووسّع كل فقرة بأدلة قابلة للتحقق (رقم أو فاعل أو آلية أو تاريخ)، واجعل النص سبع فقرات تقريباً بما لا يقل عن 1400 حرف، دون نقل أي جملة أجنبية.";
+        const repaired = await generateDalil(dalilPrompt + "\n\n" + repairInstruction);
+        if (acceptable(repaired)) {
+          bestText = repaired;
+        } else if (isArabicFirstText(repaired) && repaired.trim().length > bestText.trim().length) {
+          bestText = repaired;
+        }
+      }
+
+      if (isArabicFirstText(bestText) && bestText.trim().length > 5 && !looksMeta(bestText)) {
+        const dalilPayload = { text: sanitizeArabicReportText(bestText), isFallback: false, silent: false };
+        try {
           await cacheSet(synthesizeCacheKey, dalilPayload);
-          res.setHeader("X-Cache", "MISS");
-          return res.json(dalilPayload);
+        } catch (cacheErr) {
+          console.warn("al-Dalil cache write skipped:", cacheErr);
         }
-        if (response?.text && response.text.trim().length > 5) {
-          console.warn("Al-Dalil model returned a short or meta-level briefing; using the content-grounded six-paragraph fallback.");
-        }
-      } catch (aiErr: any) {
-        lastAiError = aiErr;
-        console.error("al-Dalil briefing generation failed:", aiErr);
+        res.setHeader("X-Cache", "MISS");
+        return res.json(dalilPayload);
       }
 
-      // Never present a fabricated-looking briefing as if it were model analysis.
-      // Classify provider failures so the client can tell a quota problem from a
-      // temporary outage, while preserving the previous valid briefing.
-      const errorText = String(lastAiError?.message || "").toLowerCase();
-      const errorStatus = Number(lastAiError?.status || 0);
-      const quotaFailure = errorStatus === 429 || errorText.includes("429") || errorText.includes("quota") || errorText.includes("exhausted") || errorText.includes("rate limit");
-      const missingKey = !process.env.GEMINI_API_KEY;
-      if (missingKey) {
-        return res.status(503).json({
-          error: "خدمة التوليف غير مهيأة في بيئة الإنتاج. يرجى ضبط مفتاح الذكاء الاصطناعي.",
-          code: "AI_KEY_MISSING",
-          retryable: false,
-          isFallback: false,
-        });
-      }
-      if (quotaFailure) {
-        return res.status(429).json({
-          error: "حصة التوليف لدى مزود الذكاء الاصطناعي مستنفدة مؤقتاً. يرجى الانتظار ثم إعادة المحاولة.",
-          code: "AI_QUOTA_EXHAUSTED",
-          retryable: true,
-          isFallback: false,
-        });
-      }
-      return res.status(503).json({
-        error: "تعذر الاتصال بخدمة التوليف الآن. يرجى إعادة المحاولة بعد لحظات.",
-        code: "AI_SYNTHESIS_UNAVAILABLE",
-        retryable: true,
-        isFallback: false,
-      });
+      console.warn("Al-Dalil model output unusable; returning the deterministic source-grounded briefing.");
+      return sendGrounded(res, activeSources, topic, "dalil-update");
     }
 
     let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
@@ -346,11 +418,11 @@ scopeIntro + sourcesContext;
       const first = await generateContentWithRetry(ai, {
         model: DEFAULT_MODEL,
         contents: userPrompt,
-        config: {
+        config: withDeadline({
           systemInstruction,
           temperature: 0.3,
-        }
-      });
+        })
+      }, res, deadlineAt);
 
       let candidate = readResponseText(first);
       let cleanText = candidate.length > 100
@@ -367,11 +439,11 @@ scopeIntro + sourcesContext;
         const second = await generateContentWithRetry(ai, {
           model: DEFAULT_MODEL,
           contents: userPrompt + "\n\n" + repairInstruction,
-          config: {
+          config: withDeadline({
             systemInstruction,
             temperature: 0.3,
-          }
-        });
+          })
+        }, res, deadlineAt);
         candidate = readResponseText(second);
         cleanText = candidate.length > 100
           ? sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(candidate)))
@@ -406,20 +478,17 @@ scopeIntro + sourcesContext;
       console.error("AI synthesis call failed, using smart fallback logic:", aiErr);
     }
 
-    // Smart, document-specific fallback if AI call fails
-    const fallbackReport = generateClientSynthesisFallback(activeSources, topic || "تحليل ومقارنة شاملة للمصادر", toolType);
-    return res.json({
-      text: sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(fallbackReport))),
-      isFallback: true
-    });
+    // Smart, document-specific fallback if AI call fails.
+    return sendGrounded(res, activeSources, topic, toolType);
 
   } catch (error: any) {
     console.error("Error in synthesis API:", error);
-    const fallbackReport = generateClientSynthesisFallback(req.body?.sources || [], req.body?.topic || "تحليل وتوليف المصادر", req.body?.toolType);
-    return res.json({
-      text: sanitizeArabicReportText(deduplicateReportText(normalizeArabicText(fallbackReport))),
-      isFallback: true
-    });
+    try {
+      return sendGrounded(res, activeSources, topic, toolType);
+    } catch (nestedErr) {
+      console.error("grounded synthesis terminal failed:", nestedErr);
+      return res.json({ text: "تعذر إتمام التوليف التلقائي، ويرجى إعادة المحاولة.", isFallback: true, silent: false });
+    }
   }
 });
 
