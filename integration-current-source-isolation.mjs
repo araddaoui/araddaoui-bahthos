@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { writeFileSync, unlinkSync } from "node:fs";
+import esbuild from "esbuild";
 import { request } from "node:http";
 import { readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const repo = process.cwd();
 const dalilCardSource = readFileSync("src/components/DalilCard.tsx", "utf8");
@@ -17,9 +19,17 @@ assert.match(apiSource, /src\/server\/routers\/tts/);
 assert.doesNotMatch(dalilCardSource, /falling back to WebSpeech/);
 assert.doesNotMatch(dalilCardSource, /playChunkWithWebSpeechFallback\(rawSegments/);
 assert.match(synthesisSource, /التقاطع والتأطير المشترك/);
-const bundle = "/tmp/bahthos-termExtractor-test.cjs";
-execFileSync("npx", ["esbuild", "src/utils/termExtractor.ts", "--bundle", "--platform=node", "--format=cjs", `--outfile=${bundle}`], { cwd: repo, stdio: "inherit" });
-const { sanitizeSourceSummary } = await import(`file://${bundle}?ts=${Date.now()}`);
+const bundle = path.join(os.tmpdir(), "bahthos-termExtractor-test.cjs");
+esbuild.buildSync({
+  entryPoints: [path.join(repo, "src/utils/termExtractor.ts")],
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  outfile: bundle,
+  absWorkingDir: repo,
+  logLevel: "warning",
+});
+const { sanitizeSourceSummary } = await import(`${pathToFileURL(bundle).href}?ts=${Date.now()}`);
 
 const staleLegacyTail = ["الممارسات السياقية ذات الصلة", "باللغة العربية الفصحى"].join(" ");
 const stale = "تقدم هذه الدراسة قراءة تحليليّة أكاديمية متخصصة تناقش العلاقات الدولية، مع استعراض الأطر النظرية والمنهجية، " + staleLegacyTail + ".";
@@ -51,7 +61,6 @@ function httpPost(url, body) {
 }
 
 const port = Number(process.env.TEST_PORT || 3417);
-const server = execFileSync;
 // The caller starts the server; keep this script focused on black-box endpoint checks.
 const response = await httpPost(`http://127.0.0.1:${port}/api/synthesize`, {
   toolType: "dalil-update",

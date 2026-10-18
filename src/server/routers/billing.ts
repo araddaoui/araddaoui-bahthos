@@ -1,6 +1,6 @@
 import { Router } from "express";
 import Stripe from "stripe";
-import { requireAuth } from "../auth.js";
+import { requireAuth, getAuthContext } from "../auth.js";
 import { rateLimit } from "../rateLimit.js";
 
 const router = Router();
@@ -41,6 +41,26 @@ async function resolvePlanPrice(planType: "monthly" | "yearly"): Promise<Stripe.
   return price;
 }
 
+// Best-effort ownership check for customer-scoped routes. Checkouts created by
+// this deployment stamp `bahthos_uid` onto their subscription metadata; when a
+// stamp exists and doesn't match the caller, the request is refused. Legacy
+// subscriptions carry no stamp and are allowed, since there is no server-side
+// uid↔customer store to consult.
+async function customerBelongsToCaller(stripe: Stripe, customer: string, authUid?: string): Promise<boolean> {
+  if (!authUid) return true;
+  try {
+    const subs = await stripe.subscriptions.list({ customer, limit: 100 });
+    const stampedUids = subs.data
+      .map((s) => (s.metadata as Record<string, string> | undefined)?.bahthos_uid)
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (stampedUids.length === 0) return true;
+    return stampedUids.includes(authUid);
+  } catch (err) {
+    console.warn("[billing] customer ownership check failed (allowing):", err);
+    return true;
+  }
+}
+
 // POST /api/billing/stripe-checkout
 // Body: { planType: "monthly" | "yearly", uid, email }
 router.post("/api/billing/stripe-checkout", requireAuth, rateLimit, async (req, res) => {
@@ -49,11 +69,17 @@ router.post("/api/billing/stripe-checkout", requireAuth, rateLimit, async (req, 
     if (!stripe) {
       return res.status(503).json({ error: "لم يتم تكوين بوابة الدفع (Stripe) بعد. يرجى ضبط STRIPE_SECRET_KEY." });
     }
-    const { planType, uid, email } = req.body || {};
+    const auth = getAuthContext(req);
+    const { planType, uid: bodyUid, email: bodyEmail } = req.body || {};
     if (planType !== "monthly" && planType !== "yearly") {
       return res.status(400).json({ error: "نوع الخطة غير صالح." });
     }
-    if (!uid || typeof uid !== "string" || !email || typeof email !== "string") {
+    // Bind the checkout to the verified identity. The client-supplied uid/email
+    // are only a fallback for warn-only mode (ENFORCE_API_AUTH=false), where no
+    // verified context exists; they are never trusted while a token is present.
+    const uid = auth?.uid || (typeof bodyUid === "string" ? bodyUid : "");
+    const email = auth?.email || (typeof bodyEmail === "string" ? bodyEmail : "");
+    if (!uid || !email) {
       return res.status(400).json({ error: "بيانات المستخدم ناقصة (uid / email)." });
     }
 
@@ -64,7 +90,8 @@ router.post("/api/billing/stripe-checkout", requireAuth, rateLimit, async (req, 
       line_items: [{ price: price.id, quantity: 1 }],
       client_reference_id: uid,
       customer_email: email,
-      metadata: { bahthos_plan: planType },
+      metadata: { bahthos_plan: planType, bahthos_uid: uid },
+      subscription_data: { metadata: { bahthos_plan: planType, bahthos_uid: uid } },
       success_url: `${origin}/?stripe_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/?stripe_checkout=cancelled`,
       allow_promotion_codes: true,
@@ -95,6 +122,12 @@ router.get("/api/billing/verify", requireAuth, rateLimit, async (req, res) => {
     });
     if (!session || session.payment_status !== "paid") {
       return res.json({ ok: false, status: session?.payment_status || "unpaid" });
+    }
+    // A session is only claimable by the identity it was opened for, so user A
+    // can never confirm (and thereby persist) user B's checkout session.
+    const auth = getAuthContext(req);
+    if (auth?.uid && session.client_reference_id && session.client_reference_id !== auth.uid) {
+      return res.status(403).json({ error: "لا تملك صلاحية الوصول إلى جلسة الدفع هذه.", code: "FORBIDDEN" });
     }
 
     const subscription = session.subscription as Stripe.Subscription | string | null;
@@ -132,6 +165,10 @@ router.post("/api/billing/customer-portal", requireAuth, rateLimit, async (req, 
     if (!customer || typeof customer !== "string") {
       return res.status(400).json({ error: "customer مفقود." });
     }
+    const auth = getAuthContext(req);
+    if (!(await customerBelongsToCaller(stripe, customer, auth?.uid))) {
+      return res.status(403).json({ error: "لا تملك صلاحية الوصول إلى هذا الحساب.", code: "FORBIDDEN" });
+    }
     const origin = getAppOrigin(req);
     const session = await stripe.billingPortal.sessions.create({
       customer,
@@ -156,6 +193,10 @@ router.post("/api/billing/status", requireAuth, rateLimit, async (req, res) => {
     const { customer } = req.body || {};
     if (!customer || typeof customer !== "string") {
       return res.status(400).json({ error: "customer مفقود." });
+    }
+    const auth = getAuthContext(req);
+    if (!(await customerBelongsToCaller(stripe, customer, auth?.uid))) {
+      return res.status(403).json({ error: "لا تملك صلاحية الوصول إلى هذا الحساب.", code: "FORBIDDEN" });
     }
     const subs = await stripe.subscriptions.list({
       customer,

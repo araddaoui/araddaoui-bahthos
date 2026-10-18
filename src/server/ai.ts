@@ -62,13 +62,15 @@ export async function generateContentWithRetry(
       const status = error.status;
       const errorStr = (error.message || "").toLowerCase();
 
+      // A bare 400 is intentionally NOT retryable: a genuine bad-request error
+      // would otherwise burn every attempt and the whole time budget before
+      // falling back. Model-availability signals (404 / "not found") still
+      // trigger the model fallback chain below.
       const isRetryable = 
         status === 503 || 
         status === 404 ||
-        status === 400 ||
         errorStr.includes("503") || 
         errorStr.includes("404") ||
-        errorStr.includes("400") ||
         errorStr.includes("not found") ||
         errorStr.includes("service unavailable") || 
         errorStr.includes("overloaded") || 

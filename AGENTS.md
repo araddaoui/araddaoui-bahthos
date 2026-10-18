@@ -43,6 +43,13 @@ silently changed by future edits.
    with the user's explicit approval. If this file (or any frozen file) ever
    shows `Ø`/`Ù` mojibake again, repair the encoding only — never rewrite the
    algorithm — and get explicit approval first.
+7. **Approved exception (2026-10-19):** a second, encoding-only repair of
+   `src/utils/termExtractor.ts` fixed residual **Latin** cp1252 mojibake that
+   the 2026-10-08 pass missed (`nÂ°`→`n°`, `lâ€™universitÃ©`→`l’université`,
+   `intelligibilitÃ©`→`intelligibilité`, the bullet class `[ï‚§â€¢…]`→same
+   code-point set, and the `’` quote class at lines 872–873). No logic or
+   code-point set changed. Diagnostic note: this signature is `Â`/`Ã`/`â€`
+   sequences (Latin), distinct from the `Ø`/`Ù` (Arabic) signature in rule 6.
 
 ## Deployment & source of truth
 
@@ -54,9 +61,13 @@ silently changed by future edits.
   and compare `HEAD` with `origin/main` before diagnosing anything. The
   deployed build fingerprint: page title `بحث OS | bahthOS`, `/api/health`
   returns 404 with body `Unknown API route`.
-- **No server-side auth exists** on main (all routes are open; an optional
-  `BYPASS_AUTH`/`VITE_BYPASS_AUTH` flag was added in `436426be`). Live API
-  probes are read-only-possible via header `x-guest-mode: true`.
+- **API auth is enforced in production** (`ENFORCE_API_AUTH=true`, "Deploy B"):
+  every `/api/*` route requires a valid Firebase ID token. Anonymous guests get
+  one via `ensureGuestSession()` (the Firebase **Anonymous provider must stay
+  enabled**). There is no `x-guest-mode` header bypass — that older note was
+  inaccurate. To probe live endpoints, obtain a real ID token (a throwaway
+  anonymous session is sufficient) and send `Authorization: Bearer <idToken>`.
+  `BYPASS_AUTH`/`VITE_BYPASS_AUTH=true` still skip verification for local dev.
 
 ## Known failure modes (diagnosed 2026-10-08, keep this section updated)
 
@@ -119,6 +130,13 @@ silently changed by future edits.
   the Firebase Anonymous provider). `App.tsx`'s `onAuthStateChanged` treats
   `user.isAnonymous` as a guest (never as an account): it keeps `currentUser`
   null and never loads/saves Firestore data under an anonymous uid.
+- Billing routes bind to the verified identity: `stripe-checkout` derives
+  `uid`/`email` from `req.auth` (body values are only a warn-only fallback) and
+  stamps `bahthos_uid` onto the session and subscription metadata; `verify`
+  refuses a session whose `client_reference_id` differs from the caller;
+  `customer-portal`/`status` refuse a customer whose subscription carries a
+  `bahthos_uid` that names a different user (legacy unstamped subscriptions are
+  allowed, since there is no server-side uid↔customer store).
 - Rollout: Deploy A ships this with `ENFORCE_API_AUTH=false`; only after the
   token-attach + anonymous sign-in are verified live, set
   `ENFORCE_API_AUTH=true` (Deploy B).

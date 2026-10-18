@@ -277,7 +277,7 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
   }
 
   // Contains citation numbers, ISSN, DOI, URLs, page ranges, or header symbols
-  if (/[0-9]|issn|doi|http|www|vol|nÂ°|\bno\b|pp\.|isbn|journal|college|university|press|comillas|london|edited|published|accessed|downloaded/i.test(cleanTerm)) {
+  if (/[0-9]|issn|doi|http|www|vol|n°|\bno\b|pp\.|isbn|journal|college|university|press|comillas|london|edited|published|accessed|downloaded/i.test(cleanTerm)) {
     return true;
   }
 
@@ -370,7 +370,7 @@ export function isTrivialOrCitationTerm(term: string, definition?: string): bool
       cleanDef.includes("يُقصد به في النص") ||
       cleanDef.includes("مستخلص من عنوان المصدر") ||
       cleanDef.includes("مفهوم تحليلي يُقصد به في النص: \"\"") ||
-      /issn|doi|nÂ°|001-|[0-9]{3,}|journal of|all rights reserved|executive summary|full terms|cite this article|http|\b\d{1,4}\s*[-–—]\s*\d{1,4}\b/i.test(cleanDef) ||
+      /issn|doi|n°|001-|[0-9]{3,}|journal of|all rights reserved|executive summary|full terms|cite this article|http|\b\d{1,4}\s*[-–—]\s*\d{1,4}\b/i.test(cleanDef) ||
       cleanDef.includes("جامعة") || cleanDef.includes("أنموذجا") || cleanDef.includes("أنموذجاً") || cleanDef.includes("سنة أولى") || cleanDef.includes("تدريس الترجمة في ظل") || cleanDef.includes("567")
     ) {
       return true;
@@ -399,7 +399,7 @@ export function detectSourceLanguage(
     const lower = sample.toLowerCase();
     const frenchKeywords = [
       " les ", " des ", " une ", " est ", " dans ", " pour ", " avec ",
-      "traduction", "erreur", "intelligibilitÃ©", "automatique", "humaine", "sur "
+      "traduction", "erreur", "intelligibilité", "automatique", "humaine", "sur "
     ];
     const frenchMatchCount = frenchKeywords.filter((kw) => lower.includes(kw)).length;
     if (frenchMatchCount >= 2) return "fr";
@@ -745,7 +745,7 @@ export function cleanBibliographicClutterAndNormalizeArabic(text?: string): stri
   cleaned = cleaned.replace(/BUC Press House[^.\n]*/gi, "");
   cleaned = cleaned.replace(/Global Language Review[^.\n]*/gi, "");
   cleaned = cleaned.replace(/Journal of Arts and Linguistics[^.\n]*/gi, "");
-  cleaned = cleaned.replace(/Les Annales de lâ€™universitÃ©[^.\n]*/gi, "");
+  cleaned = cleaned.replace(/Les Annales de l’université[^.\n]*/gi, "");
   cleaned = cleaned.replace(/Volume\s*\d+\s*Issue\s*\(\d+\)[^.\n]*/gi, "");
   cleaned = cleaned.replace(/Tome\s*(I|II|III|IV)\s*\/\s*\d+[^.\n]*/gi, "");
   cleaned = cleaned.replace(/Citation:\s*[^.\n]*/gi, "");
@@ -758,7 +758,7 @@ export function cleanBibliographicClutterAndNormalizeArabic(text?: string): stri
   cleaned = cleaned.replace(/style="[^"]*"/gi, " ");
 
   // Remove bullet symbols or bizarre punctuation dumps
-  cleaned = cleaned.replace(/[ï‚§â€¢\uF0A7\u25CF]/g, " ");
+  cleaned = cleaned.replace(/[•\uF0A7\u25CF]/g, " ");
   cleaned = cleaned.replace(/[:|#]{2,}/g, " ");
   cleaned = cleaned.replace(/\s+/g, " ").trim();
 
@@ -869,8 +869,8 @@ export function ensureArabicSummary(summary?: string, title?: string, content?: 
     cleanSum = cleanBibliographicClutterAndNormalizeArabic(cleanSum);
 
     // Strip out long verbatim English/Latin quotes inside summary
-    cleanSum = cleanSum.replace(/:\s*[A-Za-z0-9\s.,'â€™"()\-\/]{20,}\.\.\./g, ".");
-    cleanSum = cleanSum.replace(/[A-Za-z0-9\s.,'â€™"()\-\/]{35,}/g, "").trim();
+    cleanSum = cleanSum.replace(/:\s*[A-Za-z0-9\s.,'’"()\-\/]{20,}\.\.\./g, ".");
+    cleanSum = cleanSum.replace(/[A-Za-z0-9\s.,'’"()\-\/]{35,}/g, "").trim();
     cleanSum = cleanSum.replace(/:\s*$/g, ".").trim();
 
     // Remove any leftover empty brackets or orphaned "تناقش موضوع"
