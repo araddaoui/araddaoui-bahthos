@@ -17,6 +17,7 @@ const SynthesisHistory = lazy(loadSynthesisHistory);
 const SettingsView = lazy(loadSettingsView);
 const AdminDashboard = lazy(loadAdminDashboard);
 import UpgradeModal from "./components/UpgradeModal.js";
+import AuthView from "./components/AuthView.js";
 import LandingPage from "./components/LandingPage.js";
 import TermsOfService from "./components/TermsOfService.js";
 import PrivacyPolicy from "./components/PrivacyPolicy.js";
@@ -38,7 +39,7 @@ import {
   ensureGuestSession
 } from "./firebase.js";
 import { authFetch } from "./utils/api.js";
-import { UserPlanProfile, SubscriptionTier, resolveEffectiveTier, isUnlimitedTier, isAdminUser, addMonthsToNow, FREE_PROJECT_LIMIT, FREE_SOURCE_LIMIT, GUEST_PLAN_STORAGE_KEY } from "./utils/plans.js";
+import { UserPlanProfile, SubscriptionTier, resolveEffectiveTier, isUnlimitedTier, isAdminUser, addMonthsToNow, FREE_SOURCE_LIMIT, FREE_PROJECT_CHAR_BUDGET, resolveProjectAllowance, registerProjectCreation, GUEST_PLAN_STORAGE_KEY } from "./utils/plans.js";
 import { onAuthStateChanged, User as FirebaseUser, signOut } from "firebase/auth";
 
 const GUEST_STORAGE_PREFIX = "bahthos:guest:";
@@ -313,11 +314,16 @@ export default function App() {
   // Freemium plan/profile state (Firestore for accounts, localStorage for guests)
   const [planProfile, setPlanProfile] = useState<UserPlanProfile | null>(null);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  // Forces a sign-in before the first file upload / AI action (guests may
+  // browse but must have a real account to run any AI feature).
+  const [signinPromptOpen, setSigninPromptOpen] = useState(false);
   const [isPlanProfileLoading, setIsPlanProfileLoading] = useState(true);
 
   const effectiveTier = resolveEffectiveTier(planProfile);
   const isFree = effectiveTier === "free";
   const isAdmin = isAdminUser(planProfile, currentUser?.email);
+  // Rolling 30-day project-creation allowance (free 5 / Pro 100).
+  const projectAllowance = resolveProjectAllowance(planProfile);
 
   const isLiveFirebaseUser = !!currentUser && !(BYPASS_AUTH && currentUser.uid === BYPASS_USER.uid);
 
@@ -1010,8 +1016,10 @@ export default function App() {
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
-    // Freemium gate: free tier is capped at FREE_PROJECT_LIMIT projects.
-    if (isFree && projects.length >= FREE_PROJECT_LIMIT) {
+    // Freemium gate: free tier allows 5 creations per rolling 30 days. The
+    // count is persisted independently of the live project list, so deleting a
+    // project does not free a slot.
+    if (isFree && projectAllowance.used >= projectAllowance.limit) {
       setUpgradeModalOpen(true);
       return;
     }
@@ -1030,6 +1038,9 @@ export default function App() {
         console.error("Failed to save new project to Firestore:", err);
       }
     }
+
+    // Record the creation against the rolling window (persisted with the profile).
+    persistPlan(registerProjectCreation(planProfile));
 
     setProjects((prev) => [...prev, newProj]);
     handleSwitchProject(newProj.id);
@@ -1645,12 +1656,30 @@ export default function App() {
   const commitSourceDrafts = (drafts: SourceDraft[], runMissingTermExtraction = true) => {
     if (!drafts || drafts.length === 0) return;
 
+    // Sign-in gate: guests may browse, but every AI action requires a real
+    // account. The first upload (or paste) prompts sign-in before any AI runs.
+    if (!BYPASS_AUTH && !currentUser) {
+      setSigninPromptOpen(true);
+      return;
+    }
+
     // Freemium gate: free tier is capped at FREE_SOURCE_LIMIT sources per
     // project. Blocks list uploads, paste, and single-source adds at one choke
     // point. latestSourcesRef keeps the count accurate across rapid batches.
     if (isFree && (latestSourcesRef.current.length + drafts.length) > FREE_SOURCE_LIMIT) {
       setUpgradeModalOpen(true);
       return;
+    }
+
+    // Freemium gate: free tier is capped at a per-project character budget so a
+    // single project cannot accumulate an unbounded amount of source text.
+    if (isFree) {
+      const currentChars = latestSourcesRef.current.reduce((sum, s) => sum + (s.content?.length || 0), 0);
+      const addedChars = drafts.reduce((sum, d) => sum + ((d.content || "").length), 0);
+      if (currentChars + addedChars > FREE_PROJECT_CHAR_BUDGET) {
+        setUpgradeModalOpen(true);
+        return;
+      }
     }
 
     const newSources = drafts.map((draft, index) => createSourceFromDraft(draft, index));
@@ -1787,6 +1816,11 @@ export default function App() {
     setSourcesDragActive(false);
     const files = Array.from(e.dataTransfer.files || []) as File[];
     if (files.length > 0) {
+      // Sign-in gate: guests must sign in before their first upload.
+      if (!BYPASS_AUTH && !currentUser) {
+        setSigninPromptOpen(true);
+        return;
+      }
       // Freemium pre-check: free tier capped at FREE_SOURCE_LIMIT sources.
       if (isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
         setUpgradeModalOpen(true);
@@ -1799,6 +1833,11 @@ export default function App() {
   const handleHeroFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) as File[] : [];
     if (files.length > 0) {
+      // Sign-in gate: guests must sign in before their first upload.
+      if (!BYPASS_AUTH && !currentUser) {
+        setSigninPromptOpen(true);
+        return;
+      }
       // Freemium pre-check: free tier capped at FREE_SOURCE_LIMIT sources.
       if (isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
         setUpgradeModalOpen(true);
@@ -2254,9 +2293,9 @@ export default function App() {
                 }}
                 planProfile={planProfile}
                 effectiveTier={effectiveTier}
-                projectsUsed={projects.length}
+                projectsUsed={projectAllowance.used}
                 sourcesUsed={latestSourcesRef.current.length}
-                projectLimit={FREE_PROJECT_LIMIT}
+                projectLimit={projectAllowance.limit}
                 sourceLimit={FREE_SOURCE_LIMIT}
                 isAdmin={isAdmin}
                 isPlanProfileLoading={isPlanProfileLoading}
@@ -2308,6 +2347,25 @@ export default function App() {
         email={currentUser?.email || planProfile?.email || "زائر"}
         onPlanChanged={persistPlan}
       />
+
+      {/* Sign-in required before the first AI action (upload/paste). Guests may
+          dismiss and keep browsing; nothing AI-related runs until they sign in. */}
+      {signinPromptOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" dir="rtl" id="signin-required-overlay">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+            <div className="px-6 pt-6 text-center">
+              <h2 className="text-lg font-extrabold text-[#094d4e]">تسجيل الدخول مطلوب</h2>
+              <p className="mt-2 text-xs text-gray-500 leading-relaxed">
+                خصائص التحليل والذكاء الاصطناعي متاحة للحسابات المسجّلة. سجّل دخولك أو أنشئ حساباً مجانياً للمتابعة.
+              </p>
+            </div>
+            <AuthView
+              onSuccess={() => setSigninPromptOpen(false)}
+              onSkip={() => setSigninPromptOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

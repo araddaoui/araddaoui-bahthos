@@ -10,6 +10,13 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
+// Pro-only model for the al-Dalil briefing; free tier uses DEFAULT_MODEL (flash).
+const DALIL_PRO_MODEL = "gemini-3.1-pro-preview";
+// Aggregate input caps (chars) across ALL sources, so a multi-source project
+// cannot silently inflate the prompt to hundreds of thousands of chars.
+const DALIL_TOTAL_CONTEXT_CHARS = 60000;
+const SYNTHESIS_TOTAL_CONTEXT_CHARS = 120000;
+
 function isArabicFirstText(text: string): boolean {
   const arabicLetters = (text.match(/[\u0600-\u06FF]/g) || []).length;
   const latinLetters = (text.match(/[A-Za-z]/g) || []).length;
@@ -195,12 +202,19 @@ router.post("/api/synthesize", requireAuth, rateLimit, async (req, res) => {
       }
 
       let sourcesContext = "المصادر المرفقة في المشروع للتحليل والإحاطة:\n";
+      let dalilBudget = DALIL_TOTAL_CONTEXT_CHARS;
       activeSources.forEach((src: any, idx: number) => {
         const reference = shortReference(src?.title, idx);
         const rawContent = String(src?.content || src?.summary || "").trim();
-        const safeContent = rawContent.length > 20000
+        let safeContent = rawContent.length > 20000
           ? rawContent.substring(0, 20000) + "\n...[اختصار تقني للنص، لا تستنتج من الجزء المحذوف]"
           : rawContent;
+        if (safeContent.length > dalilBudget) {
+          safeContent = dalilBudget > 200
+            ? safeContent.substring(0, dalilBudget) + "\n...[اختصار تقني للنص، لا تستنتج من الجزء المحذوف]"
+            : "[حُذف النص لتفادي تجاوز الحد الأقصى للمدخلات؛ اعتمد على الملخص أعلاه]";
+        }
+        dalilBudget = Math.max(0, dalilBudget - safeContent.length);
         sourcesContext += `\n---\nالمرجع المختصر: «${reference}»\nرقم الوثيقة: الوثيقة ${idx + 1}\nلغة النص الأصلي: ${src?.language || "غير محددة"}\nالملخص الحالي:\n${String(src?.summary || "غير متاح").slice(0, 1200)}\nالنص المتاح للتحليل:\n${safeContent}\n`;
       });
 
@@ -236,6 +250,11 @@ ${priorContext}
 ${sourcesContext}
 `;
 
+      // Free tier uses the cheap flash model; Pro unlocks the Pro model. This
+      // keeps the on-every-upload briefing affordable for free accounts.
+      const dalilTier = (req as any).tier === "pro" ? "pro" : "free";
+      const dalilModel = dalilTier === "pro" ? DALIL_PRO_MODEL : DEFAULT_MODEL;
+
       // Layer 1-3: best-effort model synthesis. Any failure here is caught and
       // degrades to the deterministic, source-grounded briefing below — this
       // path never returns an error to the client.
@@ -244,7 +263,7 @@ ${sourcesContext}
           const response = await generateContentWithRetry(
             ai,
             {
-              model: "gemini-3.1-pro-preview",
+              model: dalilModel,
               contents,
               config: withDeadline({
                 systemInstruction: DALIL_SYSTEM_INSTRUCTION,
@@ -296,13 +315,20 @@ ${sourcesContext}
     }
 
     let sourcesContext = "المصادر المتاحة للتحليل والتوليف:\n";
+    let synthesisBudget = SYNTHESIS_TOTAL_CONTEXT_CHARS;
     activeSources.forEach((src: any, idx: number) => {
       const docNum = idx + 1;
       const title = src?.title || ("الوثيقة " + docNum);
       const rawContent = src?.content || src?.summary || src?.extractedText || "";
-      const safeContent = rawContent.length > 80000 
+      let safeContent = rawContent.length > 80000 
         ? rawContent.substring(0, 80000) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
         : rawContent;
+      if (safeContent.length > synthesisBudget) {
+        safeContent = synthesisBudget > 500
+          ? safeContent.substring(0, synthesisBudget) + "\n...[تم اختصار بقية النص لتفادي تجاوز الحد الأقصى للمدخلات]"
+          : "[حُذف النص لتفادي تجاوز الحد الأقصى للمدخلات؛ اعتمد على الملخص]";
+      }
+      synthesisBudget = Math.max(0, synthesisBudget - safeContent.length);
 
       sourcesContext += "\n---\n";
       sourcesContext += "اسم الوثيقة: الوثيقة " + docNum + ": " + title + "\n";

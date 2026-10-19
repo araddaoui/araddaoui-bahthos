@@ -115,8 +115,29 @@ silently changed by future edits.
   `BYPASS_AUTH`/`VITE_BYPASS_AUTH` skip verification entirely (local dev).
 - `src/server/cache.ts` holds the shared Upstash Redis client, `cacheKey`
   (sha256), `cacheGet`/`cacheSet` (60-day TTL). No env vars → no-op.
-- `src/server/rateLimit.ts` applies 30/min + 500/day per identity, keyed by
-  `clientKey` (uid, else IP), and fails open on Redis errors.
+- `src/server/rateLimit.ts` applies, in order: (AI routes only) an
+  optional sign-in gate (`REQUIRE_SIGNIN`), the global daily circuit breaker
+  (`GLOBAL_DAILY_AI_CAP`, fail-closed), the per-`(group,tier)` monthly quota
+  (`slidingWindow`, env-tunable, sets `X-Quota-Limit`/`X-Quota-Remaining` and
+  `req.tier`); then 30/min + 500/day per identity (`clientKey` = uid, else IP),
+  which fails open on Redis errors. There is **no** per-IP AI usage cap (IP is
+  reserved for signup abuse; NAT/VPN false positives).
+- `src/server/quota.ts` maps `/api/*` routes to quota groups
+  (analyze/synthesis/glossary/chat/followup/tts), holds the free/Pro caps and
+  the Redis key builders. `src/server/tier.ts` resolves the authoritative tier
+  from `users/{uid}.tier` via the Firestore REST API using the caller's ID
+  token, Redis-cached for 300s (`bahthos:tier:<uid>`); unknown/error → `free`.
+  `POST /api/billing/verify` warms that cache; `GET /api/billing/quota-status`
+  exposes `{ uid, email, isAnonymous, tier }`.
+- Pro is **bounded fair use**, not unlimited (and the UI/copy must say so):
+  free = 5 project creations / rolling 30 days, 5 sources/project, 60k
+  chars/project, 300k chars/month; Pro = 100 projects/30d, 1.5M chars/month,
+  150k chars/day. Deleting a project does not refund a creation slot
+  (`UserPlanProfile.creationWindowStart`/`projectsCreated`). Character budgets
+  are enforced **client-side** (per project) — the server bounds cost instead by
+  per-request context caps plus the request-count quotas, because chat/synthesis
+  re-send source text every call (counting that per request would wrongly drain
+  a monthly ingestion budget).
 - Attach `requireAuth, rateLimit` **per route** (`router.post("/api/x", requireAuth, rateLimit, handler)`)
   — do NOT use a pathless `router.use(...)`: routers are mounted at `/` in the
   frozen `api/index.ts`, so a pathless `.use` would run once per router (up to
@@ -140,3 +161,8 @@ silently changed by future edits.
 - Rollout: Deploy A ships this with `ENFORCE_API_AUTH=false`; only after the
   token-attach + anonymous sign-in are verified live, set
   `ENFORCE_API_AUTH=true` (Deploy B).
+- Cost/quota rollout: ship the **client sign-in gate first** (guests may browse
+  but the first upload prompts sign-in), then set `REQUIRE_SIGNIN=true`. Free
+  tier Dalil briefings use the flash model; Pro uses `gemini-3.1-pro-preview`.
+  AI request handlers cap aggregate source context (Dalil 60k, synthesis 120k,
+  chat 90k chars) and the retry chain never escalates flash → Pro.

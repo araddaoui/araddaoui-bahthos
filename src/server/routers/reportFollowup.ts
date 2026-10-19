@@ -87,6 +87,7 @@ ${historyFormatted ? `[سجل الاستفسارات المباشرة الساب
       config: {
         systemInstruction,
         temperature: 0.2,
+        maxOutputTokens: 4096,
       }
     });
 

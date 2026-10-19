@@ -318,7 +318,7 @@ export default function UpgradeModal({
 
           {unlimited ? (
             <p className="text-sm text-slate-600 leading-relaxed">
-              أنت الآن على خطة غير محدودة. يمكنك متابعة استخدام جميع مزايا بحث OS دون حدود على المشاريع أو المصادر.
+              أنت الآن على خطة Pro بحدود أعلى بكثير للمشاريع والمصادر وطلبات الذكاء الاصطناعي. يمكنك متابعة استخدام جميع مزايا بحث OS.
             </p>
           ) : channel === "stripe" ? (
             <div className="space-y-4">
@@ -336,7 +336,7 @@ export default function UpgradeModal({
                     <p className="text-[11px] text-slate-500 mt-0.5">
                       {p === "monthly" ? "لكل شهر" : "لكل سنة (وفّر مقابل 12 شهرياً)"}
                     </p>
-                    <p className="text-[11px] text-slate-500 mt-1">خطط ومصادر غير محدودة</p>
+                    <p className="text-[11px] text-slate-500 mt-1">حدود أعلى للمشاريع والمصادر</p>
                   </button>
                 ))}
               </div>
@@ -373,7 +373,7 @@ export default function UpgradeModal({
                     <p className="text-[11px] text-slate-500 mt-0.5">
                       {p === "monthly" ? "لكل شهر" : "لكل سنة"}
                     </p>
-                    <p className="text-[11px] text-slate-500 mt-1">خطط ومصادر غير محدودة</p>
+                    <p className="text-[11px] text-slate-500 mt-1">حدود أعلى للمشاريع والمصادر</p>
                   </button>
                 ))}
               </div>

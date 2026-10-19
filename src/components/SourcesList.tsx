@@ -426,7 +426,7 @@ function SourcesList({
                 onClick={onRequireUpgrade}
                 className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline underline-offset-2"
               >
-                ترقية للحصول على استخدام غير محدود
+                ترقية للحصول على حدود أعلى
               </button>
             </div>
             <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -905,8 +905,7 @@ function SourcesList({
               
               <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3.5 text-right font-medium text-[11px] text-amber-850 leading-relaxed" dir="rtl">
                 <span className="font-bold text-amber-950 block mb-1">توضيح هام حول حصة الاستخدام (API Quotas):</span>
-                إذا قمت برفع مستندات متعددة (مثل 5-6 مستندات في جلسة واحدة)، فقد يتم تجاوز الحد اليومي المسموح به مجاناً من طلبات الذكاء الاصطناعي (<span className="font-bold font-mono text-amber-950">20 طلباً/يومياً</span> لنموذج Gemini 3.5 Flash).
-                عند حدوث ذلك، يتوقف خادم المعجم والتحليل تلقائياً لحين تجديد الحصة اليومية أو تهيئة مفتاح API مدفوع لتفادي التوقف الممتد.
+                لكل حساب حصة شهرية من طلبات الذكاء الاصطناعي (تحليل، توليف، معجم، محادثة). عند رفع مستندات متعددة قد تُستنفَد هذه الحصة، فيتوقف خادم التحليل والمعجم تلقائياً حتى تجديد الحصة شهرياً أو الترقية إلى خطة Pro للحصول على حدود أعلى بكثير.
               </div>
             </div>
           ) : (

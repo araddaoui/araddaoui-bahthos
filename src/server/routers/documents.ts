@@ -143,7 +143,10 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
       if (parsedContent) {
         contentsInput.push(promptText);
       }
-      if (base64 && mimeType) {
+      // Cost guard: attach the raw file (base64) only when no text layer could
+      // be parsed locally. When parsedContent exists, the file payload is a
+      // redundant duplicate of the text and only multiplies input tokens.
+      if (base64 && mimeType && !parsedContent) {
         contentsInput.push({
           inlineData: {
             data: base64,

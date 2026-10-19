@@ -47,7 +47,7 @@ export default function SettingsView({
   effectiveTier = "free",
   projectsUsed = 0,
   sourcesUsed = 0,
-  projectLimit = 2,
+  projectLimit = 5,
   sourceLimit = 5,
   isAdmin = false,
   isPlanProfileLoading = false,
@@ -170,7 +170,7 @@ export default function SettingsView({
                 <>
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-bold text-gray-600">المشاريع ({projectsUsed} / {projectLimit})</span>
+                      <span className="text-[11px] font-bold text-gray-600">المشاريع المنشأة خلال 30 يوماً ({projectsUsed} / {projectLimit})</span>
                       <span className="text-[10px] text-gray-400 font-semibold">الخطة المجانية</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
@@ -198,7 +198,7 @@ export default function SettingsView({
                       <button onClick={onOpenUpgrade} className="text-teal-700 font-bold underline underline-offset-2">
                         Pro
                       </button>{" "}
-                      للاستخدام غير المحدود للمشاريع والمصادر.
+                      للحصول على حدود أعلى بكثير للمشاريع والمصادر.
                     </p>
                   )}
                 </>

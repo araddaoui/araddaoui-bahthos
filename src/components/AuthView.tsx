@@ -4,6 +4,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   sendPasswordResetEmail,
+  sendEmailVerification,
   GoogleAuthProvider
 } from "firebase/auth";
 import { auth } from "../firebase.js";
@@ -98,7 +99,15 @@ export default function AuthView({ onSuccess, onSkip, initialIsSignUp = false }:
 
     try {
       if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        // Best-effort verification email; never blocks account creation.
+        if (credential.user) {
+          try {
+            await sendEmailVerification(credential.user);
+          } catch (verifyErr) {
+            console.warn("Failed to send verification email:", verifyErr);
+          }
+        }
       } else {
         await signInWithEmailAndPassword(auth, email.trim(), password);
       }

@@ -7,6 +7,9 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
+// Aggregate input cap (chars) across all active sources for one chat turn.
+const CHAT_TOTAL_CONTEXT_CHARS = 90000;
+
 router.post("/api/chat", requireAuth, rateLimit, async (req, res) => {
   try {
     const { messages, sources } = req.body || {};
@@ -29,12 +32,19 @@ router.post("/api/chat", requireAuth, rateLimit, async (req, res) => {
     let sourcesContext = "";
     if (validSources.length > 0) {
       sourcesContext = "\n\nالمصادر المتاحة للتحليل حالياً:\n";
+      let chatBudget = CHAT_TOTAL_CONTEXT_CHARS;
       validSources.forEach((src: any, idx: number) => {
         const title = src?.title || `الوثيقة ${idx + 1}`;
         const rawContent = src?.content || src?.summary || src?.extractedText || "";
-        const safeContent = rawContent.length > 30000 
+        let safeContent = rawContent.length > 30000 
           ? rawContent.substring(0, 30000) + "\n...[تم اختصار باقي النص لتفادي تجاوز الحد الأقصى للمدخلات]" 
           : rawContent;
+        if (safeContent.length > chatBudget) {
+          safeContent = chatBudget > 500
+            ? safeContent.substring(0, chatBudget) + "\n...[تم اختصار باقي النص لتفادي تجاوز الحد الأقصى للمدخلات]"
+            : "[حُذف النص لتفادي تجاوز الحد الأقصى للمدخلات؛ اعتمد على الملخص]";
+        }
+        chatBudget = Math.max(0, chatBudget - safeContent.length);
 
         sourcesContext += `\n---\n`;
         sourcesContext += `اسم الوثيقة: الوثيقة ${idx + 1}: ${title}\n`;

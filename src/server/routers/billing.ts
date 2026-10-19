@@ -2,6 +2,8 @@ import { Router } from "express";
 import Stripe from "stripe";
 import { requireAuth, getAuthContext } from "../auth.js";
 import { rateLimit } from "../rateLimit.js";
+import { getRedis } from "../cache.js";
+import { resolveTier } from "../tier.js";
 
 const router = Router();
 
@@ -138,6 +140,16 @@ router.get("/api/billing/verify", requireAuth, rateLimit, async (req, res) => {
       status = subscription.status;
     }
 
+    // Warm the server tier cache so the very next AI request sees "pro"
+    // without waiting for a Firestore round-trip.
+    try {
+      const verifiedUid = session.client_reference_id || auth?.uid;
+      const redis = getRedis();
+      if (redis && verifiedUid) await redis.set(`bahthos:tier:${verifiedUid}`, "pro", { ex: 300 });
+    } catch (e) {
+      // cache warming is best-effort
+    }
+
     res.json({
       ok: true,
       uid: session.client_reference_id,
@@ -220,6 +232,25 @@ router.post("/api/billing/status", requireAuth, rateLimit, async (req, res) => {
   } catch (err: any) {
     console.error("Stripe status error:", err);
     res.status(500).json({ error: err?.message || "تعذر جلب حالة الاشتراك." });
+  }
+});
+
+// GET /api/billing/quota-status
+// Lets the client render plan/quota state from the server's authoritative tier
+// (Firestore + Redis cache) instead of trusting a client-local profile.
+router.get("/api/billing/quota-status", requireAuth, rateLimit, async (req, res) => {
+  try {
+    const auth = getAuthContext(req);
+    const tier = await resolveTier(req);
+    res.json({
+      ok: true,
+      uid: auth?.uid || null,
+      email: auth?.email || null,
+      isAnonymous: auth?.isAnonymous || false,
+      tier,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "تعذر جلب حالة الحصة." });
   }
 });
 

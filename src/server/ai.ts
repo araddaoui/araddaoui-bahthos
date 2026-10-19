@@ -43,9 +43,11 @@ export async function generateContentWithRetry(
     : requestedModel === "gemini-1.5-flash" || requestedModel === "gemini-flash"
     ? "gemini-3-flash-preview"
     : requestedModel;
+  // Cost guard: a non-Pro request must never escalate to the Pro model on
+  // retry. Retries only ever fall *down* to the cheap flash model, never up.
   const modelCandidates = normalizedRequestedModel === "gemini-3.1-pro-preview"
     ? ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
-    : [normalizedRequestedModel, "gemini-3.1-pro-preview", "gemini-3-flash-preview"];
+    : Array.from(new Set([normalizedRequestedModel, "gemini-3-flash-preview"]));
   let modelIndex = 0;
   let currentModel = modelCandidates[modelIndex];
 
