@@ -17,7 +17,6 @@ import { Message, Source, DalilBriefing } from "../types.js";
 import DalilCard from "./DalilCard.js";
 import { parseReportText, EvidenceLayer } from "./SynthesisReportView.js";
 import ReportFollowUp from "./ReportFollowUp.js";
-import { parseDocumentFile, isMostlyQuestionMarks } from "../utils/documentParser.js";
 import { authFetch } from "../utils/api.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor.js";
 import { parseMarkdownToReact } from "../utils/reportFormatter.js";
@@ -123,6 +122,7 @@ function ChatWindow({
       setTimeout(() => setUploadStep("جاري فحص لغة المستند والترميز النصي..."), 400);
       setTimeout(() => setUploadStep("جاري صياغة الملخص وتفكيك المصطلحات..."), 800);
 
+      const { parseDocumentFile, isMostlyQuestionMarks } = await import("../utils/documentParser.js");
       const parsed = await parseDocumentFile(file);
       let reqBody: any = { 
         fileName: parsed.fileName,

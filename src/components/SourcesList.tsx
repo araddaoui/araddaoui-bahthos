@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
 import DalilCard from "./DalilCard.js";
-import { parseDocumentFile, isMostlyQuestionMarks } from "../utils/documentParser.js";
 import { authFetch } from "../utils/api.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
 
@@ -192,6 +191,7 @@ function SourcesList({
       setAnalysisStep(`جاري معالجة ${completed + failed + 1} من ${files.length}: ${file.name}`);
 
       try {
+        const { parseDocumentFile } = await import("../utils/documentParser.js");
         const parsed = await parseDocumentFile(file);
         if (!parsed.text.trim() && !parsed.base64) {
           throw new Error("لم يتم استخراج نص قابل للتحليل من المستند.");
@@ -325,6 +325,7 @@ function SourcesList({
       // The server can rescue a scanned PDF / broken Word file via base64 re-parse
       // or Gemini multimodal; prefer its extractedText when it is meaningful.
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
+      const { isMostlyQuestionMarks } = await import("../utils/documentParser.js");
       const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20 && !isMostlyQuestionMarks(data.extractedText))
         ? data.extractedText
         : (data.originalText || content);

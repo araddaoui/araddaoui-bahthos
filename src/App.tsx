@@ -11,8 +11,7 @@ const loadSettingsView = () => import("./components/SettingsView.js");
 const loadAdminDashboard = () => import("./components/AdminDashboard.js");
 
 const SourceViewer = lazy(loadSourceViewer);
-const synthesisEditorModule = loadSynthesisEditor();
-const SynthesisEditor = lazy(() => synthesisEditorModule);
+const SynthesisEditor = lazy(loadSynthesisEditor);
 const SynthesisHistory = lazy(loadSynthesisHistory);
 const SettingsView = lazy(loadSettingsView);
 const AdminDashboard = lazy(loadAdminDashboard);
