@@ -324,11 +324,22 @@ function SourcesList({
       
       // The server can rescue a scanned PDF / broken Word file via base64 re-parse
       // or Gemini multimodal; prefer its extractedText when it is meaningful.
+      // extract-text fix: the model's echo of the source text is inherently
+      // partial (observed as 44-250-word echoes of full articles), and the
+      // server now returns its own full parse in extractedText. Prefer the
+      // LONGER of the server text and the client's own parse; the server text
+      // wins only when the own parse is an unparseable placeholder (scanned
+      // PDF / broken Word file).
       const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
       const { isMostlyQuestionMarks } = await import("../utils/documentParser.js");
-      const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20 && !isMostlyQuestionMarks(data.extractedText))
+      const serverText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20 && !isMostlyQuestionMarks(data.extractedText))
         ? data.extractedText
-        : (data.originalText || content);
+        : (data.originalText || "");
+      const ownText = (content || "").trim();
+      const ownIsPlaceholder = /^\[مستند (PDF|Word):/.test(ownText);
+      const resolvedText = (serverText && (ownIsPlaceholder || ownText.length < serverText.trim().length))
+        ? serverText
+        : (serverText || ownText || content);
       if (/^\[مستند (PDF|Word):/.test(resolvedText)) {
         const err = new Error(`تعذر استخراج نص قابل للتحليل من المستند (${fileName || cleanTitle}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
         if (commit) onAddSource(cleanTitle, "", "ar", "", err.message, []);

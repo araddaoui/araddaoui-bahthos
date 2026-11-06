@@ -11,6 +11,33 @@ import { cacheKey, cacheGet, cacheSet } from "../cache.js";
 
 const router = Router();
 
+// Fallback summaries previously leaned entirely on the frozen 2-highlights
+// internal builder in ensureArabicSummary (which renders exactly three lines).
+// This helper builds a RICHER highlight string from the document itself and
+// hands it to the frozen sanitizer, so the pipeline's validated behavior is
+// unchanged while its input becomes a genuinely informative summary. Arabic
+// documents only: the frozen sanitizer strips long Latin runs, so non-Arabic
+// documents still get the (unchanged) frozen fallback rendering.
+function buildRichFallbackSummary(content: string): string {
+  const text = (content || "").trim();
+  if (text.length < 80) return "";
+  const cleanText = text.replace(/https?:\/\/\S+/g, " ");
+  const paragraphs = cleanText
+    .split(/\r?\n+/)
+    .map((p) => p.trim().replace(/\s+/g, " "))
+    .filter((p) => p.length >= 60 && /[\u0600-\u06FF]/.test(p));
+  const picks: string[] = [];
+  let usedChars = 0;
+  for (const p of paragraphs) {
+    const pick = p.length > 220 ? p.substring(0, 200) + "…" : p;
+    picks.push(pick);
+    usedChars += pick.length;
+    if (picks.length >= 6 || usedChars >= 700) break;
+  }
+  if (picks.length === 0) return "";
+  return `تتناوب فقرات المستند على هذه المحاور الأساسية: ${picks.join(" | ")}`;
+}
+
 router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLimit, async (req, res) => {
   try {
     const { content, base64, mimeType, fileName } = req.body || {};
@@ -18,7 +45,10 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
     // Deterministic per-document cache: identical inputs return the identical
     // analysis without any AI call. Only successful analyses are stored, so a
     // transient failure never poisons the cache.
-    const analyzeCacheKey = cacheKey("analyze-document", { content, base64, mimeType, fileName });
+    // v2 salt: entries cached before the extractedText fix could carry a
+    // model-echoed partial text; the salt makes pre-fix cache entries
+    // unreachable (they expire after 60 days on their own).
+    const analyzeCacheKey = cacheKey("analyze-document:v2", { content, base64, mimeType, fileName });
     const cachedAnalysis = await cacheGet<any>(analyzeCacheKey);
     if (cachedAnalysis) {
       res.setHeader("X-Cache", "HIT");
@@ -119,7 +149,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
       return {
         title: localTitle,
         language: detectSourceLanguage(parsedContent || "", fileName || ""),
-        summary: spellcheckAndRepairArabicAndEnglishText(sanitizeSourceSummary("", localTitle, parsedContent)),
+        summary: spellcheckAndRepairArabicAndEnglishText(sanitizeSourceSummary(buildRichFallbackSummary(parsedContent || ""), localTitle, parsedContent)),
         extractedText: parsedContent || "",
         terms: localTerms,
       };
@@ -131,7 +161,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
   "نظام \"بحث OS\" هو منصة أبحاث وتوليف مستقلة ومحايدة تماماً، خالية من أي انحياز مسبق لمجال بعينه، ومصممة لخدمة المستخدمين والمستندات من جميع القطاعات والتخصصات الميدانية والأكاديمية والمهنية (سواء كان المجال: الصحافة والإعلام، إدارة الأعمال والتسويق، العلوم السياسية والسياسات العامة، النقد الأدبي والدراسات الأدبية، التدوين وصناعة المقالات والوسائط، البحث العلمي والأكاديمي، الإدارة العامة والعمل المؤسسي والتنفيذي، أو أي مجال آخر).\n\n" +
   "مهمتك الأساسية هي استخراج قائمة دقيقة ونقية جداً (من 4 إلى 6 مصطلحات) للمفاهيم النظرية المتخصصة (Theoretical Concepts) والأطر المنهجية والمصطلحات المفتاحية الأصيلة النابعة مباشرة من الحقل المعرفي والتخصصي الخاص بالمستند المرفق حصراً، وصياغة ملخص تحليلي متكامل وشامل للمستند باللغة العربية الفصحى.\n\n" +
   "طبق القواعد الحاسمة التالية:\n" +
-  "1. الملخص (summary): يجب أن يكون ملخصاً تحليلياً تركيبياً شاملاً باللغة العربية الفصحى حصراً. لغة الإخراج العربية تعليمات صياغة فقط وليست موضوعاً للمستند؛ لا تذكر اللغة العربية أو أسلوبها أو أي مجال عام إلا إذا أثبته النص المصدر صراحة. يُحظر حظراً مطلقاً اقتباس نصوص خام أو جمل بالإنجليزية أو الفرنسية داخل الملخص، بل يجب صياغة الملخص بأسلوب عربي سلس يترجم ويشرح المضمون دون نقل أسطر أو اقتباسات من الأصل.\n" +
+  "1. الملخص (summary): يجب أن يكون ملخصاً تحليلياً تركيبياً شاملاً باللغة العربية الفصحى حصراً. لغة الإخراج العربية تعليمات صياغة فقط وليست موضوعاً للمستند؛ لا تذكر اللغة العربية أو أسلوبها أو أي مجال عام إلا إذا أثبته النص المصدر صراحة. يُحظر حظراً مطلقاً اقتباس نصوص خام أو جمل بالإنجليزية أو الفرنسية داخل الملخص، بل يجب صياغة الملخص بأسلوب عربي سلس يترجم ويشرح المضمون دون نقل أسطر أو اقتباسات من الأصل. يجب ألا يقل الملخص عن ستة أسطر متصلة (بما لا يقل عن 500 حرف) تغطي محاور المستند كاملة: موضوعه ومنهجَه وأبرز نتائجه وعمق تحليله؛ فالملخص المختصر من سطرين إلى ثلاثة لا يُعد ملخصاً شاملاً ولا يُقبل.\n" +
   "2. المصطلحات: استخراج 4 إلى 6 مفاهيم نظرية وأطر منهجية ومصطلحات مفتاحية أصيلة تعبر عن مضمون المستند وحقله المعرفي المباشر حصراً دون فرض أي مصطلحات من مجالات أخرى خارج نطاق المستند.\n" +
   "2ب. لكل مصطلح، عبئ حقل term دائمًا بالمكافئ الإنجليزي المعياري المتعارف عليه للمفهوم في الأدبيات التخصصية (بالإنجليزية مهما كان لغة المصدر الأصلية؛ فلا تترك term عربياً إذا كانت الوثيقة عربية). لمفهوم مثل «الوسائط المتعددة» اكتب \"Multimedia\"، ولـ«التعلم المرن» اكتب \"Flexible Learning\"، واستخدم دائمًا المكافئ الأصيل المقبول في الحقل المعرفي ذاته وليس ترجمة حرفية مبتكرة.\n" +
   "2ج. الحقيقة والقبول العلمي إلزاميان (AUTHENTICITY & SCHOLARLY ACCEPTANCE): لا تستخرج إلا مفهوماً حقيقياً راسخاً متداولاً في الأدبيات العلمية لمجاله وله تعريف علمي متعارف عليه في الوسط الأكاديمي. يجب أن تكون خانات definition هي التعريف العلمي المعتمد المتعارف عليه للمفهوم نفسه في الأدبيات، لا إعادة صياغة من سياق المستند ولا جملة منقولة من النص ولا صياغة تقول (في هذا المصدر) أو (يراد بـ). إذا لم تتيقن من وجود تعريف علمي متعارف عليه للمفهوم فاحذف المفهوم كاملاً ولا تُدرجه أبداً بتعريف مختلق.\n" +
@@ -185,7 +215,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
                 }
               }
             },
-            required: ["title", "language", "summary", "extractedText", "terms"]
+            required: ["title", "language", "summary", "terms"]
           }
         }
       }, res);
@@ -199,14 +229,23 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
         }
       }
 
-      // Guard against model-echoed extractedText made of ASCII "?" placeholders
-      // (observed on very short pastes). Prefer the server's own parsed text;
-      // when there is none, an empty string makes the client keep its own parse.
+      // extractedText is server-authoritative. The model's retransmission of
+      // the source text is inherently partial (observed as 44-250-word echoes
+      // of full articles), so the stored source text must come from the
+      // server's own parse. The model echo survives ONLY in the Gemini
+      // multimodal rescue path, where the server had no parseable text layer
+      // of its own (parsedContent empty). The mostly-"?" guard still applies
+      // to that echo.
       {
         const meaningful = (resData.extractedText || "").replace(/\s+/g, "");
-        if (meaningful.length >= 20 && (meaningful.match(/\?/g) || []).length / meaningful.length >= 0.3) {
-          console.warn("AI returned placeholder extractedText (mostly '?'); using server-parsed text instead.");
-          resData.extractedText = parsedContent || "";
+        const echoIsQuestionMarks = meaningful.length >= 20 && (meaningful.match(/\?/g) || []).length / meaningful.length >= 0.3;
+        const serverParse = (parsedContent || "").trim();
+        const serverParseMeaningful = serverParse.length >= 20 && !/^\[مستند (PDF|Word):/.test(serverParse);
+        if (serverParseMeaningful) {
+          resData.extractedText = parsedContent;
+        } else if (echoIsQuestionMarks) {
+          console.warn("AI returned placeholder extractedText (mostly '?') and no server parse is available.");
+          resData.extractedText = "";
         }
       }
 

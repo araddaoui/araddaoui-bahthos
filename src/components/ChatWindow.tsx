@@ -140,9 +140,19 @@ function ChatWindow({
 
         if (response.ok) {
           const data = await response.json();
-          const resolvedText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20 && !isMostlyQuestionMarks(data.extractedText))
+          // extract-text fix: the model's echo of the source text is inherently
+          // partial, and the server now returns its own full parse in
+          // extractedText. Prefer the LONGER of the server text and the
+          // client's own parse; the server text wins only when the own parse
+          // is an unparseable placeholder (scanned PDF rescued via multimodal).
+          const serverText = (typeof data.extractedText === "string" && data.extractedText.trim().length >= 20 && !isMostlyQuestionMarks(data.extractedText))
             ? data.extractedText
-            : (data.originalText || parsed.text);
+            : (data.originalText || "");
+          const ownText = (parsed.text || "").trim();
+          const ownIsPlaceholder = /^\[مستند (PDF|Word):/.test(ownText);
+          const resolvedText = (serverText && (ownIsPlaceholder || ownText.length < serverText.trim().length))
+            ? serverText
+            : (serverText || ownText || parsed.text);
           if (/^\[مستند (PDF|Word):/.test(resolvedText)) {
             throw new Error(`تعذر استخراج نص قابل للتحليل من المستند (${file.name}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
           }
