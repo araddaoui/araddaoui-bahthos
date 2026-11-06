@@ -18,6 +18,8 @@ const AdminDashboard = lazy(loadAdminDashboard);
 import UpgradeModal from "./components/UpgradeModal.js";
 import AuthView from "./components/AuthView.js";
 import LandingPage from "./components/LandingPage.js";
+import ReviewerGate from "./components/ReviewerGate.js";
+import { isReviewPath, isReviewWindowOver, activeReviewerCode, storeReviewerCode } from "./utils/reviewer.js";
 import TermsOfService from "./components/TermsOfService.js";
 import PrivacyPolicy from "./components/PrivacyPolicy.js";
 import { extractFallbackTermsFromText, isTrivialOrCitationTerm, ensureArabicSummary, sanitizeSourceSummary, areTermsEquivalent, cleanAndSanitizeAcademicTerm, spellcheckAndRepairArabicAndEnglishText, buildContextDefinition } from "./utils/termExtractor.js";
@@ -294,6 +296,8 @@ const BYPASS_USER = {
 
 export default function App() {
   const [showLandingPage, setShowLandingPage] = useState<boolean>(() => {
+    // Reviewers land directly in the app flow behind the /review passcode gate.
+    if (isReviewPath()) return false;
     try {
       const saved = localStorage.getItem("bahthos_entered_app");
       return saved ? false : true;
@@ -304,7 +308,15 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
-  const [useAsGuest, setUseAsGuest] = useState<boolean>(false);
+  // Reviewer entry: /review runs reviewers through the normal guest flow
+  // (anonymous session only, nothing persisted server-side) once their
+  // passcode validates server-side. The review window is enforced twice —
+  // here for UX, and per-request on every /api route (authoritative).
+  const [reviewPath] = useState<boolean>(() => isReviewPath());
+  const [reviewWindowOver] = useState<boolean>(() => isReviewWindowOver());
+  const [reviewerSession, setReviewerSession] = useState<boolean>(() => !!activeReviewerCode() && !isReviewWindowOver());
+  const isReviewerActive = reviewerSession && !reviewWindowOver;
+  const [useAsGuest, setUseAsGuest] = useState<boolean>(() => isReviewPath());
   // Records an explicit user request to view the landing page (Settings/Sidebar
   // "شاهد الصفحة التعريفية"), independent of BYPASS_AUTH's initial-entry skip.
   const [viewingLanding, setViewingLanding] = useState<boolean>(false);
@@ -1657,7 +1669,8 @@ export default function App() {
 
     // Sign-in gate: guests may browse, but every AI action requires a real
     // account. The first upload (or paste) prompts sign-in before any AI runs.
-    if (!BYPASS_AUTH && !currentUser) {
+    // Validated /review reviewer sessions run the same AI paths as guests.
+    if (!BYPASS_AUTH && !currentUser && !isReviewerActive) {
       setSigninPromptOpen(true);
       return;
     }
@@ -1816,7 +1829,7 @@ export default function App() {
     const files = Array.from(e.dataTransfer.files || []) as File[];
     if (files.length > 0) {
       // Sign-in gate: guests must sign in before their first upload.
-      if (!BYPASS_AUTH && !currentUser) {
+      if (!BYPASS_AUTH && !currentUser && !isReviewerActive) {
         setSigninPromptOpen(true);
         return;
       }
@@ -1833,7 +1846,7 @@ export default function App() {
     const files = e.target.files ? Array.from(e.target.files) as File[] : [];
     if (files.length > 0) {
       // Sign-in gate: guests must sign in before their first upload.
-      if (!BYPASS_AUTH && !currentUser) {
+      if (!BYPASS_AUTH && !currentUser && !isReviewerActive) {
         setSigninPromptOpen(true);
         return;
       }
@@ -2000,6 +2013,33 @@ export default function App() {
           try {
             localStorage.setItem("bahthos_entered_app", "true");
           } catch (e) {}
+        }}
+      />
+    );
+  }
+
+  // Reviewer entry (bahthos.app/review): time-boxed passcode gate for external
+  // reviewers. No email, no account — they run in the normal guest flow; the
+  // server caps their AI usage and enforces the expiry on every /api call.
+  if (reviewPath && reviewWindowOver) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-[#fafaf8] p-6" dir="rtl" id="reviewer-ended">
+        <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-gray-100 p-8 text-center">
+          <h2 className="text-lg font-extrabold text-[#094d4e]">انتهت فترة المراجعة</h2>
+          <p className="mt-2 text-xs text-gray-500 leading-relaxed">
+            شكراً لمشاركتكم في تقييم bahthOS. أُغلق باب المراجعة المؤقت — يمكن للفريق تزويدكم برابط متابعة عند إعادة الفتح.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (reviewPath && !reviewerSession) {
+    return (
+      <ReviewerGate
+        onValidated={(code) => {
+          storeReviewerCode(code);
+          setReviewerSession(true);
         }}
       />
     );

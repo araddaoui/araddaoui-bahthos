@@ -4,6 +4,7 @@ import { requireAuth, getAuthContext } from "../auth.js";
 import { rateLimit } from "../rateLimit.js";
 import { getRedis } from "../cache.js";
 import { resolveTier } from "../tier.js";
+import { reviewerHeaderStatus } from "../reviewer.js";
 
 const router = Router();
 
@@ -238,16 +239,21 @@ router.post("/api/billing/status", requireAuth, rateLimit, async (req, res) => {
 // GET /api/billing/quota-status
 // Lets the client render plan/quota state from the server's authoritative tier
 // (Firestore + Redis cache) instead of trusting a client-local profile.
+// Also reflects reviewer-passcode validity for the /review gate: when the
+// x-reviewer-code header is present the response carries "review": "active" |
+// "invalid". Requests without the header are untouched.
 router.get("/api/billing/quota-status", requireAuth, rateLimit, async (req, res) => {
   try {
     const auth = getAuthContext(req);
     const tier = await resolveTier(req);
+    const review = reviewerHeaderStatus(req);
     res.json({
       ok: true,
       uid: auth?.uid || null,
       email: auth?.email || null,
       isAnonymous: auth?.isAnonymous || false,
       tier,
+      ...(review ? { review } : {}),
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "تعذر جلب حالة الحصة." });

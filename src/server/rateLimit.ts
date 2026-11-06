@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { getRedis } from "./cache.js";
 import { clientKey, getAuthContext } from "./auth.js";
 import { resolveQuotaGroup, REQUIRE_SIGNIN, QUOTA_FAIL_CLOSED, GLOBAL_DAILY_AI_CAP, groupCap, globalDailyKey, quotaPrefix } from "./quota.js";
+import { resolveReviewer, reviewerRedisKey, reviewDailyCap } from "./reviewer.js";
 import { resolveTier } from "./tier.js";
 
 let minuteLimiter: Ratelimit | null = null;
@@ -31,11 +32,45 @@ export async function rateLimit(req: Request, res: Response, next: NextFunction)
 
   // AI routes: extra guards
   if (group) {
+    // Valid reviewer request? Only when the x-reviewer-code header matches
+    // REVIEWER_CODES AND the REVIEW_MODE_UNTIL window is active; otherwise
+    // null and the regular sign-in rule applies unchanged.
+    const reviewer = resolveReviewer(req);
+
     // Require a signed-in (non-anonymous) identity. Gated by REQUIRE_SIGNIN so
     // the client sign-in gate can ship first; flip the env var to enforce.
-    if (REQUIRE_SIGNIN && !bypass) {
+    // Time-boxed reviewer passcodes are the single exception, and only for
+    // anonymous/absent identities (real accounts always have own quotas).
+    if (REQUIRE_SIGNIN && !bypass && !reviewer) {
       if (!auth || !auth.uid || auth.isAnonymous) {
         return res.status(401).json({ error: "التوثيق مطلوب للوصول إلى هذه الخدمة.", code: "AUTH_REQUIRED" });
+      }
+    }
+
+    // Reviewer daily spend cap: bounds each shared reviewer passcode to
+    // REVIEW_DAILY_AI_CAP AI calls per day, hashed into the Redis key. Skipped
+    // when Redis is absent (same graceful degradation as other quotas); on a
+    // Redis error with QUOTA_FAIL_CLOSED the request fails closed.
+    if (reviewer && (!auth || auth.isAnonymous)) {
+      (req as any).reviewer = reviewer;
+      try {
+        const redis = getRedis();
+        if (redis) {
+          const rk = reviewerRedisKey(reviewer);
+          const cur = await redis.incr(rk);
+          if (cur === 1) {
+            await redis.expire(rk, 2 * 24 * 60 * 60);
+          }
+          const cap = reviewDailyCap();
+          res.setHeader("X-Review-Remaining", String(Math.max(0, cap - cur)));
+          if (cur > cap) {
+            return res.status(429).json({ error: "تم استكمال حصة المراجعة لهذا اليوم. نرجو المحاولة غداً.", code: "REVIEW_CAP", retryable: false });
+          }
+        }
+      } catch (e) {
+        if (QUOTA_FAIL_CLOSED) {
+          return res.status(503).json({ error: "فشل التحقق من حصة المراجعة، الرجاء المحاولة لاحقاً.", code: "QUOTA_CHECK_FAILED", retryable: true });
+        }
       }
     }
 
