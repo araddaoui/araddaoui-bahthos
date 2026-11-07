@@ -1540,6 +1540,10 @@ export default function App() {
 
   // Guard ref to track whether initial briefing was triggered for the active sources
   const dalilAttemptedRef = useRef<boolean>(false);
+  // Bounded retry budget for the al-Dalil briefing: after up to 2 failed
+  // generation attempts, dalilAttemptedRef stays true so a persistent
+  // network/service failure can never loop retries forever. Resets on success.
+  const dalilRetryCountRef = useRef<number>(0);
 
   // Auto-trigger Al-Dalil initial briefing if active project has sources but briefing is not generated yet
   useEffect(() => {
@@ -1591,6 +1595,17 @@ export default function App() {
 
     let briefingText = "";
 
+    // Product minimum for the al-Dalil briefing: at least three substantive
+    // paragraphs (>=80 chars each) and ~900+ chars. A shorter server response
+    // is treated as a failure so the auto-retry path can regenerate/recover
+    // instead of displaying a truncated stub.
+    const briefingDepthOk = (text: string): boolean => {
+      const t = (text || "").trim();
+      if (t.length < 900) return false;
+      const paragraphs = t.split(/\n+/).map((p) => p.trim()).filter((p) => p.length >= 80);
+      return paragraphs.length >= 3;
+    };
+
     try {
       const res = await authFetch("/api/synthesize", {
         method: "POST",
@@ -1603,18 +1618,29 @@ export default function App() {
       });
 
       const data = await res.json().catch(() => null);
-      if (res.ok && data && !data.silent && data.text && data.text.trim().length > 5) {
+      if (res.ok && data && !data.silent && data.text && data.text.trim().length > 5 && briefingDepthOk(data.text)) {
         briefingText = data.text.trim();
+        dalilRetryCountRef.current = 0;
       } else {
         setDalilError(
           (data && typeof data.error === "string" && data.error.trim())
             ? data.error.trim()
-            : "تعذر توليد الإحاطة من المصادر الحالية. تحقق من الاتصال ثم أعد المحاولة."
+            : "تعذر توليد إحاطة كافية العمق من المصادر الحالية. جارٍ إعادة المحاولة تلقائياً."
         );
+        // Allow the auto-retry effect to run again for this source set, within
+        // the bounded retry budget, so the briefing recovers on its own.
+        if (dalilRetryCountRef.current < 2) {
+          dalilRetryCountRef.current += 1;
+          dalilAttemptedRef.current = false;
+        }
       }
     } catch (err) {
       console.error("Failed to generate al-Dalil update briefing:", err);
       setDalilError("تعذر الوصول إلى خدمة التوليف. تحقق من الاتصال ثم أعد المحاولة.");
+      if (dalilRetryCountRef.current < 2) {
+        dalilRetryCountRef.current += 1;
+        dalilAttemptedRef.current = false;
+      }
     } finally {
       // Do not replace a failed model response with synthetic prose. Keeping
       // the prior briefing is safer than presenting generic claims as evidence.
@@ -1976,6 +2002,11 @@ export default function App() {
   );
 
   const handleTriggerDalilBriefing = useCallback(() => {
+    // Manual re-request is always honored: clear the attempted flag and the
+    // retry budget so a disabled auto-retry can be restarted by hand.
+    dalilAttemptedRef.current = false;
+    dalilRetryCountRef.current = 0;
+    setDalilError(null);
     void triggerDalilUpdateBriefing(sources, true);
   }, [sources, triggerDalilUpdateBriefing]);
 

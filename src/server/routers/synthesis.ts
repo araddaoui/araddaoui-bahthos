@@ -32,11 +32,14 @@ function shortReference(title: unknown, index: number): string {
 }
 
 function sanitizeArabicReportText(text: string): string {
+  // Collapse only horizontal whitespace: paragraph breaks (\n\n) must-survive
+  // — the client splits the briefing into paragraphs on them, and a
+  // one-paragraph blob would fail the depth contract everywhere.
   const cleaned = text
     .replace(/https?:\/\/\S+|www\.\S+/gi, "")
     .replace(/\b[^\s]+\.(?:pdf|docx?|txt)\b/gi, "الوثيقة")
     .replace(/["“][A-Za-z][^"”]{2,120}["”]/g, "«الوثيقة»")
-    .replace(/\s{2,}/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 
   // If the text ends abruptly without terminal punctuation (., !, ؟), trim back to the last complete sentence
@@ -175,7 +178,10 @@ router.post("/api/synthesize", requireAuth, rateLimit, async (req, res) => {
       return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
     }
 
-    const synthesizeCacheKey = cacheKey("synthesize", req.body || {});
+    // Salt bumped to v2: entries cached under the previous key can contain
+    // short, low-depth dalil briefings accepted by an older, weaker gate.
+    // The salt guarantees a stale truncated response can never be served again.
+    const synthesizeCacheKey = cacheKey("synthesize:v2", req.body || {});
     const cachedSynthesis = await cacheGet<any>(synthesizeCacheKey);
     if (cachedSynthesis) {
       res.setHeader("X-Cache", "HIT");
@@ -299,7 +305,21 @@ ${sourcesContext}
         }
       }
 
-      if (isArabicFirstText(bestText) && bestText.trim().length > 5 && !looksMeta(bestText)) {
+      // Final return gate: the briefing must meet the product minimum — at
+      // least three substantive paragraphs (or the fuller isSubstantiveDalilText
+      // contract). A short truncated model output used to slip through this
+      // gate because it only required length > 5; such an output is never
+      // returned or cached to the client anymore. The deterministic
+      // source-grounded briefing (always multi-paragraph) covers any
+      // under-delivery instead.
+      const dalilDepthOk =
+        isSubstantiveDalilText(bestText) ||
+        (isArabicFirstText(bestText) &&
+          bestText.trim().length >= 1200 &&
+          bestText.split(/\n+/).map((p) => p.trim()).filter((p) => p.length >= 80).length >= 3 &&
+          !looksMeta(bestText));
+
+      if (dalilDepthOk) {
         const dalilPayload = { text: sanitizeArabicReportText(bestText), isFallback: false, silent: false };
         try {
           await cacheSet(synthesizeCacheKey, dalilPayload);
@@ -310,7 +330,7 @@ ${sourcesContext}
         return res.json(dalilPayload);
       }
 
-      console.warn("Al-Dalil model output unusable; returning the deterministic source-grounded briefing.");
+      console.warn("Al-Dalil model output is below the minimum paragraph depth; returning the deterministic source-grounded briefing.");
       return sendGrounded(res, activeSources, topic, "dalil-update");
     }
 
