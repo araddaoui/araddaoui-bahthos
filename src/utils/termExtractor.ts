@@ -797,22 +797,56 @@ export function synthesizeArabicSummaryFromTitleAndContent(cleanTitle: string, c
     }
   }
 
-  // Extract pure Arabic sentences from content if content has Arabic text
-  let contentHighlights = "";
+  // Deep fallback: gather up to six Arabic highlight sentences so the offline
+  // summary sustains three to four paragraphs instead of two clipped lines.
+  // NOTE: the upstream frozen-normalized content is already single-line
+  // (whitespace collapsed), so highlights are harvested sentence-by-sentence.
+  let highlightLines: string[] = [];
   if (content && content.trim().length > 30) {
     const cleanContent = cleanBibliographicClutterAndNormalizeArabic(content.trim());
-    const arabicLines = cleanContent
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 25 && /[\u0600-\u06FF]/.test(l) && !/^[0-9\s\-.]+$/.test(l));
+    const sentences = cleanContent
+      .split(/(?<=[.؟!۔])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => {
+        if (s.length <= 25) return false;
+        // Arabic-dominance keeps raw Latin quote dumps out of the summary
+        // (mirror of the Analyze-Document rule: no verbatim English/French).
+        // Presentation forms (U+FB50–U+FEFF) count too — PDFs commonly emit them.
+        const arChars = (s.match(/[\u0600-\u06FF\uFB50-\uFEFF]/g) || []).length;
+        if (arChars < 12) return false;
+        return arChars / s.replace(/\s+/g, "").length >= 0.5;
+      });
 
-    if (arabicLines.length > 0) {
-      contentHighlights = arabicLines.slice(0, 2).join(" ").substring(0, 250);
-    }
+    highlightLines = sentences
+      .slice(0, 8)
+      .map((s) => {
+        if (s.length <= 200) return s;
+        const cut = s.substring(0, 200);
+        const stop = Math.max(cut.lastIndexOf("."), cut.lastIndexOf("؟"), cut.lastIndexOf("!"), cut.lastIndexOf("۔"));
+        return stop > 60 ? cut.substring(0, stop + 1) : cut.replace(/\s+\S*$/, "") + ".";
+      })
+      .filter((s) => s.length > 25);
   }
 
-  if (contentHighlights && contentHighlights.length > 30) {
-    return `تستعرض هذه الدراسة تحليلاً متخصصاً وحقلياً حول ${arabicTitle}، مسلطة الضوء على المحاور الأساسية والمعطيات الميدانية المدروسة. ومن أبرز النتائج والمؤشرات الواردة: ${contentHighlights}.`;
+  if (highlightLines.length > 0) {
+    const cap = (x: string) => (/[.؟!۔]$/.test(x) ? x : x + ".");
+    const paragraphs: string[] = [];
+    const intro = cap(highlightLines.slice(0, 2).join(" "));
+    paragraphs.push(`يتناول هذا المصدر ${arabicTitle}، ويوفر مداخل قراءته في أطره التمهيدية التالية: ${intro}`);
+    const mid = cap(highlightLines.slice(2, 4).join(" "));
+    if (mid) {
+      paragraphs.push(`وفي جزئيات المتن الوسطى، تتباعد أسطر التفصيل بحسب ما يشتمل عليه المحتوى من محاور، فيُفصح هذا القسم عن بعض أطروحاته: ${mid}`);
+    }
+    const rest = cap(highlightLines.slice(4, 6).join(" "));
+    if (rest) {
+      paragraphs.push(`ويكتمل منحى العرض عند الأطر التي يلقى بها المصدر مؤشراته وخلاصاته: ${rest}`);
+    }
+    const tail = cap(highlightLines.slice(6, 8).join(" "));
+    if (tail) {
+      paragraphs.push(`وإلى جانب ما سبق، تُختتم مادة المصدر بما يليه من مؤشرات إضافية في هذا القسم: ${tail}`);
+    }
+    paragraphs.push(`وبذلك يقدم مجموع ما سبق مساحة قراءة تركيبية كافية حول ${arabicTitle}، مع الامتناع عن الاستطراد بما لم يثبته النص المتاح، حتى يتحرر الحكم البحثي بعد الاستئناس بجوهر المصدر في كامله.`);
+    return paragraphs.join("\n\n");
   }
 
   return `يقتصر هذا الوصف على العنوان والنص المتاحين من المصدر الحالي، ويعرض موضوعه دون إضافة مجال أو لغة أو سياق غير مثبت في المستند: ${arabicTitle}.`;

@@ -36,7 +36,7 @@ export const CACHE_TTL_SECONDS = 60 * 60 * 24 * 60;
 export function cacheKey(route: string, payload: unknown): string {
   const serialized = typeof payload === "string" ? payload : JSON.stringify(payload ?? null);
   const hash = crypto.createHash("sha256").update(serialized).digest("hex");
-  return `bahthos:ai:v1:${route}:${hash}`;
+  return `bahthos:ai:v2:${route}:${hash}`;
 }
 
 export async function cacheGet<T>(key: string): Promise<T | null> {

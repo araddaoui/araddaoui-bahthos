@@ -19,6 +19,7 @@ import { parseReportText, EvidenceLayer } from "./SynthesisReportView.js";
 import ReportFollowUp from "./ReportFollowUp.js";
 import { authFetch } from "../utils/api.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText } from "../utils/termExtractor.js";
+import { ensureSummaryParagraphs } from "../utils/summaryParagraphs.js";
 import { parseMarkdownToReact } from "../utils/reportFormatter.js";
 
 // Helper function to calculate the agreement score based on academic keyword matches
@@ -156,7 +157,7 @@ function ChatWindow({
           if (/^\[مستند (PDF|Word):/.test(resolvedText)) {
             throw new Error(`تعذر استخراج نص قابل للتحليل من المستند (${file.name}). قد يكون الملف مسحوباً ضوئياً (Scanned PDF) بلا طبقة نصية.`);
           }
-          const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText));
+          const cleanSummary = ensureSummaryParagraphs(spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText)));
           const cleanTitle = spellcheckAndRepairArabicAndEnglishText(data.title);
           const detectedLang = detectSourceLanguage(resolvedText, cleanTitle, data.language);
           onAddSource(cleanTitle, resolvedText, detectedLang, cleanSummary, undefined, data.terms, data.fallback === true);
@@ -165,7 +166,7 @@ function ChatWindow({
           const fallbackText = (parsed.text && parsed.text.trim()) 
             ? parsed.text 
             : `محتوى المستند المرفق (${cleanTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-          const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText));
+          const cleanSummary = ensureSummaryParagraphs(spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText)));
           const detectedLang = detectSourceLanguage(fallbackText, cleanTitle);
           const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, cleanTitle);
           onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms, true);
@@ -175,7 +176,7 @@ function ChatWindow({
         const fallbackText = (parsed.text && parsed.text.trim()) 
           ? parsed.text 
           : `محتوى المستند المرفق (${cleanTitle}):\nتم إدراج المستند المرفق بنجاح للتحليل والتوليف البحثي والمقارنة بواسطة الذكاء الاصطناعي.`;
-        const cleanSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText));
+        const cleanSummary = ensureSummaryParagraphs(spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, fallbackText)));
         const detectedLang = detectSourceLanguage(fallbackText, cleanTitle);
         const fallbackTerms = extractFallbackTermsFromText(fallbackText, undefined, cleanTitle);
         onAddSource(cleanTitle, fallbackText, detectedLang, cleanSummary, undefined, fallbackTerms, true);

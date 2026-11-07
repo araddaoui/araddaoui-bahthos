@@ -18,6 +18,7 @@ import { Source, SourceDraft, GlossaryTerm, DalilBriefing } from "../types.js";
 import DalilCard from "./DalilCard.js";
 import { authFetch } from "../utils/api.js";
 import { ensureArabicSummary, extractFallbackTermsFromText, detectSourceLanguage, spellcheckAndRepairArabicAndEnglishText, stripArabicParticlesAndNumbers } from "../utils/termExtractor.js";
+import { ensureSummaryParagraphs } from "../utils/summaryParagraphs.js";
 
 type UploadQueueStatus = "queued" | "processing" | "completed" | "failed";
 
@@ -347,7 +348,7 @@ function SourcesList({
         if (commit) onAddSource(cleanTitle, "", "ar", "", err.message, []);
         throw err;
       }
-      const finalArabicSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText));
+      const finalArabicSummary = ensureSummaryParagraphs(spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary(data.summary, data.title, resolvedText)));
       const detectedLang = detectSourceLanguage(resolvedText, data.title, data.language);
       // If the server returned no concepts (quota exhausted, missing API key, model error, or
       // the AI simply found none), fall back to LOCAL extraction so the user is never left empty.
@@ -389,7 +390,7 @@ function SourcesList({
         if (commit) onAddSource(cleanTitle, "", "ar", "", err.message, []);
         throw err;
       }
-      const autoSummary = spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, textContent));
+      const autoSummary = ensureSummaryParagraphs(spellcheckAndRepairArabicAndEnglishText(ensureArabicSummary("", cleanTitle, textContent)));
       const detectedLang = detectSourceLanguage(textContent, cleanTitle);
       
       const fallbackTerms = extractFallbackTermsFromText(textContent, undefined, cleanTitle);

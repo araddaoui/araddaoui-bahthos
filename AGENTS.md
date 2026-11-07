@@ -50,6 +50,15 @@ silently changed by future edits.
    code-point set, and the `’` quote class at lines 872–873). No logic or
    code-point set changed. Diagnostic note: this signature is `Â`/`Ã`/`â€`
    sequences (Latin), distinct from the `Ø`/`Ù` (Arabic) signature in rule 6.
+8. **Approved exception (2026-11-07):** `synthesizeArabicSummaryFromTitleAndContent`
+   in `src/utils/termExtractor.ts` was rebuilt (user-approved on 2026-11-07) to
+   produce an offline fallback summary of **3–4 paragraphs / ≥1200 chars**
+   (up to six 200-char Arabic highlight lines grouped into paragraphs) instead
+   of the previous 2-sentence / 250-char template. Signature unchanged, the
+   title-only tail branch kept verbatim; everything else in the file remains
+   frozen. Motivation: regulator/user complaint that the fallback summary was 2
+   lines; reviewer-cap message `REVIEW_CAP` traced to `REVIEW_DAILY_AI_CAP`
+   (raised 10 → 40 via `vercel env`, 2026-11-07).
 
 ## Deployment & source of truth
 

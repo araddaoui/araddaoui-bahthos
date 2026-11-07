@@ -8,6 +8,7 @@ import { ensurePdfDomGlobals } from "../pdfDomGlobals.js";
 import { requireAuth } from "../auth.js";
 import { rateLimit } from "../rateLimit.js";
 import { cacheKey, cacheGet, cacheSet } from "../cache.js";
+import { ensureSummaryParagraphs } from "../../utils/summaryParagraphs.js";
 
 const router = Router();
 
@@ -149,7 +150,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
       return {
         title: localTitle,
         language: detectSourceLanguage(parsedContent || "", fileName || ""),
-        summary: spellcheckAndRepairArabicAndEnglishText(sanitizeSourceSummary(buildRichFallbackSummary(parsedContent || ""), localTitle, parsedContent)),
+        summary: ensureSummaryParagraphs(spellcheckAndRepairArabicAndEnglishText(sanitizeSourceSummary(buildRichFallbackSummary(parsedContent || ""), localTitle, parsedContent))),
         extractedText: parsedContent || "",
         terms: localTerms,
       };
@@ -161,7 +162,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
   "نظام \"بحث OS\" هو منصة أبحاث وتوليف مستقلة ومحايدة تماماً، خالية من أي انحياز مسبق لمجال بعينه، ومصممة لخدمة المستخدمين والمستندات من جميع القطاعات والتخصصات الميدانية والأكاديمية والمهنية (سواء كان المجال: الصحافة والإعلام، إدارة الأعمال والتسويق، العلوم السياسية والسياسات العامة، النقد الأدبي والدراسات الأدبية، التدوين وصناعة المقالات والوسائط، البحث العلمي والأكاديمي، الإدارة العامة والعمل المؤسسي والتنفيذي، أو أي مجال آخر).\n\n" +
   "مهمتك الأساسية هي استخراج قائمة دقيقة ونقية جداً (من 4 إلى 6 مصطلحات) للمفاهيم النظرية المتخصصة (Theoretical Concepts) والأطر المنهجية والمصطلحات المفتاحية الأصيلة النابعة مباشرة من الحقل المعرفي والتخصصي الخاص بالمستند المرفق حصراً، وصياغة ملخص تحليلي متكامل وشامل للمستند باللغة العربية الفصحى.\n\n" +
   "طبق القواعد الحاسمة التالية:\n" +
-  "1. الملخص (summary): يجب أن يكون ملخصاً تحليلياً تركيبياً شاملاً باللغة العربية الفصحى حصراً. لغة الإخراج العربية تعليمات صياغة فقط وليست موضوعاً للمستند؛ لا تذكر اللغة العربية أو أسلوبها أو أي مجال عام إلا إذا أثبته النص المصدر صراحة. يُحظر حظراً مطلقاً اقتباس نصوص خام أو جمل بالإنجليزية أو الفرنسية داخل الملخص، بل يجب صياغة الملخص بأسلوب عربي سلس يترجم ويشرح المضمون دون نقل أسطر أو اقتباسات من الأصل. يجب ألا يقل الملخص عن ستة أسطر متصلة (بما لا يقل عن 500 حرف) تغطي محاور المستند كاملة: موضوعه ومنهجَه وأبرز نتائجه وعمق تحليله؛ فالملخص المختصر من سطرين إلى ثلاثة لا يُعد ملخصاً شاملاً ولا يُقبل.\n" +
+  "1. الملخص (summary): يجب أن يكون ملخصاً تحليلياً تركيبياً شاملاً باللغة العربية الفصحى حصراً. لغة الإخراج العربية تعليمات صياغة فقط وليست موضوعاً للمستند؛ لا تذكر اللغة العربية أو أسلوبها أو أي مجال عام إلا إذا أثبته النص المصدر صراحة. يُحظر حظراً مطلقاً اقتباس نصوص خام أو جمل بالإنجليزية أو الفرنسية داخل الملخص، بل يجب صياغة الملخص بأسلوب عربي سلس يترجم ويشرح المضمون دون نقل أسطر أو اقتباسات من الأصل. يجب أن يتكون الملخص من ثلاث إلى أربع فقرات متصلة مكتملة المعنى (بما لا يقل عن 1200 حرف إجمالاً)، تُفصل بين الفقرات أسطرٌ فارغة، وتُغطي الفقرات مجتمعة محاور المستند كاملة: موضوعه ومنهجَه وأبرز نتائجه وعمق تحليله ودلالاته؛ فالملخص المختصر من سطرين إلى خمسة أو بفقرة واحدة لا يُعد ملخصاً شاملاً ولا يُقبل.\n" +
   "2. المصطلحات: استخراج 4 إلى 6 مفاهيم نظرية وأطر منهجية ومصطلحات مفتاحية أصيلة تعبر عن مضمون المستند وحقله المعرفي المباشر حصراً دون فرض أي مصطلحات من مجالات أخرى خارج نطاق المستند.\n" +
   "2ب. لكل مصطلح، عبئ حقل term دائمًا بالمكافئ الإنجليزي المعياري المتعارف عليه للمفهوم في الأدبيات التخصصية (بالإنجليزية مهما كان لغة المصدر الأصلية؛ فلا تترك term عربياً إذا كانت الوثيقة عربية). لمفهوم مثل «الوسائط المتعددة» اكتب \"Multimedia\"، ولـ«التعلم المرن» اكتب \"Flexible Learning\"، واستخدم دائمًا المكافئ الأصيل المقبول في الحقل المعرفي ذاته وليس ترجمة حرفية مبتكرة.\n" +
   "2ج. الحقيقة والقبول العلمي إلزاميان (AUTHENTICITY & SCHOLARLY ACCEPTANCE): لا تستخرج إلا مفهوماً حقيقياً راسخاً متداولاً في الأدبيات العلمية لمجاله وله تعريف علمي متعارف عليه في الوسط الأكاديمي. يجب أن تكون خانات definition هي التعريف العلمي المعتمد المتعارف عليه للمفهوم نفسه في الأدبيات، لا إعادة صياغة من سياق المستند ولا جملة منقولة من النص ولا صياغة تقول (في هذا المصدر) أو (يراد بـ). إذا لم تتيقن من وجود تعريف علمي متعارف عليه للمفهوم فاحذف المفهوم كاملاً ولا تُدرجه أبداً بتعريف مختلق.\n" +
@@ -199,7 +200,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
             properties: {
               title: { type: Type.STRING, description: "العنوان الرئيسي المفضل للمستند." },
               language: { type: Type.STRING, description: "كود اللغة الأصلي للمستند مثل ar أو en." },
-              summary: { type: Type.STRING, description: "ملخص تحليلي شامل باللغة العربية الفصحى." },
+              summary: { type: Type.STRING, description: "ملخص تحليلي شامل باللغة العربية الفصحى من ثلاث إلى أربع فقرات متصلة (1200 حرف على الأقل)، تُفصل الفقرات بأسطر فارغة." },
               extractedText: { type: Type.STRING, description: "النص المستخرج من المستند." },
               terms: {
                 type: Type.ARRAY,
@@ -226,6 +227,66 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
           resData = JSON.parse(response.text);
         } catch (err) {
           console.error("Failed to parse JSON response in extract:", err);
+        }
+      }
+
+      // Depth floor: exactly one corrective retry (flash → flash, never an
+      // escalation) when the AI answered but its summary is a shallow stub
+      // below the 3-paragraph / 700-char floor.
+      const summaryDepthOk = (t: string): boolean => {
+        const text = String(t || "");
+        if (text.replace(/\s+/g, "").length < 700) return false;
+        const paras = text.split(/\n{2,}/).filter((p) => p.replace(/\s+/g, "").length >= 100);
+        return paras.length >= 3;
+      };
+      if (resData.summary && !summaryDepthOk(resData.summary)) {
+        console.warn("⚠️ Summary below 3-paragraph depth floor; one corrective retry.");
+        const depthReminder =
+          "\n\nتنبيه إلزامي إضافي: في الإجابة السابقة كان الملخص قصيراً جداً. أعد تقديم الإجابة كاملةً مع مراعاة أن يستحوذ الملخص على ثلاث إلى أربع فقرات متصلة، تُفصل بين الفقرات أسطرٌ فارغة، وفي كل فقرة جمل تامة مكتملة المعنى، وبمجموع لا يقل عن 1200 حرف يغطي محاور المستند كافة، مع بقاء القواعد السابقة معتبرة حرفياً.";
+        try {
+          const retryRes = await generateContentWithRetry(ai, {
+            model: DEFAULT_MODEL,
+            contents: [...contentsInput, depthReminder],
+            config: {
+              temperature: 0,
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING, description: "العنوان الرئيسي المفضل للمستند." },
+                  language: { type: Type.STRING, description: "كود اللغة الأصلي للمستند مثل ar أو en." },
+                  summary: { type: Type.STRING, description: "ملخص تحليلي شامل باللغة العربية الفصحى من ثلاث إلى أربع فقرات متصلة (1200 حرف على الأقل)، تُفصل الفقرات بأسطر فارغة." },
+                  extractedText: { type: Type.STRING, description: "النص المستخرج من المستند." },
+                  terms: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        term: { type: Type.STRING, description: "المكافئ الإنجليزي المعياري المتعارف عليه للمصطلح (دائمًا بالإنجليزية، حتى لو كان المصدر عربياً)." },
+                        draft_term: { type: Type.STRING, description: "المصطلح العربي المقترح." },
+                        definition: { type: Type.STRING, description: "التعريف العلمي المتعارف عليه للمفهوم في الأدبيات الأكاديمية." },
+                        verified_term: { type: Type.STRING, description: "المصطلح العربي النهائي المدقق والمصحح بالكامل." }
+                      },
+                      required: ["term", "draft_term", "definition", "verified_term"]
+                    }
+                  }
+                },
+                required: ["title", "language", "summary", "terms"]
+              }
+            }
+          }, res);
+          if (retryRes?.text) {
+            try {
+              const retryData = JSON.parse(retryRes.text);
+              if (retryData?.summary && summaryDepthOk(retryData.summary)) {
+                resData = { ...resData, ...retryData };
+              }
+            } catch (retryParseErr) {
+              console.warn("Depth-retry JSON parse failed; keeping the first response.");
+            }
+          }
+        } catch (retryErr: any) {
+          console.warn("Depth-retry failed; keeping the first response:", retryErr?.message || retryErr);
         }
       }
 
@@ -259,6 +320,7 @@ router.post(["/api/extract-text", "/api/analyze-document"], requireAuth, rateLim
       resData.language = detectSourceLanguage(resData.extractedText || parsedContent || "", resData.title || fileName, resData.language);
       resData.title = spellcheckAndRepairArabicAndEnglishText(resData.title || fileName || "");
       resData.summary = spellcheckAndRepairArabicAndEnglishText(resData.summary);
+      resData.summary = ensureSummaryParagraphs(resData.summary);
 
       if (resData.terms && Array.isArray(resData.terms)) {
         resData.terms = sanitizeAndRepairTermsPipeline(resData.terms, parsedContent || "", resData.title || fileName || "", 2);
