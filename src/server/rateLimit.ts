@@ -51,7 +51,13 @@ export async function rateLimit(req: Request, res: Response, next: NextFunction)
     // REVIEW_DAILY_AI_CAP AI calls per day, hashed into the Redis key. Skipped
     // when Redis is absent (same graceful degradation as other quotas); on a
     // Redis error with QUOTA_FAIL_CLOSED the request fails closed.
-    if (reviewer && (!auth || auth.isAnonymous)) {
+    //
+    // A validated reviewer session ALSO skips the tier-based monthly quota
+    // block below: the review window must run every feature without
+    // conditions. Reviewer cost stays bounded by this daily cap plus the
+    // global daily cap.
+    const isReviewerSession = reviewer && (!auth || auth.isAnonymous);
+    if (isReviewerSession) {
       (req as any).reviewer = reviewer;
       try {
         const redis = getRedis();
@@ -95,12 +101,12 @@ export async function rateLimit(req: Request, res: Response, next: NextFunction)
       }
     }
 
-    // tier + monthly
+    // tier + monthly (skipped for validated reviewer sessions — see above)
     const tier = await resolveTier(req);
     (req as any).tier = tier;
     try {
       const redis = getRedis();
-      if (redis) {
+      if (redis && !isReviewerSession) {
         const cap = groupCap(group, tier);
         const ident = clientKey(req);
         const pfx = quotaPrefix(group);

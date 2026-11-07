@@ -32,6 +32,7 @@ interface SettingsViewProps {
   sourceLimit?: number;
   isAdmin?: boolean;
   isPlanProfileLoading?: boolean;
+  isReviewer?: boolean;
   onOpenUpgrade?: () => void;
   onShowAdmin?: () => void;
 }
@@ -51,6 +52,7 @@ export default function SettingsView({
   sourceLimit = 5,
   isAdmin = false,
   isPlanProfileLoading = false,
+  isReviewer = false,
   onOpenUpgrade,
   onShowAdmin,
 }: SettingsViewProps) {
@@ -151,8 +153,8 @@ export default function SettingsView({
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-bold text-gray-700">الخطة الحالية:</span>
-                <span className={`inline-block rounded-full px-3 py-1 text-[11px] font-bold ${tierBadgeLabel(effectiveTier as any).className}`}>
-                  {tierBadgeLabel(effectiveTier as any).text}
+                <span className={`inline-block rounded-full px-3 py-1 text-[11px] font-bold ${isReviewer ? "bg-teal-600 text-white border border-teal-700" : tierBadgeLabel(effectiveTier as any).className}`}>
+                  {isReviewer ? "وضع المراجعة" : tierBadgeLabel(effectiveTier as any).text}
                 </span>
               </div>
               {planProfile?.expiresAt && (
@@ -166,7 +168,12 @@ export default function SettingsView({
                   طلب الاشتراك قيد المراجعة من قِبل الإدارة. يُفعَّل اشتراكك فور اعتماده.
                 </p>
               )}
-              {effectiveTier === "free" && (
+              {isReviewer && (
+                <p className="rounded-xl bg-teal-50 border border-teal-200 px-3 py-2 text-[11px] font-bold text-[#094d4e]">
+                  جلسة مراجعة مفعّلة: جميع خواص النظام متاحة لك دون حدود أو اشتراك خلال فترة المراجعة.
+                </p>
+              )}
+              {effectiveTier === "free" && !isReviewer && (
                 <>
                   <div>
                     <div className="flex items-center justify-between mb-1">

@@ -53,6 +53,7 @@ interface SourcesListProps {
   onTriggerDalilBriefing?: () => void;
   tier?: string;
   sourceCount?: number;
+  isReviewer?: boolean;
   onRequireUpgrade?: () => void;
 }
 
@@ -80,6 +81,7 @@ function SourcesList({
   onTriggerDalilBriefing,
   tier = "free",
   sourceCount = 0,
+  isReviewer = false,
   onRequireUpgrade,
 }: SourcesListProps) {
   const [activeSubTab, setActiveSubTab] = useState<"sources" | "glossary">("sources");
@@ -430,7 +432,9 @@ function SourcesList({
         <p className="text-[11px] text-gray-600 leading-relaxed font-semibold">
           الوثائق المفعّلة يتم تضمينها تلقائياً في سياق التحليل والمقارنة بواسطة الذكاء الاصطناعي.
         </p>
-        {tier === "free" && (
+        {/* Free-plan nag bar: hidden for reviewer sessions (they are exempt
+             from plan caps entirely). */}
+        {tier === "free" && !isReviewer && (
           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-bold text-slate-600">الخطة المجانية</span>

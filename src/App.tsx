@@ -316,6 +316,11 @@ export default function App() {
   const [reviewWindowOver] = useState<boolean>(() => isReviewWindowOver());
   const [reviewerSession, setReviewerSession] = useState<boolean>(() => !!activeReviewerCode() && !isReviewWindowOver());
   const isReviewerActive = reviewerSession && !reviewWindowOver;
+  // Reviewer sessions are unsigned guest sessions: they must never face the
+  // freemium caps or any subscription prompt (product decision: time-boxed
+  // reviewers get every feature unconditionally; cost is bounded server-side
+  // by the per-passcode daily AI cap instead of client-side plan limits).
+  const isReviewUnrestricted = isReviewerActive && !currentUser;
   const [useAsGuest, setUseAsGuest] = useState<boolean>(() => isReviewPath());
   // Records an explicit user request to view the landing page (Settings/Sidebar
   // "شاهد الصفحة التعريفية"), independent of BYPASS_AUTH's initial-entry skip.
@@ -1029,8 +1034,8 @@ export default function App() {
 
     // Freemium gate: free tier allows 5 creations per rolling 30 days. The
     // count is persisted independently of the live project list, so deleting a
-    // project does not free a slot.
-    if (isFree && projectAllowance.used >= projectAllowance.limit) {
+    // project does not free a slot. Reviewer sessions are exempt.
+    if (!isReviewUnrestricted && isFree && projectAllowance.used >= projectAllowance.limit) {
       setUpgradeModalOpen(true);
       return;
     }
@@ -1678,14 +1683,14 @@ export default function App() {
     // Freemium gate: free tier is capped at FREE_SOURCE_LIMIT sources per
     // project. Blocks list uploads, paste, and single-source adds at one choke
     // point. latestSourcesRef keeps the count accurate across rapid batches.
-    if (isFree && (latestSourcesRef.current.length + drafts.length) > FREE_SOURCE_LIMIT) {
+    if (!isReviewUnrestricted && isFree && (latestSourcesRef.current.length + drafts.length) > FREE_SOURCE_LIMIT) {
       setUpgradeModalOpen(true);
       return;
     }
 
     // Freemium gate: free tier is capped at a per-project character budget so a
     // single project cannot accumulate an unbounded amount of source text.
-    if (isFree) {
+    if (!isReviewUnrestricted && isFree) {
       const currentChars = latestSourcesRef.current.reduce((sum, s) => sum + (s.content?.length || 0), 0);
       const addedChars = drafts.reduce((sum, d) => sum + ((d.content || "").length), 0);
       if (currentChars + addedChars > FREE_PROJECT_CHAR_BUDGET) {
@@ -1834,7 +1839,8 @@ export default function App() {
         return;
       }
       // Freemium pre-check: free tier capped at FREE_SOURCE_LIMIT sources.
-      if (isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
+      // Reviewer sessions are exempt.
+      if (!isReviewUnrestricted && isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
         setUpgradeModalOpen(true);
         return;
       }
@@ -1851,7 +1857,8 @@ export default function App() {
         return;
       }
       // Freemium pre-check: free tier capped at FREE_SOURCE_LIMIT sources.
-      if (isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
+      // Reviewer sessions are exempt.
+      if (!isReviewUnrestricted && isFree && latestSourcesRef.current.length + files.length > FREE_SOURCE_LIMIT) {
         setUpgradeModalOpen(true);
         return;
       }
@@ -2146,7 +2153,8 @@ export default function App() {
             onTriggerDalilBriefing={handleTriggerDalilBriefing}
             tier={effectiveTier}
             sourceCount={latestSourcesRef.current.length}
-            onRequireUpgrade={() => setUpgradeModalOpen(true)}
+            isReviewer={isReviewUnrestricted}
+            onRequireUpgrade={isReviewUnrestricted ? undefined : () => setUpgradeModalOpen(true)}
           />
         </div>
 
@@ -2338,7 +2346,8 @@ export default function App() {
                 sourceLimit={FREE_SOURCE_LIMIT}
                 isAdmin={isAdmin}
                 isPlanProfileLoading={isPlanProfileLoading}
-                onOpenUpgrade={() => setUpgradeModalOpen(true)}
+                isReviewer={isReviewUnrestricted}
+                onOpenUpgrade={isReviewUnrestricted ? undefined : () => setUpgradeModalOpen(true)}
                 onShowAdmin={() => setActiveTab("admin")}
               />
             </Suspense>
