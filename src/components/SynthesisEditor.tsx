@@ -100,6 +100,10 @@ function SynthesisEditor({
       setErrorMsg("يرجى اختيار دراسة واحدة على الأقل للتوليف.");
       return;
     }
+    if (!topic.trim()) {
+      setErrorMsg("يرجى إدخال موضوع التوليف قبل بدء العملية.");
+      return;
+    }
     setErrorMsg("");
     setServerNotice("");
     setIsGenerating(true);

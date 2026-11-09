@@ -1600,6 +1600,26 @@ export default function App() {
 
   const triggerDalilUpdateBriefing = useCallback(async (currentSourcesList: Source[], force = false) => {
     if (!force && pendingNewSourceIdsRef.current.size === 0 && currentSourcesList.length === 0) return;
+
+    // Resolve a non-empty research topic for the /api/synthesize request:
+    // the active project's name, then the attached sources' titles, then a
+    // generic label — the server rejects dalil-update calls without one.
+    const activeProjectName = (projects.find((p) => p.id === currentProjectId)?.name || "").trim();
+    const sourceTitles = currentSourcesList
+      .map((s) => (s?.title || "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    const topic = (
+      activeProjectName ||
+      (sourceTitles.length ? `المصادر: ${sourceTitles.join("، ")}` : "") ||
+      "إحاطة تحليلية للمصادر المرفقة"
+    ).trim().slice(0, 300);
+    if (!topic) {
+      console.error("[dalil] No topic could be resolved for /api/synthesize; aborting the request.");
+      setDalilError("تعذر تحديد موضوع التوليف قبل الإرسال.");
+      return;
+    }
+
     const newIds = Array.from(pendingNewSourceIdsRef.current);
     pendingNewSourceIdsRef.current.clear();
     setIsDalilGenerating(true);
@@ -1625,6 +1645,7 @@ export default function App() {
         body: JSON.stringify({
           sources: currentSourcesList,
           toolType: "dalil-update",
+          topic,
           newSourceIds: newIds,
         })
       });
@@ -1674,7 +1695,7 @@ export default function App() {
 
       setIsDalilGenerating(false);
     }
-  }, []);
+  }, [projects, currentProjectId]);
 
   const scheduleDalilUpdateBriefing = () => {
     if (dalilTimerRef.current) {

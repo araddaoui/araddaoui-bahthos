@@ -166,8 +166,8 @@ router.post("/api/synthesize", requireAuth, rateLimit, async (req, res) => {
   let toolType = "";
   try {
     const { sources: rawSourcesInput, topic: bodyTopic, toolType: bodyToolType } = req.body || {};
-    topic = bodyTopic;
-    toolType = bodyToolType;
+    topic = typeof bodyTopic === "string" ? bodyTopic.trim() : "";
+    toolType = typeof bodyToolType === "string" ? bodyToolType.trim() : "";
     const sources = Array.isArray(rawSourcesInput) ? rawSourcesInput : [];
     activeSources = deduplicateSources(sources).map((source: any) => ({
       ...source,
@@ -176,6 +176,16 @@ router.post("/api/synthesize", requireAuth, rateLimit, async (req, res) => {
     
     if (activeSources.length === 0) {
       return res.status(400).json({ error: "يرجى تحديد مصدر واحد على الأقل للتوليف." });
+    }
+
+    // The Al-Dalil briefing requires an explicit research topic; refusing here
+    // prevents a pointless model call when the client failed to supply one.
+    if (toolType === "dalil-update" && !topic) {
+      console.warn("[synthesize] DALIL_TOPIC_MISSING: dalil-update requested without a topic; refusing the model call.");
+      return res.status(400).json({
+        error: "الموضوع مطلوب لتوليد الإحاطة (topic is required for dalil-update).",
+        code: "TOPIC_REQUIRED",
+      });
     }
 
     // Salt bumped to v2: entries cached under the previous key can contain
