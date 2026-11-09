@@ -5,8 +5,35 @@ import { rateLimit } from "../rateLimit.js";
 import { getRedis } from "../cache.js";
 import { resolveTier } from "../tier.js";
 import { reviewerHeaderStatus } from "../reviewer.js";
+import { adminPatchUserProfile } from "../firebaseAdmin.js";
 
 const router = Router();
+
+// Best-effort Redis tier cache update after webhook-driven entitlement changes.
+async function setTierRedis(uid: string, tier: "pro" | "free"): Promise<void> {
+  try {
+    const redis = getRedis();
+    if (!redis) return;
+    if (tier === "pro") {
+      await redis.set(`bahthos:tier:${uid}`, "pro", { ex: 300 });
+    } else {
+      await redis.del(`bahthos:tier:${uid}`);
+    }
+  } catch (e) {
+    console.warn("[billing] tier cache update failed:", e);
+  }
+}
+
+// Downgrade a previously upgraded subscription in Firestore (+ cache).
+async function downgradeUser(uid: string, reason: string): Promise<void> {
+  console.warn(`[stripe-webhook] downgrading users/${uid} to free (${reason})`);
+  try {
+    await adminPatchUserProfile(uid, { tier: "free", planType: "none", expiresAt: null });
+  } catch (e) {
+    console.warn("[stripe-webhook] profile downgrade failed:", e);
+  }
+  await setTierRedis(uid, "free");
+}
 
 // Lazily-initialized Stripe client so imports never crash when the secret is
 // missing (the checkout route then returns a clear, graceful error instead).
@@ -28,8 +55,18 @@ function getAppOrigin(req: any): string {
 // create it on first use. Keyed by metadata so repeated checkouts reuse one price.
 async function resolvePlanPrice(planType: "monthly" | "yearly"): Promise<Stripe.Price> {
   const stripe = getStripe()!;
+  const expected =
+    planType === "monthly"
+      ? { amount: 1500, interval: "month" as const }
+      : { amount: 14000, interval: "year" as const };
   const existing = await stripe.prices.list({ active: true, limit: 100 });
-  const match = existing.data.find((p) => p.metadata?.bahthos_plan === planType);
+  const match = existing.data.find(
+    (p) =>
+      p.metadata?.bahthos_plan === planType &&
+      p.currency === "usd" &&
+      p.unit_amount === expected.amount &&
+      p.recurring?.interval === expected.interval
+  );
   if (match) return match;
   const price = await stripe.prices.create({
     currency: "usd",
@@ -151,6 +188,32 @@ router.get("/api/billing/verify", requireAuth, rateLimit, async (req, res) => {
       // cache warming is best-effort
     }
 
+    // Authoritative activation: persist the Pro entitlement to users/{uid}
+    // server-side (updateMask of billing fields only) when a Firebase service
+    // account is configured. Without it, degrade silently to the legacy
+    // client-persisted flow — today's behavior is fully preserved.
+    const verifiedUid = session.client_reference_id || auth?.uid;
+    const plan = (session.metadata as any)?.bahthos_plan === "yearly" ? "yearly" : "monthly";
+    const fallbackExpires = (() => {
+      const d = new Date();
+      d.setMonth(d.getMonth() + (plan === "yearly" ? 12 : 1));
+      return d.getTime();
+    })();
+    let serverPersisted = false;
+    if (verifiedUid) {
+      try {
+        serverPersisted = await adminPatchUserProfile(verifiedUid, {
+          tier: "pro_stripe",
+          planType: plan,
+          expiresAt: currentPeriodEnd ?? fallbackExpires,
+          stripeCustomerId: typeof session.customer === "string" ? session.customer : session.customer?.id,
+          stripeSubscriptionId: typeof session.subscription === "string" ? session.subscription : (session.subscription as Stripe.Subscription | null)?.id,
+        });
+      } catch (e) {
+        console.warn("[billing] server-side profile activation failed (client will persist):", e);
+      }
+    }
+
     res.json({
       ok: true,
       uid: session.client_reference_id,
@@ -159,6 +222,7 @@ router.get("/api/billing/verify", requireAuth, rateLimit, async (req, res) => {
       subscriptionId: typeof session.subscription === "string" ? session.subscription : session.subscription?.id,
       currentPeriodEnd,
       status,
+      serverPersisted,
     });
   } catch (err: any) {
     console.error("Stripe verify error:", err);
@@ -233,6 +297,124 @@ router.post("/api/billing/status", requireAuth, rateLimit, async (req, res) => {
   } catch (err: any) {
     console.error("Stripe status error:", err);
     res.status(500).json({ error: err?.message || "تعذر جلب حالة الاشتراك." });
+  }
+});
+
+// POST /api/billing/stripe-webhook
+// Stripe's pushed events — the server-side entitlement source of truth.
+// Requires the raw request body (mounted behind express.raw in api/index.ts /
+// server.ts) and STRIPE_WEBHOOK_SECRET; the signature is the only credential.
+router.post("/api/billing/stripe-webhook", async (req, res) => {
+  try {
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    const stripe = getStripe();
+    if (!stripe || !secret) {
+      return res.status(503).json({ error: "لم يتم تكوين webhook (STRIPE_WEBHOOK_SECRET)." });
+    }
+    const signature = req.headers["stripe-signature"] as string | undefined;
+    if (!signature) {
+      return res.status(400).json({ error: "Missing stripe-signature header." });
+    }
+    if (!Buffer.isBuffer(req.body)) {
+      return res.status(400).json({ error: "Webhook requires the raw request body." });
+    }
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, signature, secret);
+    } catch (err: any) {
+      console.warn("[stripe-webhook] signature verification failed:", err?.message);
+      return res.status(400).json({ error: "Invalid webhook signature." });
+    }
+
+    const itemPeriodEnd = (sub: any): number | null =>
+      sub?.items?.data?.[0]?.current_period_end ? Number(sub.items.data[0].current_period_end) * 1000 : null;
+
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as any;
+        if (session?.mode !== "subscription") break;
+        const uid: string | null = session?.client_reference_id || session?.metadata?.bahthos_uid || null;
+        if (!uid) {
+          console.warn("[stripe-webhook] checkout.session.completed missing uid");
+          break;
+        }
+        const plan = session?.metadata?.bahthos_plan === "yearly" ? "yearly" : "monthly";
+        let subscriptionId: string | undefined;
+        let expiresAt: number | undefined;
+        try {
+          if (session?.subscription) {
+            const sub = await stripe.subscriptions.retrieve(String(session.subscription), { expand: ["items"] });
+            subscriptionId = sub.id;
+            const end = itemPeriodEnd(sub);
+            if (end) expiresAt = end;
+          }
+        } catch (e) {
+          console.warn("[stripe-webhook] subscription retrieve failed:", e);
+        }
+        const customerId: string | undefined =
+          typeof session.customer === "string" ? session.customer : session.customer?.id ?? undefined;
+        try {
+          await adminPatchUserProfile(uid, {
+            tier: "pro_stripe",
+            planType: plan,
+            ...(expiresAt !== undefined ? { expiresAt } : {}),
+            ...(customerId ? { stripeCustomerId: customerId } : {}),
+            ...(subscriptionId ? { stripeSubscriptionId: subscriptionId } : {}),
+          });
+        } catch (e) {
+          console.error("[stripe-webhook] activation patch failed:", e);
+          return res.status(500).json({ error: "Failed to activate subscription." });
+        }
+        await setTierRedis(uid, "pro");
+        break;
+      }
+
+      case "customer.subscription.updated": {
+        const sub = event.data.object as any;
+        const uid: string | undefined = sub?.metadata?.bahthos_uid;
+        if (!uid) {
+          console.warn("[stripe-webhook] subscription.updated missing bahthos_uid metadata");
+          break;
+        }
+        const active = sub?.status === "active" || sub?.status === "trialing";
+        if (active) {
+          const end = itemPeriodEnd(sub);
+          try {
+            await adminPatchUserProfile(uid, {
+              tier: "pro_stripe",
+              planType: sub?.items?.data?.[0]?.price?.recurring?.interval === "year" ? "yearly" : "monthly",
+              ...(end ? { expiresAt: end } : {}),
+            });
+          } catch (e) {
+            console.error("[stripe-webhook] renewal patch failed:", e);
+            return res.status(500).json({ error: "Failed to sync subscription." });
+          }
+          await setTierRedis(uid, "pro");
+        } else {
+          await downgradeUser(uid, `subscription status=${sub?.status}`);
+        }
+        break;
+      }
+
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as any;
+        const uid: string | undefined = sub?.metadata?.bahthos_uid;
+        if (uid) {
+          await downgradeUser(uid, "subscription deleted");
+        } else {
+          console.warn("[stripe-webhook] subscription.deleted missing bahthos_uid metadata");
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+
+    res.json({ received: true });
+  } catch (err: any) {
+    console.error("[stripe-webhook] handler error:", err);
+    res.status(500).json({ error: "Webhook handler failed." });
   }
 });
 

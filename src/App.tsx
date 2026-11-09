@@ -412,6 +412,15 @@ export default function App() {
         if (isLiveFirebaseUser) saveUserProfile(refreshed).catch(() => {});
         return refreshed;
       }
+      if (data?.active === false) {
+        // Stripe reports no active subscription (e.g. cancellation took effect).
+        // Downgrade immediately instead of keeping Pro until the stale
+        // expiresAt happens to pass.
+        const downgraded = { ...profile, tier: "free" as const, planType: "none" as const, expiresAt: null };
+        setPlanProfile(downgraded);
+        if (isLiveFirebaseUser) saveUserProfile(downgraded).catch(() => {});
+        return downgraded;
+      }
     } catch (e) {
       console.error("Failed to refresh Stripe status:", e);
     }
@@ -436,7 +445,7 @@ export default function App() {
           saveUserProfile(profile).catch(() => {});
         }
         if (profile.tier === "pro_stripe") {
-          await refreshStripeStatus(profile);
+          profile = await refreshStripeStatus(profile);
         }
         setPlanProfile(profile);
       } else {
@@ -454,7 +463,10 @@ export default function App() {
             expiresAt: null,
           };
         }
-        setPlanProfile({ ...profile, uid: "guest" });
+        // Guests never hold a server-verified entitlement (anonymous Firebase
+        // uids resolve to the free tier server-side), so strip any locally
+        // stored paid fields — the UI must not show/award a Pro guest.
+        setPlanProfile({ ...profile, uid: "guest", tier: "free", planType: "none", expiresAt: null });
       }
       setIsPlanProfileLoading(false);
     };

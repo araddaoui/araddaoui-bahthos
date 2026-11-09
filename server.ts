@@ -16,6 +16,10 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
+// Keep in parity with api/index.ts: the Stripe webhook needs the exact raw
+// request body for signature verification — parse it before the JSON parser.
+app.use("/api/billing/stripe-webhook", express.raw({ type: "application/json", limit: "1mb" }));
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 

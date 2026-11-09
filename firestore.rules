@@ -10,12 +10,39 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    // Owner profile-write restrictions (regular users only; admins are
+    // unrestricted):
+    // - `role` can never be assigned or changed by the owner. Granting an admin
+    //   therefore requires an existing admin (or direct console access).
+    // - `tier` may not be set to `pro_tnd_active` by the owner; TND activations
+    //   are granted exclusively by admins after review of the payment proof.
+    // `pro_stripe` self-activation is still client-writable so the existing
+    // Stripe checkout -> /api/billing/verify -> persist flow keeps working; once
+    // the server-side service account is configured it becomes redundant.
+    function roleUnchanged() {
+      return request.resource.data.get('role', resource.data.get('role', 'user'))
+        == resource.data.get('role', 'user');
+    }
+
+    function tndActiveNotSelfGranted() {
+      return request.resource.data.get('tier', resource.data.get('tier', 'free')) != 'pro_tnd_active'
+        || resource.data.get('tier', 'free') == 'pro_tnd_active';
+    }
+
+    function createsCleanProfile() {
+      return request.resource.data.get('role', 'user') != 'admin'
+        && request.resource.data.get('tier', 'free') != 'pro_tnd_active';
+    }
+
     // Every user profile and every project subcollection is private to the
     // authenticated Firebase user whose UID is present in the path. Admins may
     // read/write any user profile (used by the AdminDashboard for manual plan
     // overrides of pending TND subscriptions).
     match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if (isOwner(userId) && createsCleanProfile()) || isAdmin();
+      allow update: if (isOwner(userId) && roleUnchanged() && tndActiveNotSelfGranted()) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
 
       match /{document=**} {
         allow read, write: if isOwner(userId);
@@ -24,9 +51,18 @@ service cloud.firestore {
 
     // TND payment proofs: the submitting user can create and read their own;
     // admins manage all proof statuses (approve/reject for activation).
+    // Create is pinned to a fresh, small, self-consistent pending request.
     match /payment_proofs/{proofId} {
       allow read: if isAdmin() || (request.auth != null && request.auth.uid == resource.data.uid);
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.planType in ['monthly', 'yearly']
+        && request.resource.data.receipt is string
+        && request.resource.data.receipt.size() < 1450000
+        && request.resource.data.reference is string
+        && request.resource.data.reference.size() > 0
+        && request.resource.data.reference.size() < 200;
       allow update, delete: if isAdmin();
     }
 
